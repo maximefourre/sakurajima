@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>桜島 — Sakurajima</title>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --ink:   #100d12;
+    --paper: #f4ece2;
+    --sakura:#f2b8cd;
+    --gold:  #e8bd7a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  canvas { display: block; }
+
+  /* ── loading veil ─────────────────────────────────────────── */
+  #veil {
+    position: fixed; inset: 0; z-index: 100;
+    display: grid; place-content: center; gap: 1.6rem;
+    background: radial-gradient(ellipse at 50% 60%, #241a24 0%, #100d12 70%);
+    transition: opacity .9s ease .2s, visibility .9s ease .2s;
+  }
+  #veil.gone { opacity: 0; visibility: hidden; }
+
+  #veil h1 {
+    font-size: clamp(2.4rem, 7vw, 4.5rem);
+    font-weight: 400;
+    letter-spacing: .32em;
+    text-indent: .32em;
+    text-align: center;
+    color: var(--sakura);
+    text-shadow: 0 0 42px rgba(242,184,205,.28);
+  }
+  #veil .romaji {
+    text-align: center;
+    font-size: .82rem;
+    letter-spacing: .5em;
+    text-indent: .5em;
+    text-transform: uppercase;
+    opacity: .45;
+  }
+  #bar {
+    width: min(320px, 62vw); height: 1px;
+    background: rgba(244,236,226,.14);
+    margin: 0 auto; overflow: hidden;
+  }
+  #bar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, transparent, var(--sakura), var(--gold));
+    transition: width .35s ease;
+  }
+  #veil .status {
+    text-align: center; font-size: .72rem;
+    letter-spacing: .22em; opacity: .38;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    min-height: 1em;
+  }
+
+  /* ── HUD ──────────────────────────────────────────────────── */
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: clamp(1rem, 2.4vw, 1.9rem);
+    pointer-events: none;
+    opacity: 0; transition: opacity 1.2s ease 1s;
+    text-shadow: 0 1px 14px rgba(0,0,0,.75);
+  }
+  #hud.on { opacity: 1; }
+
+  #clock { font-variant-numeric: tabular-nums; }
+  #clock .t {
+    font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+    letter-spacing: .06em;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-weight: 300;
+  }
+  #clock .phase {
+    font-size: .68rem; letter-spacing: .34em;
+    text-transform: uppercase; opacity: .55; margin-top: .25rem;
+  }
+
+  #perf {
+    text-align: right;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: .68rem; letter-spacing: .1em; opacity: .38;
+    line-height: 1.7;
+  }
+
+  /* ── control panel ────────────────────────────────────────── */
+  #panel {
+    position: fixed; z-index: 20;
+    left: clamp(1rem, 2.4vw, 1.9rem);
+    bottom: clamp(1rem, 2.4vw, 1.9rem);
+    width: 250px; padding: 1rem 1.05rem 1.1rem;
+    border: 1px solid rgba(244,236,226,.10);
+    border-radius: 3px;
+    background: rgba(16,13,18,.42);
+    backdrop-filter: blur(22px) saturate(1.25);
+    -webkit-backdrop-filter: blur(22px) saturate(1.25);
+    opacity: 0; transform: translateY(10px);
+    transition: opacity 1s ease 1.15s, transform 1s ease 1.15s;
+  }
+  #panel.on { opacity: 1; transform: none; }
+  #panel.folded > *:not(.head) { display: none; }
+
+  .head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: .64rem; letter-spacing: .3em; text-transform: uppercase;
+    opacity: .5; cursor: pointer; user-select: none;
+    padding-bottom: .3rem;
+  }
+  .head:hover { opacity: .85; }
+  .head .chev { transition: transform .3s ease; font-size: .8rem; }
+  #panel.folded .head .chev { transform: rotate(-90deg); }
+
+  .row { margin-top: .85rem; }
+  .row label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: .68rem; letter-spacing: .13em; opacity: .62; margin-bottom: .4rem;
+  }
+  .row label b {
+    font-weight: 400; opacity: .8;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: .66rem;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 1px; background: rgba(244,236,226,.18);
+    outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--sakura); cursor: pointer;
+    box-shadow: 0 0 0 4px rgba(242,184,205,.12);
+    transition: box-shadow .2s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 7px rgba(242,184,205,.2); }
+
+  .seg { display: flex; gap: 3px; }
+  .seg button {
+    flex: 1; padding: .42rem 0;
+    font-family: inherit; font-size: .6rem; letter-spacing: .14em;
+    text-transform: uppercase;
+    color: rgba(244,236,226,.5);
+    background: rgba(244,236,226,.045);
+    border: 1px solid transparent; border-radius: 2px;
+    cursor: pointer; transition: all .22s ease;
+  }
+  .seg button:hover { color: rgba(244,236,226,.85); background: rgba(244,236,226,.09); }
+  .seg button[aria-pressed=true] {
+    color: var(--ink); background: var(--sakura); font-weight: 600;
+  }
+
+  .hint {
+    margin-top: .95rem; padding-top: .8rem;
+    border-top: 1px solid rgba(244,236,226,.08);
+    font-size: .6rem; letter-spacing: .1em; line-height: 1.9; opacity: .3;
+  }
+  .hint kbd {
+    font-family: ui-monospace, Menlo, monospace;
+    background: rgba(244,236,226,.09);
+    padding: .05rem .3rem; border-radius: 2px;
+  }
+
+  @media (max-width: 640px) {
+    #panel { width: calc(100% - 2rem); left: 1rem; right: 1rem; }
+  }
+
+  #fatal {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    place-content: center; padding: 2rem;
+    background: #100d12; color: #f2b8cd;
+    font-family: ui-monospace, Menlo, monospace; font-size: .8rem;
+    line-height: 1.8; white-space: pre-wrap; overflow: auto;
+  }
+</style>
+</head>
+<body>
+
+<div id="veil">
+  <h1>桜島</h1>
+  <div class="romaji">Sakurajima</div>
+  <div id="bar"><i></i></div>
+  <div class="status" id="status">initialisation</div>
+</div>
+
+<div id="hud">
+  <div id="clock">
+    <div class="t" id="clock-t">06:00</div>
+    <div class="phase" id="clock-p">aube</div>
+  </div>
+  <div id="perf">
+    <div id="perf-fps">— fps</div>
+    <div id="perf-draw">— draw calls</div>
+    <div id="perf-tri">— triangles</div>
+  </div>
+</div>
+
+<div id="panel" class="folded">
+  <div class="head" id="panel-head"><span>réglages</span><span class="chev">▾</span></div>
+
+  <div class="row">
+    <label>heure <b id="v-time">06:00</b></label>
+    <input type="range" id="s-time" min="0" max="1" step="0.001" value="0.25">
+  </div>
+
+  <div class="row">
+    <label>vitesse du jour <b id="v-speed">1.0×</b></label>
+    <input type="range" id="s-speed" min="0" max="12" step="0.1" value="1">
+  </div>
+
+  <div class="row">
+    <label>vent <b id="v-wind">1.0×</b></label>
+    <input type="range" id="s-wind" min="0" max="3" step="0.05" value="1">
+  </div>
+
+  <div class="row">
+    <label>qualité</label>
+    <div class="seg" id="s-quality">
+      <button data-q="low">low</button>
+      <button data-q="high">high</button>
+      <button data-q="ultra" aria-pressed="true">ultra</button>
+    </div>
+  </div>
+
+  <div class="hint">
+    <kbd>glisser</kbd> orbiter · <kbd>molette</kbd> zoom<br>
+    <kbd>espace</kbd> pause du temps · <kbd>H</kbd> masquer l'interface
+  </div>
+</div>
+
+<div id="fatal"></div>
+
+<script type="module">
+  // Surface any module-level failure instead of failing silently to a black screen.
+  const fatal = (e) => {
+    const el = document.getElementById('fatal');
+    el.style.display = 'grid';
+    el.textContent = '[erreur] ' + (e && e.stack ? e.stack : e);
+    console.error(e);
+  };
+  window.addEventListener('error', (e) => fatal(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => fatal(e.reason));
+
+  import('./src/main.js').catch(fatal);
+</script>
+</body>
+</html>

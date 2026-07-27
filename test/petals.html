@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — pétales + vent</title>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+} }
+</script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{position:fixed;top:0;left:0;padding:10px 14px;line-height:1.8;z-index:5;
+    text-shadow:0 1px 6px #000;pointer-events:none}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+const log = document.getElementById('log');
+const say = (s, cls='') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+window.onerror = (m,_s,_l,_c,e) => say('✗ ' + (e?.stack || m), 'bad');
+window.addEventListener('unhandledrejection', e => say('✗ ' + (e.reason?.stack || e.reason), 'bad'));
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { seedNoise } from '../src/noise.js';
+import { createWind } from '../src/wind.js';
+import { createPetals } from '../src/petals.js';
+
+seedNoise(20260727);
+say('modules chargés', 'ok');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#2a2b3d');
+// Fog is deliberately ON — this test exists partly to prove the <fog_*> chunk
+// wiring in the petal ShaderMaterial actually compiles.
+scene.fog = new THREE.Fog('#2a2b3d', 40, 190);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 900);
+camera.position.set(26, 13, 32);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 8, 0);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const dir = new THREE.DirectionalLight(0xffddbb, 2.2);
+dir.position.set(-30, 16, -22);   // low sun, so we can judge the translucency term
+scene.add(dir);
+
+// Flat stand-in ground.
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(300, 300),
+  new THREE.MeshStandardMaterial({ color: '#3f4a35', roughness: 1 })
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+// Stand-in canopies so we can prove petals cluster around trees rather than
+// raining uniformly out of a box.
+const canopies = [
+  { x:  0, z:  0, radius: 7 },
+  { x: 18, z: -9, radius: 5 },
+  { x:-15, z: 12, radius: 6 },
+];
+for (const c of canopies) {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(c.radius, 16, 12),
+    new THREE.MeshStandardMaterial({ color: '#f2b8cd', roughness: 0.9, transparent: true, opacity: 0.28 })
+  );
+  m.position.set(c.x, 9, c.z);
+  scene.add(m);
+}
+
+const wind = createWind();
+const petals = createPetals({
+  seed: 20260727,
+  // Matched to the real scene's local density: 12k petals over a 240-unit
+  // island is far sparser than 6k over this small test plot, and judging
+  // density on an unrepresentative sample is how you end up with a blizzard.
+  quality: { petals: 2600 },
+  canopies,
+  wind,
+  heightAt: () => 0,
+});
+scene.add(petals.mesh);
+say(`pétales instanciés : <span class="k">${petals.count}</span>`, 'ok');
+
+// Prove the shader actually compiled rather than silently failing.
+let compiled = false;
+renderer.debug.onShaderError = (gl, prog, vs, fs) => {
+  say('✗ shader ne compile pas', 'bad');
+  say('<pre>' + (gl.getShaderInfoLog(vs) || '') + (gl.getShaderInfoLog(fs) || '') + '</pre>', 'bad');
+};
+
+const clock = new THREE.Clock();
+let frames = 0, acc = 0;
+const statLine = document.createElement('div');
+log.appendChild(statLine);
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t  = clock.elapsedTime;
+
+  wind.update(t, dt);
+  petals.update(t, {
+    sunDirection: dir.position.clone().normalize(),
+    sunColor: new THREE.Color('#ffd9b0'),
+    ambientColor: new THREE.Color('#5a6478'),
+    goldenHour: 0.8,
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+
+  if (!compiled) { compiled = true; say('shader compilé sans erreur', 'ok'); }
+
+  frames++; acc += dt;
+  if (acc > 0.5) {
+    statLine.innerHTML =
+      `<span class="k">${(frames/acc).toFixed(0)}</span> fps · ` +
+      `rafale <span class="k">${wind.state.gust.toFixed(2)}</span> · ` +
+      `force <span class="k">${wind.state.strength.toFixed(2)}</span> · ` +
+      `cap <span class="k">${(wind.state.heading*180/Math.PI % 360).toFixed(0)}°</span> · ` +
+      `${renderer.info.render.calls} draw`;
+    frames = 0; acc = 0;
+  }
+});
+</script>
+</body>
+</html>
