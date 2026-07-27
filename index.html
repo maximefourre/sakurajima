@@ -255,18 +255,6 @@
 
 <div id="fatal"></div>
 
-<script type="module">
-  // Surface any module-level failure instead of failing silently to a black screen.
-  const fatal = (e) => {
-    const el = document.getElementById('fatal');
-    el.style.display = 'grid';
-    el.textContent = '[erreur] ' + (e && e.stack ? e.stack : e);
-    console.error(e);
-  };
-  window.addEventListener('error', (e) => fatal(e.error || e.message));
-  window.addEventListener('unhandledrejection', (e) => fatal(e.reason));
-
-  import('./src/main.js').catch(fatal);
-</script>
+<script type="module" src="./src/boot.js"></script>
 </body>
 </html>

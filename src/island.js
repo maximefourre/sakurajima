@@ -74,7 +74,7 @@ const PAL = {
 
 /** Water, day and night. The caller lerps between them via `phase`. */
 const WATER_DAY   = { deep: 0x0d3c55, shallow: 0x37a7ab, foam: 0xf2f8f6 };
-const WATER_NIGHT = { deep: 0x050c1a, shallow: 0x123murk = 0x123a48, foam: 0x8fa6b8 };
+const WATER_NIGHT = { deep: 0x050c1a, shallow: 0x123a48, foam: 0x8fa6b8 };
 
 /* ────────────────────────────────────────────────────────────────
    Small helpers

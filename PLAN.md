@@ -82,7 +82,39 @@ par frame). Ces résultats sont dans le même journal, phase `Verify`. **Préfé
 heightfield lui-même plutôt que plaquées après coup. Puis `ponds.attach({heightAt})`.
 Le stub respecte cette forme — le vrai module doit la respecter aussi.
 
-### 5. Peaufinage (explicitement repoussé)
+### 5. Personnage jouable : un Shiba Inu 🐕
+
+Demandé explicitement : remplacer (ou doubler) la caméra orbitale par un
+**Shiba Inu en 3D** que l'on déplace sur l'île.
+
+Module à créer : `src/shiba.js` → `createShiba({ heightAt, slopeAt, isInPond, wind })`
+
+- **Maillage procédural**, cohérent avec le reste de la scène (aucune texture,
+  aucun asset externe) : corps trapu, poitrail large, queue **enroulée sur le dos**
+  (la signature du shiba), oreilles triangulaires dressées, museau court.
+  Palette *goma* ou *aka* : roux #d98b45 sur le dessus, ventre et masque crème
+  #f5ecdf, chaussettes claires. Le contraste roux/crème est ce qui le rend
+  reconnaissable au premier coup d'œil.
+- **Animation squelettique légère** faite à la main (pas de glTF) : 4 pattes en
+  cycles de marche/trot déphasés, balancement du corps, queue et oreilles qui
+  réagissent au vent et à l'accélération. Tout peut se faire en hiérarchie
+  d'`Object3D` + quelques rotations sinusoïdales, inutile de sortir un vrai rig.
+- **Contrôleur** : ZQSD/WASD + flèches, `Shift` pour courir. Le chien s'oriente
+  vers sa direction de déplacement avec un lissage, se colle au terrain via
+  `heightAt()`, s'incline selon la pente (aligner l'axe Y sur la normale du sol),
+  et refuse d'entrer dans l'eau (`isInPond` + niveau de la mer) — ou barbote au
+  bord, ce qui serait plus charmant.
+- **Caméra** : passer en caméra tierce personne qui suit avec du retard et un
+  léger amortissement. Garder OrbitControls en mode « libre » basculable avec
+  une touche (`C`), pour ne pas perdre les plans de contemplation.
+- **Détails qui vendent le personnage** : il s'assoit quand on ne bouge pas
+  depuis quelques secondes, la queue s'agite plus vite après une course,
+  les pétales qui tombent peuvent le faire lever la tête, et il laisse des
+  empreintes discrètes dans le sable de la plage.
+- Les oiseaux devraient s'envoler à son approche (le module oiseaux a déjà une
+  notion d'évitement — lui passer la position du shiba comme répulseur).
+
+### 6. Peaufinage (explicitement repoussé)
 - Densité et taille des pétales à rejuger **dans la scène réelle**, pas dans le banc d'essai.
 - Cadrage de la caméra d'ouverture.
 - Ombres portées des nuages sur l'île.

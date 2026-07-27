@@ -1,0 +1,142 @@
+APPROACH
+**Material strategy.** I patch `MeshStandardMaterial` with `onBeforeCompile` rather than writing a `ShaderMaterial`. This is the single most important decision: it hands me shadow *receiving* from the sakura canopy, scene fog, IBL/ambient, tone mapping and the whole day/night light rig for free, all of which change every frame as the sun moves. A hand-rolled ShaderMaterial would need me to re-declare `shadowmap_pars_*`, `lights_*`, `fog_*` and keep them in sync with r185 internals — far more surface area for breakage. I set `material.customProgramCacheKey = () => 'sakura-grass-v1'` so three never hands my patched material a cached program compiled from *unpatched* MeshStandardMaterial source (a real and very confusing bug).
+
+**Injection points** (all verified against r185's `meshphysical_vert/frag`): vertex `<common>` (append decls + wind GLSL + helpers), `<beginnormal_vertex>` (replace — runs `grassSetup()` then rotates the normal by the same bend as the position), `<begin_vertex>` (replace — `vec3 transformed = grassPosition()`). Deforming `transformed` in object space, *not* `project_vertex`, is deliberate: `worldpos_vertex` and `shadowmap_vertex` downstream both re-derive from `transformed`, so shadow lookup coords match the bent geometry. Fragment: `<common>`, after `<color_fragment>` (tint/AO/ground blend), after `<roughnessmap_fragment>` (glossier tips), before `<opaque_fragment>` (translucency added to `outgoingLight`, so it gets tone-mapped and colour-converted correctly). Every replace goes through `patch()`, which `console.warn`s if the anchor is missing instead of silently producing black grass.
+
+**Bend, not shear.** `instanceMatrix` carries translation + rotation only — *no scale* — so `mat3(instanceMatrix)` is orthonormal and I invert it with three dot products (a hand-written transpose; no reliance on `transpose()`). Scale lives in `aWidth`/`aParams.w` and is applied in the shader. World wind is pulled into blade-local space, converted to a rotation axis `cross(up, dir)`, and each cross-section is rotated about the root by `θ(t) = θmax · t²`. Rotation about the root preserves radial distance, so the blade never stretches; `t²` plants the base and whips the tip. Rest droop and wind bend are summed as rotation *vectors* and applied in a single Rodrigues call — one `sin`/`cos` pair per vertex instead of two.
+
+**Why it reads as art and not noise.** Per-blade random colour looks like TV static. Instead the hue is driven by a low-frequency fbm so the field has *patches* of yellow-green and blue-green, with only ±16% per-blade jitter on top, plus straw blades weighted toward the sparse edges of clumps. Blade height is correlated with the same density mask (thick patches grow taller). The base of every blade is darkened and tinted toward the ground colour so there is no visible carpet edge. And the sunrise sell is the translucency term: a `pow(V·-L, 3)` backlight, weighted by how edge-on the blade is and by height along the blade, gated by sun elevation so it blooms hard at dawn/dusk and nearly vanishes at noon — that's what makes the low sun turn the whole hillside into a sheet of light.
+
+**Budget: 96 000.** Roughly 11 000 m² of qualifying terrain on a 180×180 island ⇒ ~9 blades/m², which reads as dense with 4.3–7 cm wide stylised blades over a matching ground colour. Worst case 1.06 M vertices / 864 k triangles, but 36 spatial chunks are frustum-culled individually and the far ring drops to 5 verts / 3 tris, so a typical frame is ~400–550 k vertices with near-zero fragment cost (opaque, untextured, thin). ~2–3 ms on an M1/Iris Xe, leaving the frame for trees, petals and bloom.
+
+INTEGRATION
+EXPORTS
+  createGrass({ seed, heightAt, slopeAt, wind, bounds, camera, count, ...tunables }) -> {
+    mesh: THREE.Group,                       // add this to the scene
+    update(t: number, camera?: THREE.Camera) -> void,
+    setSun(dirWorld: THREE.Vector3, color?: THREE.Color, intensity?: number) -> void,
+    setWindDirection(x: number, z: number) -> void,
+    setCamera(camera: THREE.Camera) -> void,
+    dispose() -> void,
+    material, uniforms, windUniforms, chunks, count, visibleCount
+  }
+  export function mulberry32(seed) -> () => number      // reuse for the other subsystems
+  export default createGrass
+
+NOTE: `mesh` is a Group (36-ish frustum-cullable chunks x 2 LOD levels), not a single InstancedMesh. Everything downstream (scene.add, traverse, dispose) treats it as one object.
+
+REQUIRED CALLER CONTRACTS
+  heightAt(x, z) -> y                 // REQUIRED. Must be cheap; called ~300k times at build.
+  slopeAt(x, z)  -> 1 - normal.y      // OPTIONAL. Pass slopeMode:'radians' if it returns an angle.
+                                      // If omitted, slope is finite-differenced from heightAt.
+  bounds: { minX, maxX, minZ, maxZ } | { radius } | { size }
+  wind: { WIND_GLSL: string, uniforms: { [name]: {value} } }
+        WIND_GLSL must declare its own uniforms AND define:
+            vec3 windForce( vec3 worldPos );   // .xz = horizontal force, |.xz| roughly 0..1.6
+        `wind.uniforms` values are shared BY REFERENCE into shader.uniforms, so the wind
+        module updates one object and grass + petals both see it. If `wind` is omitted a
+        self-contained fallback wind (identical signature) is compiled in and grass drives
+        its own uWindTime.
+
+main.js WIRING
+    import { createGrass } from './grass.js';
+    import { createWind }  from './wind.js';
+    import { createTerrain } from './terrain.js';
+
+    const wind    = createWind({ seed: 20260727 });
+    const terrain = createTerrain({ seed: 20260727 });
+
+    const grass = createGrass({
+      seed: 20260727,
+      heightAt: terrain.heightAt,
+      slopeAt:  terrain.slopeAt,      // optional
+      wind,
+      bounds: { minX: -90, maxX: 90, minZ: -90, maxZ: 90 },
+      camera,                         // enables LOD ring switching
+      count: 96000,
+      beachY: terrain.beachLevel,     // keep these in sync with the terrain module
+      uplandY: terrain.rockLevel
+    });
+    scene.add(grass.mesh);
+
+PER FRAME (order matters)
+    const t = clock.getElapsedTime();      // one shared clock, never Date.now()
+    wind.update(t);                        // writes uWindTime/uWindDir/uWindStrength
+    daynight.update(t);                    // moves the sun
+    grass.setSun(daynight.sunDirection, daynight.sunColor, daynight.sunIntensity);
+    grass.update(t, camera);               // uTime + LOD visibility
+    controls.update();
+    composer.render();
+
+  - `grass.update(t)` without a camera still works (LOD freezes on whatever ring was last chosen).
+  - `setSun` only drives the translucency/backlight term; the actual DirectionalLight is the
+    day/night module's business. Pass the SAME direction vector (scene -> sun, normalised)
+    that you use to position the light, or the rim glow will point the wrong way.
+  - Renderer must have `shadowMap.enabled = true` for the canopy shadows to land on the grass.
+  - Nothing to do for fog: MeshStandardMaterial already includes the fog chunks and
+    `material.fog` defaults to true.
+
+ONE-TIME COST
+  ~250-450 ms of synchronous work at startup for 96k blades (dominated by heightAt calls).
+  Call it behind a loading screen, or lower `count` / raise `patchLow` while iterating.
+
+TUNABLES
+THE SIX AN ART DIRECTOR ACTUALLY TOUCHES
+
+  count: 96000              — 40k reads sparse/wild, 150k reads manicured. 96k is the sweet
+                              spot for 60fps on Iris Xe / M1 with trees + petals + bloom.
+  bladeHeight: 0.55         — world units at heightScale 1 (so 0.33 - 0.88 across the field).
+                              Scale with your island: about 1/12th of a tree's trunk height.
+  translucency: 1.35        — THE sunrise dial. 0 = matte lawn, 2.5 = the whole hillside
+                              turns into a sheet of backlit light. Push to 2.0 for the hero
+                              dawn shot, back to 1.1 if midday looks radioactive.
+  rippleFreq: 0.22          — gust band wavelength = 2*PI/freq, so 0.22 ≈ 28-unit bands.
+  rippleSpeed: 3.4          — band travel speed = speed/freq ≈ 15 units/s. Raise both together
+                              to keep the wavelength while speeding up the gusts.
+  bendScale: 0.85           — peak lean. atan() means 0.85 ≈ 40 deg at mag 1, 54 deg in a gust.
+                              Above ~1.6 the field looks like it is in a storm.
+
+COLOUR (authored sRGB hex; ColorManagement converts automatically)
+  colorShade: 0x3e6b45      — blue-green, shaded hollows
+  colorMid:   0x6f9d45      — fresh mid green (the field's dominant note)
+  colorSun:   0xaac257      — yellow-green, sunny ridges
+  colorDry:   0xc8b06c      — straw. dryBase 0.015 + dryEdge 0.11 = ~1.5% straw in thick
+                              clumps rising to ~12% at their sparse edges.
+  tintJitter: 0.16          — per-blade value jitter. Above 0.25 the field turns to TV static;
+                              the patchiness must come from tintScale, not from this.
+  tintScale:  0.021         — colour patch size (~48-unit patches). Lower = broader washes.
+  groundTint: [0.72,0.78,0.60] + ao: 0.42 — how the blade base sinks into the terrain colour.
+                              Retune groundTint toward your actual terrain albedo.
+  tipTint:    [1.12,1.12,0.98] — lighter, faintly cooler tips. Cheap and very effective.
+
+PLACEMENT
+  patchScale 0.030 / patchLow 0.30 / patchHigh 0.68 — clump size and edge hardness.
+                              Raise patchLow to thin the field out fast without touching count.
+  bareThreshold 0.74 / bareFloor 0.05 — bare-earth holes. Lower the threshold for more dirt.
+  slopeSoft 0.13 (~30 deg) / slopeMax 0.30 (~46 deg) — where grass gives way to rock.
+  terrainTilt 0.38          — 0 = perfectly vertical blades, 1 = fully ground-aligned.
+                              0.38 keeps hillsides from looking like a shag carpet on a ramp.
+  beachY / uplandY          — MUST match the terrain module's shoreline and rock lines.
+
+PERFORMANCE
+  fadeStart 95 / fadeEnd 135 — shader shrink-out. fadeEnd should sit just past your far
+                              camera distance; blades vanish smoothly, never pop.
+  lodDistance 34            — HI (9 tri) to LO (3 tri) ring. Raise for detail, lower for speed.
+  lodKeep 0.45              — fraction of blades kept in the far ring. loWidthMul 1.55
+                              compensates the coverage so the density drop is invisible.
+  chunkDivisions 6          — 36 chunks. Raise to 8 for tighter frustum culling on a wide
+                              island (more draw calls), drop to 4 if draw calls dominate.
+
+PITFALLS
+- customProgramCacheKey is not optional. Without `material.customProgramCacheKey = () => 'sakura-grass-v1'`, three.js can hand this material a cached program compiled from another MeshStandardMaterial with identical parameters — i.e. the UNPATCHED source. Symptom: grass renders as flat unbent quads at origin scale, or vanishes, and only sometimes, depending on scene construction order. Change the version string whenever you edit the injected GLSL during a hot-reload session.
+- instanceMatrix must stay scale-free. The world->local wind transform uses `dot(im[0], dw)` etc., which is transpose(M)·v and is only the inverse when mat3(instanceMatrix) is orthonormal. If you ever add scale to the composed matrix (`_m.compose(v, _q, someScale)`), the wind direction skews per blade and gusts stop reading as coherent waves. All scale lives in aWidth / aParams.w and is applied in grassPosition().
+- Deform `transformed` in <begin_vertex>, never in <project_vertex>. `worldpos_vertex` and `shadowmap_vertex` run after and re-derive world position from `transformed`. Patch project_vertex instead and shadow coordinates are computed from the undisplaced blade — you get shadow acne that crawls with the wind, which is maddening to diagnose.
+- castShadow is deliberately false. Turning it on costs a second 96k-instance pass into the shadow map AND the depth material has no wind patch, so the shadows would be cast by straight, un-bent blades — a shimmering mismatch. If you truly want grass self-shadowing, you must clone the patch onto `material.customDepthMaterial` (MeshDepthMaterial with the same onBeforeCompile and the same cache key suffix) and expect a real frame-time hit.
+- The translucency/backlight term ignores cast shadows. There is no version-stable way to read the shadow attenuation at that point in the fragment shader in r185 (getShadowMask() is not something to bet on), so grass under a sakura canopy over-glows slightly at dawn. It reads as bounce light and is usually fine; if it bothers you, lower `translucency` or gate it with your own uniform driven by a coarse canopy mask.
+- Set mesh.boundingSphere manually — I do, and you must keep doing it if you change the blade height. InstancedMesh.computeBoundingSphere() derives from instanceMatrix alone, and since blade height lives in the shader it would produce a flat disc: blades pop out at the top of the frustum whenever the camera tilts down. The manual sphere adds maxBladeWorld * 1.35 of slack to cover the bend.
+- Startup is synchronous and costs ~250-450 ms at 96k blades, almost all of it in heightAt(). If your terrain heightAt is an 8-octave fbm this can hit 2 seconds. Either cache the terrain heightfield into a Float32Array grid and bilinearly sample it, or put createGrass behind a loading screen. Do not call it inside the first requestAnimationFrame.
+- Do not use setColorAt()/instanceColor for the tint. Its plumbing depends on USE_INSTANCING_COLOR appearing in the color_fragment #if chain, which has been rewritten more than once as batching support landed. The module uses its own aTint InstancedBufferAttribute and multiplies diffuseColor explicitly — one line I control instead of a chunk I don't.
+- aTint values are LINEAR, not sRGB. `new THREE.Color(0x6f9d45)` already converts to the linear working space under ColorManagement (default on since r152), and diffuseColor is linear too. If you bypass THREE.Color and hand-write floats into aTint you will get a washed-out field.
+- Grass and petals must share one clock and one wind module instance. Pass the same `t` from a single THREE.Clock to wind.update(), grass.update() and the petal system. If the petal module builds its own wind uniforms the two systems drift apart within seconds and the illusion — petals riding the same gust that flattens the grass — is gone.
+- The `wind` object's uniforms are shared BY REFERENCE via Object.assign into shader.uniforms. Never replace a uniform object wholesale (`wind.uniforms.uWindDir = {value: v}`) at runtime — mutate `.value` instead, or the grass material keeps pointing at the orphaned old object.
+- beachY/uplandY/slopeMax are duplicated knowledge about the terrain. Drive them from the terrain module's own constants at the call site (as shown in the integration snippet) or you will get a floating grass fringe over the sand the first time someone retunes the island's sea level.

@@ -1,0 +1,150 @@
+APPROACH
+**One field, two languages.** The whole island has to move as one organism, so the wind is a *pure analytic function of (worldPos, t)* — no textures, no simulation state, nothing to sync. That constraint is what lets me write it once in GLSL (`windForce()`) and mirror it byte-for-byte in JS (`windAt()`), and it's why every subsystem can sample it independently and still agree.
+
+I deliberately did NOT use fbm/simplex for the gust envelope. A hand-rolled noise would need identical JS/GLSL implementations (fragile: `fract(sin(x)*43758.5)` diverges wildly between double and float32) and it gives you *blobs*, not *fronts*. Instead the gust is a small sum of sines evaluated in a **travelling frame**: `s = dot(p, windDir) * uGustFreq - t * uGustSpeed`, with a lateral term `l = dot(p, perp)` so the wavefront is wrinkled rather than a straight ruler line. Three incommensurate harmonics (1.0 / 1.873 / 3.412) kill any visible periodicity. Then the money move: `smoothstep(uGustBand.x, uGustBand.y, n)` **sharpens the envelope into discrete pulses with long lulls**. Uniform sinusoidal wobble is the #1 tell of a fake wind; what you want is stillness, then a front arrives, the grass lays over, the petals tear loose, then stillness again. Front speed is exactly `uGustSpeed / uGustFreq` m/s — a real, tunable number (defaults ≈ 9 m/s, so a gust crosses a 180 m island in ~20 s, with two fronts alive at once).
+
+**Petals: everything in the vertex shader, CPU touches one float per frame.** Per-instance state is 11 floats (`aOrigin` vec3, `aColumn` vec4, `aRand` vec4). The fall is `age = mod(uTime + seed*lifeT, lifeT)` — free respawn, no CPU wrap pass. Horizontal advection is `windForce(column, t) * age * uDrift`: because `age` resets at respawn, drift never accumulates, and because the whole column samples the wind at the *same* spawn point, every tree emits a coherent **ribbon of petals streaming downwind** instead of independent confetti. That's the shot. The ribbon is then broken up per-petal by a spiral (radius growing with fall progress) and a leaf-swing on the axis perpendicular to the wind, with `abs(swing)` feeding a tiny lift so petals visibly *stall* at the end of each swing like real ones do.
+
+Tumble is a genuine 3D Rodrigues rotation about a per-instance random axis, composed with a slower yaw — that's what makes a petal flash bright, roll, and vanish edge-on. Billboards can never do this and it's the single biggest "not snow" cue.
+
+Geometry is a real petal, not a card: a `segU×segV` grid shaped by an editable width `profile[]` array, given a taco cup across the width, a lengthwise arch, a twist, and the sakura **V-notch** at the tip (centre of the tip pulled back, edges not). Authored lying in XZ with normal +Y so a settled ground petal is *just a yaw* — zero extra shader work.
+
+Settled petals (16% of instances) are the same mesh with `kind = 1`: they lie flat until the travelling gust value at their position crosses `uPickup`, then they hop, tumble and skate downwind, and settle again as the front passes. Cheap fake, but because it's driven by the *shared* gust it lands perfectly in sync with the grass laying over — which is what sells it.
+
+Lighting is custom (wrapped half-lambert + `pow(-N·L)` back-translucency), because petals are thin membranes: the whole point is that they *light up from behind* at golden hour. `uDusk` multiplies that transmission term by up to 2.3×, so at sunrise/sunset the airborne petals become the brightest thing in frame.
+
+INTEGRATION
+SIGNATURES
+
+  createWind(opts) -> {
+    uniforms,                                  // share BY REFERENCE, never clone
+    glsl, uniformsGLSL, functionsGLSL,
+    update(t),                                 // call FIRST every frame
+    windAt(x, z, t?, target?) -> Vector3,
+    windAt3(pos, t?, target?) -> Vector3,
+    gustAt(x, z, t?) -> 0..1,
+    share(materialOrShaderOrUniformsObj),
+    patch(shader, { vertexHook?, body? }),
+    time, dir, strength, frontSpeed
+  }
+
+  createPetals({ count, canopies, wind, heightAt, ... }) -> {
+    mesh, points, material, geometry, uniforms,
+    update(t, env?), setSun(env), setCount(n), dispose(), maxCount
+  }
+
+  makePetalGeometry({ segU, segV, length, width, notch, cup, arch, twist, profile })
+  mulberry32(seed)
+  WIND_GLSL / WIND_UNIFORMS_GLSL / WIND_FUNCTIONS_GLSL
+
+`canopies` accepts any of: THREE.Vector3-ish `{x,y,z}`, `{x,y,z,r}`, `{position, radius}`, `[x,y,z,r]`.
+`heightAt(x, z) -> y` is the terrain module's sampler.
+
+MAIN.JS WIRING
+
+  import { createWind, createPetals, WIND_GLSL } from './wind.js';
+
+  const wind = createWind({ seed: 1337, strength: 2.45, gustFreq: 0.045, gustSpeed: 0.42 });
+  const petals = createPetals({
+    count: 4200,
+    canopies: trees.canopies,        // [{ x, y, z, r }] from the tree module
+    wind,
+    heightAt: terrain.heightAt,
+    seed: 20240407,
+    bounds: terrain.bounds,
+  });
+  scene.add(petals.mesh);            // MUST stay at the scene root, identity transform
+
+  // per frame, in this order:
+  function frame(t) {                // t = seconds, from your own accumulator
+    wind.update(t);                  // (1) writes uTime/uWindDir/uWindStrength into the
+                                     //     shared holders -> grass, trees and petals all move
+    const sun = daynight.update(t);  // (2) your sky module
+    petals.update(t, {               // (3) only lighting; motion is 100% GPU
+      direction: sun.direction, sunColor: sun.color,
+      skyColor: sun.sky, groundColor: sun.ground,
+    });
+    controls.update();
+    composer.render();
+  }
+
+GRASS / TREES — same field, one call:
+
+  mat.onBeforeCompile = (shader) => {
+    wind.patch(shader, {
+      vertexHook: '#include <begin_vertex>',
+      body: `
+        vec3 wp = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+        transformed += windSway(wp, uTime, clamp(position.y / BLADE_H, 0.0, 1.0), 1.0);
+      `
+    });
+  };
+  mat.customProgramCacheKey = () => 'wind-sway-grass-v1';
+
+(drop `instanceMatrix` for non-instanced meshes; use stiffness 4..8 for branches, 1 for grass.)
+For a hand-written ShaderMaterial instead: `wind.share(material)` then paste `${WIND_GLSL}` at the
+top of the vertex shader and call `windForce()` / `windSway()`.
+
+CPU CONSUMERS: `wind.windAt(x, z)` (t defaults to the wrapped uniform time) for camera drift,
+a wind sock, audio gain; `wind.gustAt(x, z)` returns 0..1 for triggering a burst of extra petals.
+
+TUNABLES
+THE FIVE THAT ACTUALLY CHANGE THE SHOT
+
+  gustFreq   0.045   spatial wavelength of gust fronts = 2π/0.045 ≈ 140 m.
+                     Lower = one huge front sweeping the island (more dramatic).
+  gustSpeed  0.42    FRONT SPEED = gustSpeed/gustFreq = 9.3 m/s. This is the number to
+                     tune by eye: 5 = lazy summer, 15 = storm coming. Keep the ratio in
+                     mind — changing gustFreq alone also changes the front speed.
+  gustBand   [0.02, 0.72]  the drama dial. Widen toward [-0.4, 0.9] for a soft continuous
+                     breeze; narrow toward [0.30, 0.55] for hard punchy gusts with long
+                     dead-still lulls. This is what makes the gust READ as travelling.
+  strength   2.45    m/s mean. Everything scales off this: grass bend, petal drift, lift.
+  drift      0.52    petal advection gain. 0.3 = petals fall near their tree;
+                     0.8 = long diagonal ribbons streaming across the whole island.
+
+WIND
+  windBase   0.42    how much wind survives a lull (0.25 = eerie stillness between gusts)
+  gustAmp    0.95    extra strength inside a front
+  turnSpeed  0.021 / turnAmount 0.62   slow directional wander, ±35° over ~5 min
+  swirl      0.55    sideways bend from turbulence; >0.9 gets chaotic
+  turbScale  0.11    ~57 m swirl cells
+  breathe    0.28    slow strength envelope
+
+PETALS
+  count      4200    3000 for a weak GPU, 6000 for a hero shot. Cost is overdraw, not verts.
+  size       0.115   petal length in metres. 0.09 subtle, 0.16 storybook. Sakura petals are
+                     really ~1.5 cm — exaggeration is deliberate, do not "fix" it.
+  fallSpeed  [0.55, 1.15]  m/s terminal velocity range. Slower = more Ghibli.
+  flutter    0.24    amplitude of the across-wind leaf swing (the anti-snow parameter)
+  spiral     0.30    corkscrew radius
+  gustLift   0.55    how far a front throws airborne petals back up
+  groundRatio 0.16   fraction settled on the ground
+  pickup     [0.55, 0.95]  gust threshold at which settled petals lift. Lower the first
+                     number and the ground shimmers constantly; raise it and pickup becomes
+                     a rare, precious event when a big front passes.
+  emissive   0.14    golden-hour glow lift (uDusk-gated)
+  nearBoost  0.55 / nearFalloff 0.16   near petals ~55% bigger within ~6 m, and softer
+  minAngular 0.0012  keeps 100 m petals ~1 px instead of aliasing into sparkle
+  opacity    0.94
+
+GEOMETRY (makePetalGeometry)
+  profile [0.14, 0.48, 0.78, 0.95, 1.0, 0.95, 0.80]  the petal outline, base -> tip. Edit
+                     this array to change the silhouette; it is the art-direction hook.
+  notch 0.17  cup 0.36  arch 0.26  twist 0.38   segU 4 / segV 3 (24 tris; drop to 3/2 = 12)
+
+PITFALLS
+- The petal mesh MUST be added to the scene root with an identity transform. Everything is computed in world space and the shader uses `viewMatrix` directly, ignoring `modelMatrix`. Parenting it to a moved/rotated group silently desyncs it from the wind field. `matrixAutoUpdate = false` is set to make that explicit.
+- `frustumCulled = false` is mandatory. InstancedMesh derives its bounding sphere from `instanceMatrix`, which we leave at identity because the shader ignores it — so three would cull the entire cloud the moment the origin left the frustum. (Cost of the unused instanceMatrix buffer: 64 B/instance ≈ 270 KB at 4200. If you'd rather reclaim it, swap InstancedMesh for `new THREE.Mesh(instancedBufferGeometry, mat)` with `geometry.instanceCount = n`; the shader needs no changes.)
+- Share the wind uniforms BY REFERENCE. `THREE.UniformsUtils.merge()` and `.clone()` deep-copy the `{value}` holders and will silently give each material its own frozen wind. Use `Object.assign(target.uniforms, wind.uniforms)` (that's what `wind.share()` does). Note that `UniformsLib.fog` is the one thing that must be cloned — never mutate the library object.
+- Fog on a ShaderMaterial needs THREE things or it silently no-ops: `fog: true` in the constructor, `UniformsLib.fog` merged into the uniforms, and the four chunks (`fog_pars_vertex` / `fog_vertex` / `fog_pars_fragment` / `fog_fragment`). `fog_vertex` also requires a variable literally named `mvPosition` in scope — do not rename it.
+- `#include <common>` is REQUIRED in the fragment shader: `tonemapping_pars_fragment` uses `saturate()`, which is defined in `<common>`. Omit it and the shader fails to compile only when ACESFilmic tone mapping is enabled — i.e. it works in a test scene and breaks in the real one.
+- Chunk order in the fragment main must be tonemapping -> colorspace -> fog, matching three's own `meshphysical_frag`. Any other order and the petals will fog differently from the terrain and read as a separate layer.
+- GLSL `smoothstep(e0, e1, x)` is UNDEFINED when e0 >= e1. Never write `smoothstep(1.0, 0.9, x)` to invert a ramp — use `1.0 - smoothstep(0.9, 1.0, x)`. Some drivers accept the reversed form, mobile/Intel ones do not.
+- `windHash12` (the `fract(sin(...))` hash) is GPU-ONLY and must never be mirrored on the CPU: float32 vs double precision produces completely different values. It only drives per-blade phase decoration inside `windSway`. `windForce` and `windGust` — the parts JS and GLSL must agree on — are pure sines with no hashing, which is exactly why they agree.
+- `uTime` is wrapped at 3600 s to protect float32 precision inside `mod()`. That causes one single-frame discontinuity per hour of runtime (petals re-phase, the gust jumps). Raise `wrap` and you get petal-position jitter instead; lower it and the hiccup is more frequent. If your day/night clock runs at 100x, budget for this.
+- Petal drift is `windForce(spawnColumn, t) * age`, evaluated at the SPAWN point — not integrated along the true path. That's a deliberate cheat: it makes each tree emit a coherent ribbon and costs one wind evaluation. The side effect is that a petal can drift through a rock or a trunk. At petal scale nobody sees it; do not try to "fix" it with per-petal collision.
+- With `depthWrite: false` there is no per-instance sort inside the single draw call, so overlapping petals blend in arbitrary order. Invisible at alpha 0.94 and this size. If you enable MSAA on the composer's render target, flip `alphaToCoverage: true` instead (the module already wires `transparent: false` + `depthWrite: true` in that mode) and sorting becomes correct for free.
+- Set `renderOrder` above the terrain/water but be aware UnrealBloom will pick up the dusk emissive lift. That is intentional — but if `bloom.threshold` is low, 4000 glowing petals will wash the frame. Keep threshold >= 0.75 or drop `emissive` to ~0.08.
+- If `canopies` is empty the petals fall back to a uniform box over `bounds`, which looks exactly like the snow we're trying to avoid. Always pass real canopy positions and radii from the tree module.
+- `heightAt` is called once per instance at construction (4200 calls). If your terrain sampler is expensive, that is a one-time ~10 ms hitch at startup, not a per-frame cost — but do not call `createPetals` inside the frame loop.

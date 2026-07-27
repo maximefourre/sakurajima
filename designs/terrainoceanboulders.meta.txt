@@ -1,0 +1,82 @@
+APPROACH
+**It has to match the repo that already exists.** `main.js` calls `createIsland({ seed, quality, carve })`, reads `.heightAt/.slopeAt`, adds `.group`, and calls `.update(t, phase)` where `phase` comes from `sky.update()`. `noise.js` declares itself the single source of truth for randomness and states that terrain height must be computed by exactly one function. So island.js imports `fbm2/ridged2/noise2/streamFor/smoothstep` from `noise.js` and `WORLD` from `config.js` rather than hand-rolling a second noise — that rule is what stops trees floating.
+
+**Shape language.** The falloff is a warped ellipse: `d = |warp(x,z)| / R` plus a second higher-frequency wobble on `d` itself. Two scales of warp is the difference between "blob with a wiggly edge" and real headlands-and-bays. Land is then `land * mask^1.3 - 9*(1-mask)`, which puts the waterline where the mask crosses ~0.45 rather than at a fixed radius, so the coast follows the noise.
+
+Relief is authored, not random: a **4-point curved ridge polyline** (distance-to-segment → gaussian) carries the dominant massif off-centre to the NW, with a low-frequency `along` term giving it summits and saddles and `ridged2` roughening the crest only. Four gaussian bumps and one explicit **meadow shelf** (a lerp toward a near-constant height) give the tree module somewhere legible to plant. A ridge is right for an island silhouette; a symmetric cone reads as a Perlin demo.
+
+**The beach is a curve, not a band.** `y -= S·y·exp(-y²/W²)` compresses height around zero, widening the near-sea-level zone on both sides. Smooth, analytic, monotonic for S<1, and it produces gentle sand on the land side and a shallow shelf on the sea side from one line.
+
+**Colour.** Built on a CPU grid, so I can afford a real cheap AO: box-blur the heightfield and use `h - blur` as curvature. Hollows go 26% darker, ridges brighten. That single term is what makes a vertex-coloured terrain stop looking flat. Bands are keyed to `WORLD.beachTop/grassTop/grassMaxSlope` so the ground colour *agrees with where grass will actually grow*, and a fragment-stage value-noise patched into MeshStandardMaterial adds sub-vertex grain, killing the contour-line look.
+
+**Water is a polar disc, not a square.** Radial spacing `r = 300t + 2200t⁵` gives ~2 m tessellation at the shore and reaches 2500 m for the horizon in one draw call with no overlap seam. Depth comes from a **half-float DataTexture of the heightfield** — sampled in the vertex shader to damp waves at the shore and in the fragment shader for a crisp foam line (interpolating depth across triangles would smear it). No external normal map, so no Water.js. Reflection is `mix(horizon, zenith)` from caller-driven uniforms, which lets the day/night module drive sunset water for free.
+
+INTEGRATION
+`src/island.js` — exports match what `main.js` already calls, no changes needed there.
+
+```js
+export function createIsland({ seed, quality, carve, isInPond }) -> {
+  group,            // THREE.Group: terrain + ocean disc + 6 InstancedMesh boulder sets
+  terrain,          // THREE.Mesh
+  water,            // THREE.Mesh (ocean)
+  heightAt(x, z) -> number,                    // world Y on the RENDERED surface
+  slopeAt(x, z)  -> number,                    // 0 flat .. 1 vertical
+  normalAt(x, z, out?) -> THREE.Vector3,
+  colorAt(x, z, out?)  -> THREE.Color,         // baked ground colour, linear space
+  update(t, phase),
+  dispose(),
+  seaLevel, radius, extent, meadow, rockKeepOut, waterUniforms
+}
+export default createIsland;
+```
+
+`main.js` already does exactly the right thing:
+```js
+world.island = createIsland({ seed: SEED, quality: q, carve: world.ponds.carvePonds });
+scene.add(world.island.group);
+...
+world.island.update(t, phase);   // once per frame, phase = sky.update(dayTime, dt)
+```
+`carve` is called as `carve(x, z, y) -> y` at the very end of the height function, so pond basins are part of the heightfield by construction and `heightAt` reports the carved ground.
+
+**Contract for the sky module.** `update(t, phase)` reads, all optional, all tolerated if missing: `sunDirection` (or `sunDir`/`sunPosition`, a Vector3 pointing *toward* the sun), `sunColor`, `skyColor` (or `zenithColor`), `horizonColor` (or `fogColor`), `daylight` (or `dayFactor`, 0 night → 1 day). If the sky returns only `dayTime`, the sun direction is derived from it. Water palette, reflectivity, specular and shallow-water opacity all lerp from these — this is what makes the sea go rose at sunset and mirror-black at night.
+
+**Two things the sky/light module must set**, because the terrain casts shadows (ridge shadows raking across the island at sunrise are half the drama):
+```js
+sun.shadow.normalBias = 0.55;   // non-negotiable, or the slopes get acne
+sun.shadow.bias = -0.0004;
+sun.shadow.camera.left/right/top/bottom = ±150;  sun.shadow.camera.far = 500;
+scene.fog = new THREE.Fog(horizonColor, 120, 620); // ocean disc reaches 2500u
+```
+Water is `fog: true` and includes the fog chunks, so it matches `scene.fog` automatically each frame.
+
+**For grass/sakura/petals:** call `heightAt`/`slopeAt` freely — after the initial bake they are grid lookups (~4 array reads), not fBm, so scattering 300k blades costs nothing. Respect `WORLD.grassMaxSlope` and `WORLD.beachTop`; the terrain colour ramp is keyed to those same constants, so vegetation stops exactly where the ground turns to rock and sand. Use `rockKeepOut` (`{x, z, r}`) to avoid planting trunks inside boulders, and `colorAt()` to tint grass roots to the ground beneath them.
+
+TUNABLES
+**Silhouette** — `RIDGE_H` 17.5 (the massif; 22 makes it alpine, 12 makes it a sandbar), `RIDGE_W` 22 (lower = a knife-edge ridge, higher = a whaleback), `RIDGE_PTS` (move the spine; keep it off-centre and curved), `BUMPS[].h/.r`.
+
+**Coastline** — the `19.0` warp amplitude in `analyticHeight` is the single most expressive number in the file: 8 gives a lumpy disc, 19 gives headlands and bays, 30 starts tearing the island into peninsulas. `ISLAND_R = size * 0.385`, and the mask edges `sstep(1.10, 0.35, d)` (widen the gap for a gentler shelf).
+
+**Beach** — `BEACH_SOFT` 0.58 (→0.75 for wide flat sand, →0.3 for a rocky drop), `BEACH_WIDTH` 2.8 world units.
+
+**Grove** — `MEADOW.y` 5.4, `.r` 34, `.strength` 0.82. This is where the trees will look best; move it before you move the trees.
+
+**Water** — `uWaveAmp` 0.42 (over ~0.7 the swell starts poking through the beach), `uRipple` 1.05, `uFoamWidth` 1.9m, `uFoamAmt` 0.95, `uOpacityMin` 0.14 (day) / 0.34 (night), `uReflect` 0.92→1.25. Palettes `WATER_DAY` / `WATER_NIGHT`.
+
+**Ground palette** — the `PAL` object. `grassLow 0x93ab5c` is the Ghibli meadow note; push it toward `0x9fb457` for spring, `0x7d9a52` for a cooler morning.
+
+**Curvature shading** — `mix(0.74, 1.08, ao)` in the vertex-colour loop. Widening that range past ~0.65 starts looking like baked dirt.
+
+**Boulders** — `quality.rocks` (60/100/140), `SEA_STACKS` 5, the `shoreW*0.85 + slopeW*0.90 + 0.06` placement weights, and `rough 0.22–0.42` on the boulder generator.
+
+PITFALLS
+- The terrain has castShadow = true so the ridge throws long shadows at sunrise/sunset. Without sun.shadow.normalBias ≈ 0.55 this WILL produce shadow acne on every slope. If the sky module cannot be trusted to set it, flip terrain.castShadow to false — the scene still works, it just loses the raking light.
+- heightAt() interpolates the exact triangle split PlaneGeometry uses (diagonal from (col,row+1) to (col+1,row)). If anyone changes the terrain to a different geometry generator or re-triangulates it, that branch becomes wrong and every tree shifts by a few centimetres on half the quads.
+- The height DataTexture is R16F with an ODD width (SEG+1 = 321), so unpackAlignment MUST stay 2. At the default 4 every row shears and the foam line spirals across the ocean — a spectacular and very confusing bug.
+- Water is transparent with depthWrite:false and renderOrder 1. Petals or fireflies rendered underwater will draw over it. If that shows, give petals renderOrder 2 rather than turning depthWrite on, which would break the pond and petal sorting.
+- The ocean uses FrontSide. Drop the camera below y=0 and the sea vanishes. OrbitControls maxPolarAngle in config.js (0.495π) already prevents this — do not raise it.
+- Water is a ShaderMaterial, so it does NOT get tone mapping or output colour space for free. The fragment shader ends with tonemapping_fragment → colorspace_fragment → fog_fragment in that exact order to match three's own materials. Reorder them and the sea will not match the terrain under ACES.
+- fog uniforms come from UniformsUtils.merge([UniformsLib.fog, {}]) and material.fog = true. If someone adds a second material sharing waterUniforms by reference, both get the same fog objects — harmless, but do not Object.assign UniformsLib.fog directly into a uniforms object, that shares state globally.
+- Baking the grid is ~103k analytic samples (~150ms at ultra). It runs inside main.js's await step() so the loading bar covers it, but do not call analyticHeight in a loop at runtime — use heightAt, which is a grid lookup.
+- createIsland must be called AFTER seedNoise(SEED) (main.js already does) and AFTER createPonds, since carve is baked into the heightfield at build time. Carving ponds later would silently desync heightAt from the mesh.
+- noise.js's shared PERM table is global. If any other module calls seedNoise() again after the island is built, the mesh and any later analytic sample (outside the 240u tile) will disagree. Nobody should re-seed after boot.

@@ -810,8 +810,16 @@ function buildCanopyLobes( bo, n, center, radius ) {
 		const a = g.attributes.position.array;
 		pos.set( a, pOff );
 		pOff += a.length;
+		// Not every part geometry is indexed — a non-indexed BufferGeometry has
+		// index === null, and assuming otherwise throws on `.count`. Synthesise
+		// sequential indices in that case so the merge works either way.
 		const gi = g.index;
-		for ( let i = 0; i < gi.count; i ++ ) idx.push( gi.getX( i ) + vOff );
+		if ( gi ) {
+			for ( let i = 0; i < gi.count; i ++ ) idx.push( gi.getX( i ) + vOff );
+		} else {
+			const n = g.attributes.position.count;
+			for ( let i = 0; i < n; i ++ ) idx.push( i + vOff );
+		}
 		vOff += g.attributes.position.count;
 		g.dispose();
 

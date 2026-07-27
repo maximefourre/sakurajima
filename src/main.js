@@ -180,7 +180,12 @@ function frame() {
   world.island.update(t, phase);
   world.ponds.update(t, dt, phase);
   world.forest.update(t, phase);
-  world.grass.update(t, phase);
+  // grass.update's second argument is the CAMERA (it drives LOD ring selection),
+  // not the day/night phase. Sun colour reaches it through setSun() instead.
+  world.grass.update(t, camera);
+  if (phase?.sunDirection) {
+    world.grass.setSun?.(phase.sunDirection, phase.sunColor, phase.sunIntensity);
+  }
   world.petals.update(t, phase);
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);

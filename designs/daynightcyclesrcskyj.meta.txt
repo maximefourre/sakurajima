@@ -1,0 +1,106 @@
+APPROACH
+**Geometry before art.** The sun is not a light on a pivot — it runs the real horizontal-coordinate transform for latitude 31.6°N (Sakurajima) at declination +12.5° (late-April sakura season). From hour angle `H = (dayTime − 0.5)·2π` I compute `up = sinφ·sinδ + cosφ·cosδ·cosH`, `north = cosφ·sinδ − sinφ·cosδ·cosH`, `east = −cosδ·sinH`, then map to three's frame (x = east, y = up, z = −north). That single formula buys everything for free: the sun rises north-of-east, peaks at 71° instead of straight overhead so shadows always have direction, and sets north-of-west. The moon runs the same transform at `H + π` with a mirrored, shallower declination so it is not a boring exact anti-sun.
+
+**Solar phase, not clock time.** Because sunrise happens at `0.5 − H₀/2π` (H₀ = acos(−tanφ·tanδ) → 0.229 here, not 0.25), keyframing on raw `dayTime` would put the red spike in the wrong place the moment anyone edits the latitude. So `dayTime` is remapped piecewise-linearly into a *solar phase* `u` where u=0.25 is always exactly the horizon crossing and u=0.75 always exactly sunset. Every table in the file is authored in `u`, so the art survives geometry changes. Interpolation is smoothstep-eased between keys, cyclic across the 0/1 seam.
+
+**The look.** The red sunrise comes from spiking `rayleigh` 1.55 → 5.2 and `turbidity` 2.2 → 9.6 across the horizon crossing, with `mieDirectionalG` pushed to 0.905 so the forward-scatter halo swells around the disc. Sunset gets a deliberately *hotter* table than sunrise (rayleigh 5.6, turbidity 10.2) — dust and thermals load the evening air, and it is the shot people screenshot. Below the horizon the Sky addon's `sunPosition` gets an exponential **soft floor** at −7.5° elevation (C¹-continuous at y=0) so twilight lingers and decays instead of snapping to black, and a hand-rolled night dome cross-fades in on top at up to 0.92 opacity — deliberately not 1.0, so the addon's built-in clouds keep a faint silhouette against the stars.
+
+**Why hand-rolled celestial layers.** Sky/dome/stars/moon all live in a group that tracks the camera each frame (zero parallax = they read as infinitely far) and every one of my shaders ends with `gl_Position.z = gl_Position.w * 0.999995`. That pins them to the far plane regardless of `CAMERA.far = 2400`, so nothing clips and nothing forces a precision-destroying far plane. Depth *test* stays on so the island occludes them correctly; depth *write* is off, ordering is by `renderOrder`. The Milky Way is 3-octave value noise sampled through a `mat3` of the inverse star rotation, so the band wheels with the constellations while the zenith→horizon gradient stays world-locked. Stars rotate about the true celestial pole `(0, sinφ, −cosφ)` by `−H` (the horizon transform is improper, det = −1, which flips the conjugated rotation's sense — hence the minus).
+
+**Alternatives rejected:** a second scene + pre-pass for the skybox (correct, but two `renderer.render` calls fight the composer); GPU-sampled sky colour for the fog (a 1×1 readback stalls the pipeline — authored fog ramp instead); a fully physical night sky (looks muddy — art-directed indigo reads better).
+
+INTEGRATION
+**File**: `/Users/fourreto/Projects/vibecode/sakurajima/src/sky.js`
+
+**Export** (matches the call site already in `main.js` line 140):
+```js
+export function createSky({ scene, renderer, camera, quality })
+export const SKY_TUNE           // live-tweakable constants
+```
+
+**Returned object**:
+```js
+{
+  update(dayTime /* [0,1) */, dt /* seconds */) -> phase,
+  render(),                       // composer if available, else renderer.render
+  resize(width, height),
+  setQuality(q),                  // q.shadowMap:number, q.bloom:boolean
+  dispose(),
+  sunLight, moonLight, hemiLight, // THREE.DirectionalLight ×2, HemisphereLight
+  composer,                       // null until the async post-processing import lands
+  phase,                          // same object every frame, mutated in place
+  sunDirection, moonDirection,    // unit THREE.Vector3, mutated in place
+  group, sky, stars, moon, nightDome,
+}
+```
+
+**main.js already wires this correctly — no changes needed.** Specifically:
+- line 140 `world.sky = createSky({ scene, renderer, camera, quality: q })` — synchronous, correct.
+- line 156 `world.sky.update(world.dayTime, 0)` — `dt = 0` is safe.
+- line 178 `const phase = world.sky.update(world.dayTime, dt)` — **must be called before** `island/ponds/forest/grass/petals/clouds/birds.update(...)`, which it already is.
+- lines 190–191 `if (world.sky.composer) world.sky.composer.render(); else renderer.render(scene, camera);` — exactly the right guard, since `composer` is `null` for the first few hundred ms while the postprocessing addons stream in.
+- line 282 `world.sky.setQuality?.(q)` and line 297 `world.sky.resize?.(innerWidth, innerHeight)` — both implemented.
+
+**Per-frame requirements**: `update()` must be called every frame (it repositions the celestial group onto `camera.position`, advances cloud/twinkle time, and re-billboards the moon). Nothing else needs calling.
+
+**The `phase` contract other subsystems should code against** (mutated in place, never reallocated — do not cache fields, cache the object):
+- weights `phase.day / .night / .twilight / .golden / .stars` — all 0..1
+- `phase.emissive` — 0..1, the "petals glow at dusk" driver
+- `phase.keyColor` (THREE.Color) / `phase.keyDir` (Vector3) / `phase.keyIntensity` — whichever of sun/moon currently dominates; grass, petals, birds should tint from these rather than re-deriving the hour
+- `phase.fogColor`, `phase.skyColor`, `phase.groundColor`, `phase.sunColor`, `phase.moonColor`
+- `phase.name` — `'night'|'dawn'|'sunrise'|'morning'|'noon'|'afternoon'|'goldenHour'|'sunset'|'dusk'`
+- `phase.sunAltitude` / `.sunAzimuth` (radians), `phase.sunriseAt` / `.sunsetAt` (dayTime of the horizon crossings — useful for the HUD)
+
+**Shadow ownership**: this module owns `renderer.shadowMap.autoUpdate` (it turns the shadow pass off entirely deep at night). Nothing else may write that flag. It also sets `renderer.toneMappingExposure` every frame — the UI must not.
+
+**Grass must not fight the shadow setup**: leave `material.shadowSide` unset on grass blades, and set `castShadow = false` on the grass InstancedMesh (blades are receivers only — 300k casters is not affordable, and blade-on-blade shadowing at 0.06 u/texel is noise, not shading). Trees and rocks should be `castShadow = true, receiveShadow = true`; terrain `receiveShadow = true, castShadow = false`.
+
+TUNABLES
+All in `SKY_TUNE`, exported and safe to mutate at runtime except where noted.
+
+**Geometry (change these last — they move where the light is, not what it looks like)**
+- `latitude: 31.6` — Sakurajima. Higher = more tilted arc, lower noon sun, longer twilight. Restart required (the sunrise/sunset anchors are computed once).
+- `declination: 12.5` — season. +12.5° ≈ late April (sakura). 0 = equinox, +23.4 = midsummer. Day length and how far north-of-east the sun rises both follow from this.
+- `moonDeclination: -7.0` — keeps the moon from being a boring exact mirror of the sun.
+- `moonPhaseAngle: 0.70` rad — the terminator. 0 = full, 1.2 ≈ half, 2.2 ≈ crescent. 0.7 (waxing gibbous) reads best: enough shadow to show it's a sphere, enough disc to bloom.
+
+**Key light / shadows**
+- `shadowMapSize` — overridden by `quality.shadowMap` (1024 / 2048 / 4096). At ±125 extent that is 0.244 / 0.122 / 0.061 world units per texel. 2048 is the honest 60fps floor for a mid laptop; 4096 for the M4 Max.
+- `shadowBias: -0.00018` — **keep tiny**. This is the peter-panning knob. Going past −0.0006 visibly lifts tree shadows off their trunks.
+- `normalBiasHigh: 0.045` / `normalBiasLow: 0.30` — acne knobs, ramped by sun altitude. If grass shimmers at sunrise, raise `normalBiasLow` first, never `shadowBias`.
+- `moonCastsShadow: false` — flip to `true` for moonlit shadows. Costs one extra full shadow pass every frame; only worth it above 2048.
+- `islandRadius: 125` — must stay ≥ `WORLD.size / 2`. Growing it linearly loses shadow resolution.
+
+**Atmosphere**
+- `skyElevationFloor: 0.13` (≈ −7.5°) — how long twilight lingers in the Preetham sky. Raise to 0.20 for a long, romantic dusk; drop to 0.06 for a hard tropical night.
+- `nightDomeMaxOpacity: 0.92` — deliberately under 1.0 so the addon's clouds keep a faint silhouette at night. At 1.0 the night sky goes flat.
+
+**Stars / moon**
+- `starCount: 3200` — free; 6000 still costs nothing.
+- `starSizeScale: 1.0` — global size. 1.3 is more "storybook", 0.8 more "photographic".
+- `twinkleSpeed: 1.0` — 0.5 is calm, 2.0 is agitated.
+- `moonAngularRadius: 0.0175` (~2° across, ≈4× life-size) — the single most art-directed number here. Drop to 0.006 for realism; keep it big for the Ghibli read.
+
+**The tables themselves** — everything real lives here, all keyed on solar phase:
+- `K_RAYLEIGH` 1.55 at noon → **5.2 / 5.6 at the crossings**. This is the red sunrise.
+- `K_TURBIDITY` 2.2 → 9.6 / 10.2. Haze. Rides with rayleigh.
+- `K_MIE_G` 0.755 → 0.915. Swells the halo around a low sun.
+- `K_SUN_INTENSITY` 0.95 (sunrise) / 4.30 (noon) / 0.85 (sunset).
+- `K_EXPOSURE` 0.55 (midnight) / 0.72 (noon) / 1.02 (sunset). Pull noon down, push the crossings up.
+- `K_BLOOM_STRENGTH` 0.12 (noon) / 1.20 (sunset) / 0.90 (night).
+
+PITFALLS
+- NEVER set light.visible = false to turn a light off. Toggling a light's presence changes the WebGLProgram cache key and forces every material in the scene to recompile — a multi-frame stall, twice per day cycle. This module only ever animates `intensity` to 0. Same reason `castShadow` is set once at construction and never toggled.
+- The sun crosses the horizon at dayTime 0.229 / 0.771, not 0.25 / 0.75, because declination is +12.5°. Anything keyframed on raw dayTime (the HUD's PHASES table in main.js, for instance) will read half an hour off. Use `phase.solar`, or `phase.sunriseAt` / `phase.sunsetAt`, not dayTime.
+- CAMERA.far is 2400. The Sky addon scales to 10000 and survives only because its vertex shader pins z to w; every hand-rolled celestial layer here does the same (`gl_Position.z = gl_Position.w * 0.999995`). If you add a celestial layer and forget that line, it will vanish behind the far plane at some camera distances and not others — which looks like a random flicker, not a clipping bug.
+- The celestial layers keep depthTest ON and depthWrite OFF. That is what lets the island occlude them correctly. If you set depthTest:false on a transparent layer it will draw OVER the terrain, because three.js renders the whole transparent list after the whole opaque list regardless of renderOrder.
+- renderer.shadowMap.autoUpdate is set every frame by this module (off deep at night). If any other subsystem writes that flag, shadows will silently stop updating. Coordinate here.
+- renderer.toneMappingExposure is driven every frame. A debug slider that also writes it will appear to have no effect.
+- shadow.bias is expressed in the shadow camera's normalised depth, so it is multiplied by (far - near) = 410 world units. Widening shadow.camera.far without re-tuning bias silently multiplies your peter-panning. Prefer normalBias, which is in world units and scales with surface orientation.
+- Do NOT set material.shadowSide = THREE.BackSide on grass blades to cure acne. It is the standard fix and it does nothing on single-quad blades — there is no back face to push depth onto. Raise normalBias instead, and take grass out of the caster set entirely.
+- The postprocessing chain is imported dynamically, so `sky.composer` is null for the first few hundred milliseconds. The render loop must check it every frame (main.js already does). Do not cache `const composer = sky.composer` outside the loop.
+- OutputPass must be the LAST pass. It applies tone mapping and the sRGB conversion; if bloom runs after it, the glow accumulates on already-tonemapped values and goes chalky and grey instead of hot.
+- Because ColorManagement is on, THREE.Color stores linear working-space values, so Color uniforms arrive in shaders already linear — correct here. Do not add a pow(2.2) anywhere in these shaders 'to fix the gamma'; that double-converts.
+- `phase` is one object mutated in place. Destructuring it into consts (`const { night } = phase`) at module scope captures a stale number forever. Read fields off the object each frame.
+- THREE.MathUtils.smoothstep is smoothstep(x, min, max) — the opposite argument order from GLSL and from this project's own noise.js smoothstep(edge0, edge1, x). Mixing them up produces a cycle that looks almost right, which is the worst kind of wrong.
+- The night dome, stars and moon are toggled via .visible when their contribution reaches zero, specifically so the fullscreen Milky Way fbm costs nothing during the day. If you remove those guards you pay ~24 hash evaluations per pixel over half the screen at high noon for a layer at opacity 0.

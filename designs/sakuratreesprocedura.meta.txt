@@ -1,0 +1,123 @@
+APPROACH
+**Prototype-and-instance, not per-tree meshes.** I generate 16 *unique* trees (4 somei / 3 shidare / 3 windswept / 3 ancient / 3 young), then place ~180 of them with random yaw, uniform scale, terrain-normal tilt and downwind lean. That gives 16 bark draw calls (one InstancedMesh per prototype) instead of 180, while the eye reads 16 distinct silhouettes × free yaw/scale as "every tree is different". Generating a fresh mesh per tree would cost ~180 × 4k tris of unique VRAM and 180 draw calls for zero extra perceived variety.
+
+**Bark geometry is hand-rolled, no merge step.** Every branch writes its tapered rings straight into one shared position/normal/uv/color/aFlex array, so the whole tree is one indexed BufferGeometry with zero post-merge. I avoided `BufferGeometryUtils.mergeGeometries` (which does exist at 0.185.1 — I checked) because writing rings directly is strictly cheaper and lets me bake per-vertex data the merge path would fight me on. Rings use rotation-minimising frames (quaternion `setFromUnitVectors` transport) so long twigs don't twist, and normals get a taper-slope correction so thick trunks shade correctly.
+
+**The critical baked attribute is `aFlex`** = `thin² × along^1.25`, where `thin = 1 − r/rootRadius` and `along = pathLengthFromRoot / reach`. Trunk base is exactly 0 (pinned to the ground — the number-one artefact in wind demos is a tree that slides off its roots) and twig tips are exactly 1.
+
+**Wind is shared GLSL, not a shared uniform.** I export `WIND_GLSL` and `createWindUniforms()`. Bark (via `onBeforeCompile` on `begin_vertex`) and blossoms (custom ShaderMaterial) call the *same* `sakuraWindWave()/sakuraWindGust()` functions, so blossoms never desync from the twig they're sitting on. Hand this to the grass subsystem and the whole island breathes together. The bark patch displaces in **object space** by projecting the world-space displacement onto the orthonormalised instance basis — no `inverse()` (not guaranteed in GLSL1) and, crucially, every downstream chunk (`project_vertex`, `worldpos_vertex`, shadowmap, fog) inherits the sway for free.
+
+**Blossoms are one billboard quad per flower-clump**, ~350–600 per tree, all merged into a handful of spatially chunked InstancedBufferGeometries (4×4 grid → real frustum culling, since one island-wide InstancedMesh never culls). The 5-petal rosette is `abs(cos(2.5θ))` in polar coords with a tip notch, a yellow stamen core, and a pinker centre — zero textures. Lighting is a fake spherical normal + wrap diffuse + a **backlight transmission** term: at sunrise/sunset the canopy lights up from behind. That single term is what sells "Ghibli" over "programmer art". Baked per-instance AO darkens the canopy interior. `alphaToCoverage` + discard gives soft edges with no sorting.
+
+Bonus: invisible canopy shadow proxies (`colorWrite:false, depthWrite:false, castShadow:true`) so the ground actually gets dappled shade under a blossoming tree — branch geometry alone casts almost nothing.
+
+INTEGRATION
+**Exports**
+
+```js
+export function mulberry32(seed): () => number
+export function makeRng(seed): Rng
+export const WIND_GLSL: string
+export function createWindUniforms({ direction?, strength?, frequency?, gustScale?, barkSway?, blossomSway? }): Uniforms
+export const ARCHETYPE_NAMES: string[]          // ['somei','shidare','windswept','young','ancient']
+export function makeTree(archetype, rng, { quality?, prevailingWind?, blossomDensity? }): Prototype
+export function createSakuraForest(options): Forest
+```
+
+`Forest = { group, update(time, wind), setEnvironment(env), setSeason(v), getBlossomSamples(n, seed), windUniforms, barkMaterial, blossomMaterial, prototypes, instances, emitters, stats, dispose() }`
+
+**main.js wiring**
+
+```js
+import { createSakuraForest, createWindUniforms } from './sakura.js';
+
+// ONE wind bundle for the whole island — hand the same object to grass + petals.
+const wind = createWindUniforms({
+  direction: new THREE.Vector3(1, 0, 0.38),
+  strength: 1.0, frequency: 0.85, gustScale: 0.045,
+});
+
+const forest = createSakuraForest({
+  seed: 20240401,
+  count: 180,
+  radius: 120,                  // or bounds: {minX,maxX,minZ,maxZ}
+  heightAt: terrain.heightAt,   // (x,z) => y
+  slopeAt:  terrain.slopeAt,    // (x,z) => 0..1
+  isLand:   terrain.isLand,     // (x,z) => bool
+  windUniforms: wind,
+  prevailingWind: wind.uWindDir.value.clone(),
+  minAltitude: 0.4, maxSlope: 0.55, minSpacing: 3.2,
+  quality: 1.0,                 // 0.6 on weak GPUs
+});
+scene.add(forest.group);
+console.log(forest.stats);      // sanity-check draw calls / triangles
+```
+
+**Per frame (required):**
+```js
+forest.update(elapsedSeconds, wind);   // sets uTime; also re-reads dir/strength/freq if you changed them
+```
+`elapsedSeconds` must come from your own clock (`clock.getElapsedTime()`), never `Date.now()`.
+
+**Per frame from the day/night subsystem (required for correct lighting):**
+```js
+forest.setEnvironment({
+  sunDirection : sunDir,                // Vector3, world, pointing TOWARD the sun (same one you feed Sky)
+  sunColor     : sunColorLinear,        // THREE.Color or hex
+  sunIntensity : dirLight.intensity,    // scalar; 0 at night
+  ambientSky   : skyTint,               // hex/Color — zenith fill
+  ambientGround: groundTint,            // hex/Color — bounce fill
+  ambientIntensity: 0.4,
+  backlight    : 1.35,                  // push to ~2.2 at golden hour for the glow
+});
+```
+Blossoms are shaded by a bespoke stylised model, so they will look wrong at night unless you drive `sunIntensity` → 0 and raise `ambientSky` toward a cool moonlit blue. Suggested night values: `sunIntensity 0.0–0.05`, `ambientSky 0x2b3f66 × 0.28`, `ambientGround 0x161d22 × 0.18`.
+
+**Optional:** `forest.setSeason(0..1)` — 0 = peak bloom, 1 = late (deeper pink, smaller flowers, green leaves emerging). Animate it slowly for a bonus.
+
+**Petal subsystem hookup:** call `forest.getBlossomSamples(n, seed)` once at startup to get `{positions, colors, count}` of real blossom locations, and spawn falling petals from those points with those colours. Or use `forest.emitters` (`{position, radius, archetype}` per tree) for volume emission. Have the petal shader `#include` the exported `WIND_GLSL` and share `forest.windUniforms` so petals drift on the identical gust field.
+
+**Grass hookup:** import `WIND_GLSL` and pass `forest.windUniforms` into the grass material's uniforms **by reference** (do NOT `UniformsUtils.merge`, which clones). Call `sakuraWindWave()/sakuraWindGust()` with the blade's world position. Grass and trees then bend in the same travelling gusts.
+
+**Renderer requirements:** `renderer.outputColorSpace = THREE.SRGBColorSpace`, `toneMapping = ACESFilmicToneMapping`, `antialias: true` (the blossom material sets `alphaToCoverage`, which needs MSAA to soften edges — it degrades gracefully to hard alpha-test without it). `shadowMap.enabled = true`, `type = PCFSoftShadowMap`. `scene.fog` may be `Fog` or `FogExp2`; both are handled.
+
+TUNABLES
+Live art-direction knobs (the ones worth a GUI slider):
+
+**Wind** — `createWindUniforms`
+- `barkSway` **0.16** — metres of twig-tip travel. 0.10 = calm, 0.30 = gale. Above ~0.4 branches visibly stretch.
+- `blossomSway` **0.30** — blossoms should out-travel their twig by roughly 2×; that mismatch is what reads as "flowers on flexible stems".
+- `frequency` **0.85** — global time scale. 0.6 = lazy spring afternoon, 1.4 = storm.
+- `gustScale` **0.045** — spatial frequency of the travelling gust. 0.02 = one huge wave sweeps the island (very cinematic); 0.09 = choppy local flutter.
+- `strength` **1.0** — master multiplier. Ramp this with your day/night cycle (windier at dusk).
+
+**Blossoms** — `blossomMaterial.uniforms`
+- `uBacklight` **1.35** — the money slider. Drive to **2.0–2.6** during the ~15 min around sunrise/sunset; the canopy lights up from inside. Drop to 0.6 at midday.
+- `uAlphaTest` **0.38** — 0.5 = crisper/sparser petals, 0.25 = softer/fuller but more overdraw.
+- `uSizeScale` **1.0** — global flower size. 1.15 makes the canopy read denser without adding a single instance; cheapest density knob you have.
+- `uSeason` **0.0** — 0 peak bloom → 1 leafing out.
+
+**Forest** — `createSakuraForest`
+- `count` **180**; `quality` **1.0** (scales branch budget + radial segments; 0.6 ≈ −45% tris).
+- `blossomDensity` **1.0** → multiply clusters per twig. 1.3 is gorgeous and costs ~+25k quads.
+- `minSpacing` **3.2** m, `maxSlope` **0.55**, `minAltitude` **0.4** m (keeps trees out of the surf).
+- `groveContrast` **0.55** — 0 = even sprinkle, 0.9 = strong groves with open meadows between. Raise it; clumping looks far more intentional.
+- `terrainAlign` **0.35** — how much trees tilt with the hillside. 0 = all perfectly vertical (reads artificial), 0.6 = strongly raked.
+- `blossomChunks` **4** (4×4 culling grid).
+- `weights` **{somei .38, shidare .16, windswept .14, ancient .12, young .20}** — the mix. Bump `ancient` to 0.18 for a shrine-grove feel.
+
+**Per-archetype** (in `ARCHETYPES`): `heightRange`, `blossom.h/s/l` (hue envelope — `shidare` at h 0.935–0.978 / s 0.34–0.62 is the deep *beni* pink), `blossom.bare` (deadwood fraction: `ancient` 0.26), `wobble` (gnarl), `gravity` (droop; `shidare` depth-2 = 1.10 is the cascade).
+
+PITFALLS
+- InstancedBufferGeometry bounding sphere: three computes it from the `position` attribute only — for my blossom chunks that is a 1×1 quad at the origin, so every chunk would pop out of existence the moment its origin left the frustum. I compute `geo.boundingSphere` explicitly from the instance offsets plus max size plus wind headroom. If you ever change `uBlossomSway` at runtime to something large, widen that padding (currently `+1.2`) or blossoms will disappear at screen edges.
+- `Color.setHSL(h,s,l)` defaults to **workingColorSpace (linear)** in r185, not sRGB — unlike `setHex`, which defaults to sRGB. I pass `THREE.SRGBColorSpace` explicitly. Forgetting this gives washed-out chalky blossoms that look nothing like the authored HSL values.
+- Do **not** `UniformsUtils.merge()` the wind bundle into the blossom material — merge deep-clones, which silently severs the shared references and the blossoms stop moving while the bark keeps swaying. I use `Object.assign(clone(UniformsLib.fog), {...}, wind)` so fog is cloned per-material but wind stays shared by reference.
+- `tonemapping_pars_fragment` and `colorspace_pars_fragment` are already injected by WebGLProgram's fragment prefix. Including them again in the ShaderMaterial is a GLSL compile error (uniform + function redefinition). Only `#include <tonemapping_fragment>` and `#include <colorspace_fragment>` belong in the body — I verified the r185 prefix.
+- Bark sway does **not** propagate to shadows: the shadow pass uses three's internal MeshDepthMaterial, which has no `onBeforeCompile` patch. At `uBarkSway = 0.16` the worst-case mismatch is 16 cm on twig tips, which is sub-texel for an island-wide PCFSoft shadow frustum. If you crank sway past ~0.4, or use a tight shadow camera, attach `mesh.customDepthMaterial = new THREE.MeshDepthMaterial()` with the identical vertex patch. Note r185 shadow maps use a real `DepthTexture` (no RGBA packing), so a custom depth material only needs correct `gl_Position`.
+- The object-space wind patch assumes **uniform scale** on every instance (it divides the world-space displacement by `length(instanceMatrix[0])`). The placer only ever writes uniform scales. If you add non-uniform squash for art reasons, the sway magnitude will skew per-axis.
+- Blossoms ignore the shadow map entirely — a blossom in the shadow of a hill will still be lit. Baked per-instance AO covers self-shadowing inside the canopy, which is the case that matters. Upgrading means `lights: true` on the ShaderMaterial plus `shadowmap_pars_vertex/fragment` and `getShadowMask()`; it works but adds real complexity and cost.
+- Blossom quads never rotate out of camera-facing, so looking straight down at a canopy from above shows flat discs. Acceptable for a ground-level/orbit camera; if you want a top-down flythrough, add a small per-instance tilt away from pure billboarding.
+- Bark is one `InstancedMesh` per prototype spread across the whole island, so its bounding sphere covers everything and it is effectively never frustum-culled. That is intentional (16 draw calls beats spatial chunking at this tree count) but it means bark cost is constant regardless of where you look. Only the blossoms cull.
+- `slopeAt` is assumed to return 0..1. If your terrain returns radians, `maxSlope: 0.55` becomes ~31° instead of the intended threshold and you will get trees on cliffs. I take `Math.abs()` but do not normalise.
+- Placement uses rejection sampling with a hard attempt cap (`count × 60`). If `isLand`/`maxSlope`/`minAltitude` are too restrictive you silently get fewer trees than `count` — always check `forest.stats.trees` vs `placementAttempts`.
+- `ARCHETYPES` arrays are indexed by depth and clamped to the last element via `at()`. If you add a `maxDepth` deeper than an array is long it will silently reuse the last entry rather than throw — convenient, but easy to misdiagnose as a tuning failure.
