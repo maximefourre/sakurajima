@@ -1,7 +1,6 @@
-# Où j'en suis exactement — point d'arrêt du 27/07/2026, ~22h
+# Où j'en suis — point d'arrêt du 28/07/2026
 
-> Budget de session épuisé. Ce fichier dit **précisément** où reprendre.
-> Le contexte long (art direction, décisions, pièges) est dans `PLAN.md`.
+> Le contexte long (direction artistique, décisions, pièges) est dans `PLAN.md`.
 > Ce fichier-ci est la checklist opérationnelle.
 
 ## Reprendre en 30 secondes
@@ -9,112 +8,69 @@
 ```sh
 cd ~/Projects/vibecode/sakurajima
 python3 serve.py 5173
-# puis ouvrir http://127.0.0.1:5173/index.html et regarder la console
+# puis http://127.0.0.1:5173/index.html
 ```
 
-**La scène ne s'affiche pas encore.** Elle construit les 9 étapes jusqu'au bout,
-entre dans la boucle de rendu, et plante à la première frame. Voir « prochaine
-erreur » ci-dessous.
+**La scène s'affiche, tourne, et se pilote.** ZQSD/WASD promènent le shiba,
+`Maj` le fait courir, `C` bascule entre caméra libre et caméra suivie.
 
 ---
 
-## État réel, vérifié en navigateur
-
-Le pipeline de chargement va **jusqu'au bout des 9 étapes** (vent → relief →
-étangs → cerisiers → herbe → pétales → ciel → nuages → oiseaux), puis démarre
-`renderer.setAnimationLoop`. Donc : tous les modules se chargent, toutes les
-géométries se construisent, aucun shader ne refuse de compiler à la
-construction. Ce qui reste est du câblage d'interfaces entre modules.
-
-### Corrections déjà appliquées (ne pas les refaire)
+## Ce qui a été corrigé le 28/07 — ne pas le refaire
 
 | # | Fichier | Problème | Correctif |
 |---|---|---|---|
-| 1 | `src/petals.js` | Backticks dans un commentaire **à l'intérieur** d'un template literal GLSL → `SyntaxError` | Backticks retirés |
-| 2 | `src/petals.js` | Variable nommée `mv` alors que le chunk `<fog_vertex>` de three exige littéralement `mvPosition` | Renommée |
-| 3 | `index.html` | Script module **inline** : une erreur de parse pointait sur le HTML, indébuggable | Sorti dans `src/boot.js` |
-| 4 | `serve.py` | `text/html` sans charset → le navigateur retombait sur un encodage legacy | `charset=utf-8` ajouté sur html/js/css/json |
-| 5 | `src/island.js:77` | **Sortie d'agent corrompue** : `shallow: 0x123murk = 0x123a48` (charabia) | → `shallow: 0x123a48` |
-| 6 | `src/sakura.js:813` | `g.index` supposé non-nul ; une `BufferGeometry` non indexée a `index === null` → `Cannot read properties of null (reading 'count')` | Indices séquentiels synthétisés si `index` absent |
-| 7 | `src/main.js` | `grass.update(t, phase)` — le 2ᵉ argument est la **caméra**, pas la phase | → `grass.update(t, camera)` + `setSun()` séparé |
-| 8 | `src/wind.js` | `grass.js` appelle `windForce(pos)` à 1 argument, le mien en prenait 2 | Surcharge GLSL ajoutée |
+| 1 | `island.js` | **Le disque d'océan était enroulé à l'envers.** Toutes les faces pointaient vers le fond marin, donc `side: FrontSide` culait la mer entière. L'île flottait dans une cuvette de fond marin nu et le shader d'eau ne dessinait rien — ce qui se lisait comme un problème de réglage et avait été chassé comme tel. | Indices inversés |
+| 2 | `main.js` | Forçait l'opacité et la réflectivité de l'eau au boot ; `island.update()` les réécrit à chaque frame depuis sa courbe jour/nuit, donc ces affectations n'atteignaient jamais la première image | Intention déplacée dans la courbe, bloc mort supprimé |
+| 3 | `sky.js` | Le dôme de Preetham saturait en blanc à midi. Un gain unique ne peut pas servir midi **et** le crépuscule : l'écart de luminance est d'un ordre de grandeur | Gain **keyframé** (`K_SKY_GAIN`), valeurs obtenues par calibration en navigateur, pas à l'œil |
+| 4 | `sky.js` | Brouillard rabaissé à 16 % pour combattre un « voile blanc » qui était en fait le ciel cramé + la mer absente. Résultat : ligne d'horizon au rasoir | `FOG_SCALE` 0.16 → 0.56 |
+| 5 | `grass.js` | **Aucune notion d'eau.** Les cuvettes sont creusées dans le heightfield, donc leur fond passe tous les tests que l'herbe applique. Les étangs se remplissaient d'herbe immergée | Hook `exclude` ajouté, câblé sur étangs + rivière |
+| 6 | `main.js` | `createSakuraForest` recevait `isInPond`, `wind` et l'**objet** de qualité. Or il attend `isLand`, `windUniforms` et un **nombre**. `clamp(objet, …)` vaut NaN → chaque arbre était construit avec un budget de branches NaN et se rendait comme un nuage de fleurs sans arbre dessous | Noms corrigés, densité de fleurs relevée pour compenser les vraies branches |
+| 7 | `main.js` | La forêt tournait sur son propre vent : `wind.js` stocke la direction en `Vector2`, `sakura.js` la lit en `vec3` | Petit adaptateur `forestWind` dans `main.js`, rafraîchi chaque frame |
 
-### ⚠️ Prochaine erreur à traiter — c'est ici qu'il faut reprendre
+## Ce qui a été ajouté le 28/07
 
-Le correctif **#7 vient d'être écrit mais n'a pas encore été rechargé en
-navigateur.** Première chose à faire : recharger et relire la console.
-
-Erreur observée juste avant le correctif :
-```
-TypeError: activeCamera.getWorldPosition is not a function
-    at Object.update (src/grass.js:879:16)
-    at frame (src/main.js:183:15)
-```
-
-Après ce correctif, s'attendre à la **même classe de problème sur les autres
-modules** : chaque `update()` a été conçu par un agent différent, donc les
-signatures divergent. Vérifier une par une, dans `main.js` → `frame()` :
-
-- `island.update(t, phase)` — vérifier la signature attendue
-- `ponds.update(t, dt, phase)` — actuellement un stub, no-op
-- `forest.update(t, phase)` — **suspect**, `sakura.js` a son propre système de vent
-- `petals.update(t, phase)` — écrit par moi, signature sûre
-- `clouds.update(t, dt, phase)` — stub
-- `birds.update(t, dt, phase)` — stub
-- `sky.update(dayTime, dt)` doit renvoyer l'objet `phase` que tous les autres
-  consomment. **Vérifier ce qu'il renvoie réellement** : `main.js` suppose
-  `{ sunDirection, sunColor, ambientColor, goldenHour, sunIntensity }`.
-
----
-
-## Interrompu volontairement
-
-**Le 2ᵉ workflow d'agents (étangs+koi / oiseaux / nuages) a été tué** pour
-économiser le budget, en phase Design, avant d'avoir produit ses résultats.
-Rien à récupérer de ce run : **il faudra le relancer**. Le script est sauvegardé
-et réutilisable tel quel :
-
-```
-~/.claude/projects/-Users-fourreto-Projects-vibecode-sakurajima/…/workflows/scripts/sakura-island-life-wf_4e530dc3-58a.js
-```
-
-**Le 1er workflow a également été tué**, mais **après** que ses 5 designs soient
-terminés et extraits — donc rien de perdu côté design. En revanche sa phase
-`Verify` (5 agents adverses qui produisent `corrected_code`) n'a pas fini.
-Les corrections API/GLSL qu'elle aurait produites sont perdues ; les bugs #5,
-#6 et #7 ci-dessus sont typiquement ce qu'elle aurait attrapé automatiquement.
-
-Les designs bruts extraits sont conservés dans `/tmp/sakura-designs/`
-(⚠️ `/tmp` est effacé au redémarrage — **les copier ailleurs si besoin**,
-mais les 4 modules utiles sont déjà installés dans `src/`).
+- **`src/shiba.js`** — le personnage jouable. Maillage procédural (tubes effilés
+  balayés le long de courbes, peinture par sommet), animé par une hiérarchie
+  d'`Object3D`. Marche/course, orientation lissée, conformation au terrain,
+  refus de l'eau profonde mais barbotage dans les hauts-fonds, position assise
+  après quelques secondes d'inactivité, queue qui s'agite plus fort après une
+  course, empreintes de pattes dans le sable mouillé qui s'effacent en 26 s.
+- **Caméra tierce personne** dans `main.js` (`C` pour basculer). Elle traîne
+  derrière lui avec du retard et se tient hors du relief.
+- **`src/ponds.js`, `src/birds.js`, `src/clouds.js`** — les trois stubs
+  remplacés. Étangs à koi et nénuphars, vol de boids qui se perche la nuit et
+  se disperse quand le chien approche, cumulus proches à vraie parallaxe.
 
 ---
 
 ## Reste à faire, dans l'ordre
 
-1. **Faire afficher la scène.** Recharger, corriger les signatures d'`update()`
-   une par une jusqu'à la première image. C'est du câblage, pas de la conception.
-2. **Vérifier que les props collent au sol** — arbres et herbe doivent utiliser
-   `island.heightAt()`. S'ils flottent, c'est que le maillage du terrain et
-   `heightAt` n'échantillonnent pas le même bruit.
-3. **Rebrancher `sakura.js` sur le vent partagé** (il a réimplémenté le sien :
-   `WIND_GLSL`, `createWindUniforms`). Faire comme `grass.js`, qui accepte
-   proprement `wind: { WIND_GLSL, uniforms }`.
-4. **Relancer le workflow étangs/oiseaux/nuages**, puis remplacer les trois
-   stubs `src/ponds.js`, `src/birds.js`, `src/clouds.js`.
-5. **Shiba Inu jouable** — spécifié en détail dans `PLAN.md` §5.
-6. **Peaufinage** — densité/taille des pétales à rejuger dans la scène réelle
-   (le banc d'essai `test/petals.html` n'est pas représentatif), cadrage de la
-   caméra d'ouverture, ombres de nuages, rayons crépusculaires.
+1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont
+   été écrits puis relus par des agents adverses, et ils tournent, mais
+   personne ne les a encore jugés à l'œil dans la vraie scène à toutes les
+   heures du jour. Vérifier en particulier les nuages à l'aube et au crépuscule.
+2. **Les cerisiers.** Maintenant que la structure de branches se construit
+   vraiment (voir #6), ils lisent comme un verger clairsemé plutôt que comme un
+   nuage rose. C'est une question de goût, pas un bug : les leviers sont
+   `blossomDensity` dans `main.js` et `size` par archétype dans `sakura.js`.
+   Grossir les fleurs remplit une couronne plus vite que d'en ajouter.
+3. **Bande grise au zénith** quand la caméra pique vers le bas : c'est la bande
+   de brume d'horizon de Preetham vue de près. Cosmétique, mais à surveiller.
+4. **Peaufinage** — ombres portées des nuages sur l'île, rayons crépusculaires,
+   son (le module oiseaux expose déjà `onEvent` pour les cris).
 
 ---
 
-## Ce qui est solide et ne demande pas de retouche
+## Pièges de débogage propres à cet environnement
 
-- `src/noise.js` — validé numériquement sous node (déterminisme, plages,
-  `ridged2` positif). Source de vérité unique pour la hauteur.
-- `src/wind.js` — modèle en train de rafales conforme à la demande
-  (accalmies réelles, cap aléatoire). JS et GLSL jumeaux.
-- `src/petals.js` — **validé visuellement en navigateur**, shader compile,
-  culbute et translucidité correctes. Seul le réglage densité/taille reste ouvert.
-- `src/config.js`, `index.html`, `serve.py` — stables.
+1. **`OrbitControls.update()` repositionne la caméra même quand `enabled` est
+   `false`.** Toute caméra placée à la main est écrasée à la frame suivante.
+2. **`preserveDrawingBuffer` est `false`** : une capture d'écran prise pendant
+   que la boucle rAF est arrêtée saisit un tampon vidé. Rendre la boucle avant
+   de capturer.
+3. **Un onglet en arrière-plan** étrangle `requestAnimationFrame` **et**
+   `setTimeout`. Pour simuler du temps, épingler `__sk.clock.getDelta` et
+   appeler `__sk.frame()` en boucle synchrone.
+4. `globalThis.__sk` expose `{ world, scene, camera, renderer, controls, THREE,
+   frame, setCamMode, clock }`.

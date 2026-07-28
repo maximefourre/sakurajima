@@ -30,89 +30,81 @@ Bancs d'essai isolés : `test/petals.html`
 | `src/config.js` | ✅ | Toutes les constantes d'art direction + presets qualité low/high/ultra. |
 | `index.html` | ✅ | Voile de chargement, HUD horloge/perf, panneau de réglages, capture des erreurs fatales. |
 | `serve.py` | ✅ | Serveur de dev `no-store` + `charset=utf-8`. |
-| `src/island.js` | 🟡 designé | Terrain, côte organique, rochers, océan. Non encore exécuté. |
-| `src/sakura.js` | 🟡 designé | 5 archétypes d'arbres. Non encore exécuté. |
-| `src/grass.js` | 🟡 designé | Herbe instanciée. Non encore exécuté. |
-| `src/sky.js` | 🟡 designé | Cycle jour/nuit. Non encore exécuté. |
-| `src/ponds.js` | 🔴 **stub** | Renvoie un groupe vide, `carvePonds` = identité. |
-| `src/birds.js` | 🔴 **stub** | |
-| `src/clouds.js` | 🔴 **stub** | |
+| `src/island.js` | ✅ | Terrain, côte organique, rochers, océan. L'enroulement du disque d'océan était inversé — voir `REPRISE.md` #1. |
+| `src/sakura.js` | ✅ | 5 archétypes d'arbres. Attention à ses noms d'options : `isLand`, `windUniforms`, `quality` **numérique**. |
+| `src/grass.js` | ✅ | Herbe instanciée. Hook `exclude` ajouté pour la garder hors de l'eau. |
+| `src/sky.js` | ✅ | Cycle jour/nuit. Le gain du dôme est keyframé, pas constant. |
+| `src/river.js` | ✅ | Rivière + pont japonais, creusés dans le heightfield. |
+| `src/ponds.js` | ✅ | Étangs, carpes koi, nénuphars. |
+| `src/birds.js` | ✅ | Vol en boids, perchoir nocturne, `setRepeller` pour le shiba. |
+| `src/clouds.js` | ✅ | Cumulus proches à parallaxe, dérivant avec le vent partagé. |
+| `src/shiba.js` | ✅ | Le personnage jouable. Voir §5. |
 
 ---
 
 ## Reste à faire, par priorité
 
-### 1. Faire booter le MVP (en cours)
-Les 4 modules designés (`island`, `sakura`, `grass`, `sky`) sont installés mais
-**jamais exécutés**. Il faut lancer `index.html` et corriger en boucle jusqu'à
-l'affichage. Erreurs attendues :
+### 1. Les cerisiers lisent comme un verger, pas comme un nuage rose
+Maintenant que la structure de branches se construit vraiment (le budget de
+branches valait NaN — voir `REPRISE.md` #6), les arbres montrent beaucoup
+d'écorce sombre. C'est correct et un peu triste. Les leviers, dans l'ordre
+d'efficacité : la taille des fleurs (`size` par archétype dans `sakura.js`,
+0.09–0.215 aujourd'hui), puis `blossomDensity` dans `main.js`, puis le nombre
+d'arbres. Grossir les fleurs remplit une couronne bien plus vite que d'en
+ajouter, et coûte moins cher.
 
-- **Collision de uniforms.** `grass.js` déclare son propre `uTime`, et mon
-  `WIND_GLSL` déclare aussi `uniform float uTime;`. Une double déclaration ne
-  compile pas en GLSL. Correctif : retirer `uTime` des uniforms de grass et
-  laisser le bloc vent le fournir, ou renommer celui de grass.
-- **`sakura.js` a réimplémenté son propre vent** (`WIND_GLSL`,
-  `createWindUniforms`). Le débrancher et lui passer `wind.WIND_GLSL` +
-  `wind.uniforms` par référence, comme le fait déjà `grass.js`.
-- `grass.js` et `sakura.js` exportent chacun leur `mulberry32` — inoffensif,
-  mais à faire pointer vers `noise.js` pour que le monde reste reproductible.
-- Vérifier que `island.heightAt` et le maillage du terrain utilisent bien le
-  **même** bruit, sinon arbres et herbe flotteront ou s'enfonceront.
+### 2. Juger les trois nouveaux modules dans la vraie scène
+`ponds`, `birds` et `clouds` ont été écrits puis relus par des agents adverses,
+et ils tournent. Mais ils n'ont pas encore été jugés à l'œil à toutes les heures
+du jour. En particulier : les nuages à l'aube et au crépuscule, la couleur de
+l'eau des étangs sous une lumière rasante, et le passage des oiseaux au perchoir.
 
-### 2. Récupérer les résultats du 2ᵉ workflow
-Les designs **étangs+koi / oiseaux / nuages** tournaient encore. Résultats dans :
+### 3. La bande grise au zénith
+Quand la caméra pique franchement vers le bas, le haut du cadre ne montre plus
+que la bande de brume d'horizon de Preetham, qui est presque blanche. Ce n'est
+pas un bug, mais le cadrage d'ouverture devrait l'éviter.
 
-```
-~/.claude/projects/-Users-fourreto-Projects-vibecode-sakurajima/…/subagents/workflows/wf_4e530dc3-58a/journal.jsonl
-```
+### 4. Le shiba, second passage
+Il marche, court, s'assoit, barbote et laisse des empreintes. Manquent encore :
+il ne lève la tête vers les pétales que sur une minuterie, pas parce qu'un pétale
+est réellement passé ; il n'aboie pas ; et il traverse les troncs. Un test de
+collision contre `forest.instances` serait peu coûteux — les positions et les
+rayons de couronne sont déjà exposés.
 
-Extraire les entrées `type: "result"`, champ `corrected_code` (sinon `code`),
-et remplacer les stubs. Le script d'extraction utilisé pour le 1ᵉʳ workflow est
-réutilisable tel quel.
+### 5. Le shiba, tel qu'il a été construit  🐕
 
-### 3. Appliquer les corrections des vérificateurs
-Chaque sous-système a un agent adverse qui produit `corrected_code` (API r185
-hallucinées, GLSL qui ne compile pas, `onBeforeCompile` mal ancré, allocations
-par frame). Ces résultats sont dans le même journal, phase `Verify`. **Préférer
-`corrected_code` au `code` d'origine** partout où il existe.
+`src/shiba.js` → `createShiba({ seed, heightAt, slopeAt, normalAt, isInPond, wind, seaLevel })`
 
-### 4. Câbler les étangs correctement
-`main.js` appelle déjà `createPonds()` **avant** `createIsland()` et passe
-`ponds.carvePonds` au terrain, pour que les cuvettes soient creusées dans le
-heightfield lui-même plutôt que plaquées après coup. Puis `ponds.attach({heightAt})`.
-Le stub respecte cette forme — le vrai module doit la respecter aussi.
+Maillage 100 % procédural, aucune texture, aucun asset : des tubes effilés
+balayés le long de courbes tracées à la main, peints par sommet, suspendus à une
+hiérarchie d'`Object3D` que quelques sinusoïdes animent. Un shiba tient
+entièrement dans sa silhouette et dans deux couleurs — queue enroulée **sur** le
+dos, oreilles triangulaires petites et portées vers l'avant, museau court et
+carré, et le crème *urajiro* sous la mâchoire, le poitrail, le ventre et la queue
+contre un manteau roux. Sans ces quatre choses, c'est un renard.
 
-### 5. Personnage jouable : un Shiba Inu 🐕
+Il est construit à **environ deux fois la taille réelle** (`SHIBA.scale`) : à
+l'échelle vraie il fait 0.4 unité au garrot, soit moins qu'un brin d'herbe (0.55),
+et il disparaît dans le pré depuis n'importe quelle caméra qui cadre aussi l'île.
 
-Demandé explicitement : remplacer (ou doubler) la caméra orbitale par un
-**Shiba Inu en 3D** que l'on déplace sur l'île.
-
-Module à créer : `src/shiba.js` → `createShiba({ heightAt, slopeAt, isInPond, wind })`
-
-- **Maillage procédural**, cohérent avec le reste de la scène (aucune texture,
-  aucun asset externe) : corps trapu, poitrail large, queue **enroulée sur le dos**
-  (la signature du shiba), oreilles triangulaires dressées, museau court.
-  Palette *goma* ou *aka* : roux #d98b45 sur le dessus, ventre et masque crème
-  #f5ecdf, chaussettes claires. Le contraste roux/crème est ce qui le rend
-  reconnaissable au premier coup d'œil.
-- **Animation squelettique légère** faite à la main (pas de glTF) : 4 pattes en
-  cycles de marche/trot déphasés, balancement du corps, queue et oreilles qui
-  réagissent au vent et à l'accélération. Tout peut se faire en hiérarchie
-  d'`Object3D` + quelques rotations sinusoïdales, inutile de sortir un vrai rig.
-- **Contrôleur** : ZQSD/WASD + flèches, `Shift` pour courir. Le chien s'oriente
-  vers sa direction de déplacement avec un lissage, se colle au terrain via
-  `heightAt()`, s'incline selon la pente (aligner l'axe Y sur la normale du sol),
-  et refuse d'entrer dans l'eau (`isInPond` + niveau de la mer) — ou barbote au
-  bord, ce qui serait plus charmant.
-- **Caméra** : passer en caméra tierce personne qui suit avec du retard et un
-  léger amortissement. Garder OrbitControls en mode « libre » basculable avec
-  une touche (`C`), pour ne pas perdre les plans de contemplation.
-- **Détails qui vendent le personnage** : il s'assoit quand on ne bouge pas
-  depuis quelques secondes, la queue s'agite plus vite après une course,
-  les pétales qui tombent peuvent le faire lever la tête, et il laisse des
-  empreintes discrètes dans le sable de la plage.
-- Les oiseaux devraient s'envoler à son approche (le module oiseaux a déjà une
-  notion d'évitement — lui passer la position du shiba comme répulseur).
+- **Contrôleur** : ZQSD/WASD + flèches, `Maj` pour courir. Les touches sont lues
+  par `event.code`, donc la même poignée de lignes couvre AZERTY et QWERTY sans
+  table de correspondance. Déplacement relatif à la caméra.
+- **Terrain** : il se colle au sol via `heightAt`, s'incline **partiellement**
+  vers la normale (0.42 vers la verticale — un quadrupède garde son corps bien
+  plus horizontal que le sol sous lui), refuse les pentes au-delà de 0.72, refuse
+  l'eau profonde mais barbote jusqu'à 0.34 sous le niveau de la mer, et **glisse**
+  le long de ce qui le bloque au lieu de s'y coller.
+- **Vie** : il s'assoit après 4 s d'immobilité (fondu, pas un claquement de
+  doigts), sa queue s'agite d'autant plus vite qu'il vient de courir, ses oreilles
+  se couchent à la course et frémissent dans les rafales du vent partagé.
+- **Empreintes** : `InstancedMesh` en tampon circulaire, date de naissance par
+  instance, fondu dans le fragment shader. Uniquement dans le sable mouillé —
+  une empreinte dans l'herbe ne se voit pas et sur le roc elle est fausse.
+- **Caméra** : `C` bascule entre la caméra de contemplation (OrbitControls) et
+  une caméra tierce personne qui traîne derrière lui, se recale d'elle-même dans
+  son dos, et se maintient au-dessus du relief.
+- Les oiseaux reçoivent sa position via `birds.setRepeller()` à chaque frame.
 
 ### 6. Peaufinage (explicitement repoussé)
 - Densité et taille des pétales à rejuger **dans la scène réelle**, pas dans le banc d'essai.
