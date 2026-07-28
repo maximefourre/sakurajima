@@ -169,46 +169,49 @@ function ensureWindUniforms( u ) {
  */
 const ARCHETYPES = {
 
-	// classic upright vase-shaped Yoshino, wide flat canopy
+	// classic upright vase-shaped Yoshino — retuned as the hanami umbrella:
+	// taller clean trunk to walk under, long spreading laterals, drooping
+	// blossom-heavy crown edge. This is the tree the pink roof is made of.
 	somei: {
-		heightRange:  [ 6.5, 9.5 ],
-		trunkLen:     [ 2.2, 3.2 ],
-		trunkRadius:  [ 0.19, 0.28 ],
-		maxDepth: 4, budget: 90,
+		heightRange:  [ 9.0, 13.0 ],
+		trunkLen:     [ 2.6, 3.6 ],
+		trunkRadius:  [ 0.24, 0.34 ],
+		maxDepth: 5, budget: 118,
 		taperPow: 1.30, endTaper: 0.66, rootFlare: 0.42, flareLobes: 5, flareAmt: 0.16,
 		flexScale: 1.0, leaderProb: 0.5, asym: 0.0,
+		floorY: 0.35,
 		lean:         [ 0.05, 0.02, 0.00, 0.00, 0.00 ],
-		lenFall:      [ 0.66, 0.72, 0.74, 0.70, 0.66 ],
+		lenFall:      [ 0.70, 0.85, 0.82, 0.74, 0.66 ],
 		childRadius:  [ 0.70, 0.70, 0.70, 0.68, 0.66 ],
-		angle:        [ [ 24, 38 ], [ 30, 46 ], [ 34, 52 ], [ 38, 58 ], [ 40, 62 ] ],
-		tipChildren:  [ [ 2, 3 ], [ 2, 3 ], [ 2, 3 ], [ 2, 3 ], [ 2, 2 ] ],
-		sideChildren: [ [ 1, 2 ], [ 1, 1 ], [ 0, 1 ], [ 0, 1 ], [ 0, 0 ] ],
-		gravity:      [ - 0.08, - 0.03, 0.06, 0.20, 0.34 ],
-		photo:        [ 0.34, 0.18, 0.06, 0.00, - 0.04 ],
+		angle:        [ [ 32, 50 ], [ 42, 60 ], [ 46, 66 ], [ 46, 68 ], [ 44, 66 ] ],
+		tipChildren:  [ [ 3, 3 ], [ 2, 3 ], [ 2, 3 ], [ 2, 3 ], [ 2, 2 ] ],
+		sideChildren: [ [ 1, 2 ], [ 1, 2 ], [ 1, 2 ], [ 0, 1 ], [ 0, 0 ] ],
+		gravity:      [ - 0.06, 0.02, 0.14, 0.30, 0.46 ],
+		photo:        [ 0.22, 0.10, 0.02, 0.00, - 0.06 ],
 		wobble:       [ 0.26, 0.34, 0.44, 0.56, 0.66 ],
 		segLen:       [ 0.50, 0.48, 0.44, 0.38, 0.32 ],
 		radial:       [ 10, 7, 5, 4, 3 ],
 		barkBase: 0x3b2f29, barkTip: 0x6f5a4c, barkDead: 0x6d675e,
 		blossom: {
-			density: 15.0, start: 0.14, cluster: [ 4, 7 ], size: [ 0.24, 0.40 ], spread: 0.155,
-			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.03
+			density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.28, 0.46 ], spread: 0.22,
+			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.02
 		}
 	},
 
-	// weeping cherry: boughs arc up, then long whips cascade down
 	shidare: {
-		heightRange:  [ 5.0, 7.5 ],
-		trunkLen:     [ 2.4, 3.4 ],
-		trunkRadius:  [ 0.16, 0.24 ],
-		maxDepth: 3, budget: 110,
+		heightRange:  [ 6.5, 9.5 ],
+		trunkLen:     [ 2.8, 3.8 ],
+		trunkRadius:  [ 0.19, 0.27 ],
+		maxDepth: 3, budget: 132,
 		taperPow: 1.15, endTaper: 0.70, rootFlare: 0.30, flareLobes: 4, flareAmt: 0.10,
 		flexScale: 1.35, leaderProb: 0.25, asym: 0.0,
+		floorY: 0.18,
 		lean:         [ 0.03, 0.01, 0.00, 0.00 ],
 		lenFall:      [ 0.70, 1.25, 0.16, 0.16 ],
 		childRadius:  [ 0.72, 0.62, 0.55, 0.55 ],
 		angle:        [ [ 26, 46 ], [ 10, 30 ], [ 30, 62 ], [ 30, 62 ] ],
 		tipChildren:  [ [ 3, 4 ], [ 1, 2 ], [ 1, 2 ], [ 1, 1 ] ],
-		sideChildren: [ [ 1, 2 ], [ 1, 2 ], [ 3, 5 ], [ 0, 0 ] ],
+		sideChildren: [ [ 1, 2 ], [ 1, 2 ], [ 4, 6 ], [ 0, 0 ] ],
 		gravity:      [ - 0.10, - 0.45, 1.10, 1.30 ],
 		photo:        [ 0.40, 0.55, - 0.10, - 0.20 ],
 		wobble:       [ 0.22, 0.24, 0.30, 0.34 ],
@@ -216,19 +219,19 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 4, 3 ],
 		barkBase: 0x39302c, barkTip: 0x6a5344, barkDead: 0x69635b,
 		blossom: {
-			density: 14.0, start: 0.04, cluster: [ 4, 6 ], size: [ 0.21, 0.34 ], spread: 0.115,
+			density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.24, 0.38 ], spread: 0.15,
 			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
 		}
 	},
 
-	// old coastal tree, leaning hard downwind, asymmetric crown, some bare wood
 	windswept: {
-		heightRange:  [ 4.5, 7.0 ],
+		heightRange:  [ 5.5, 8.5 ],
 		trunkLen:     [ 1.8, 2.8 ],
-		trunkRadius:  [ 0.20, 0.30 ],
-		maxDepth: 4, budget: 76,
+		trunkRadius:  [ 0.22, 0.32 ],
+		maxDepth: 4, budget: 88,
 		taperPow: 1.45, endTaper: 0.62, rootFlare: 0.55, flareLobes: 5, flareAmt: 0.22,
 		flexScale: 1.2, leaderProb: 0.6, asym: 0.55,
+		floorY: 0.30,
 		lean:         [ 0.30, 0.16, 0.08, 0.04, 0.02 ],
 		lenFall:      [ 0.64, 0.70, 0.70, 0.66, 0.62 ],
 		childRadius:  [ 0.70, 0.68, 0.68, 0.66, 0.64 ],
@@ -242,19 +245,19 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 5, 4, 3 ],
 		barkBase: 0x342b26, barkTip: 0x6b5a4e, barkDead: 0x7c766c,
 		blossom: {
-			density: 12.0, start: 0.18, cluster: [ 4, 6 ], size: [ 0.21, 0.35 ], spread: 0.135,
+			density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.24, 0.40 ], spread: 0.17,
 			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
 		}
 	},
 
-	// slender sapling, few branches, sparse blossom, some fresh green
 	young: {
-		heightRange:  [ 2.4, 4.0 ],
+		heightRange:  [ 2.8, 4.6 ],
 		trunkLen:     [ 1.8, 2.6 ],
 		trunkRadius:  [ 0.055, 0.085 ],
-		maxDepth: 3, budget: 30,
+		maxDepth: 3, budget: 34,
 		taperPow: 1.10, endTaper: 0.72, rootFlare: 0.12, flareLobes: 3, flareAmt: 0.05,
 		flexScale: 1.6, leaderProb: 0.75, asym: 0.0,
+		floorY: 0.25,
 		lean:         [ 0.04, 0.02, 0.00, 0.00 ],
 		lenFall:      [ 0.62, 0.66, 0.62, 0.60 ],
 		childRadius:  [ 0.74, 0.72, 0.70, 0.68 ],
@@ -268,33 +271,33 @@ const ARCHETYPES = {
 		radial:       [ 7, 5, 4, 3 ],
 		barkBase: 0x4a3226, barkTip: 0x7b5340, barkDead: 0x6f685d,
 		blossom: {
-			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.18, 0.29 ], spread: 0.115,
+			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.20, 0.32 ], spread: 0.115,
 			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
 		}
 	},
 
-	// thick gnarled low-forking veteran, broad irregular crown, deadwood
 	ancient: {
-		heightRange:  [ 7.0, 11.0 ],
+		heightRange:  [ 9.5, 14.0 ],
 		trunkLen:     [ 1.2, 1.9 ],
-		trunkRadius:  [ 0.36, 0.52 ],
-		maxDepth: 5, budget: 130,
+		trunkRadius:  [ 0.40, 0.58 ],
+		maxDepth: 5, budget: 150,
 		taperPow: 1.60, endTaper: 0.70, rootFlare: 0.85, flareLobes: 6, flareAmt: 0.26,
 		flexScale: 0.8, leaderProb: 0.35, asym: 0.12,
+		floorY: 0.30,
 		lean:         [ 0.08, 0.05, 0.02, 0.01, 0.00, 0.00 ],
-		lenFall:      [ 1.30, 0.72, 0.74, 0.72, 0.68, 0.64 ],
+		lenFall:      [ 1.30, 0.82, 0.80, 0.74, 0.68, 0.64 ],
 		childRadius:  [ 0.80, 0.74, 0.72, 0.70, 0.68, 0.66 ],
-		angle:        [ [ 20, 44 ], [ 28, 54 ], [ 32, 58 ], [ 36, 62 ], [ 40, 66 ], [ 42, 66 ] ],
+		angle:        [ [ 26, 50 ], [ 34, 60 ], [ 36, 62 ], [ 40, 66 ], [ 42, 68 ], [ 44, 68 ] ],
 		tipChildren:  [ [ 2, 3 ], [ 2, 3 ], [ 2, 3 ], [ 2, 3 ], [ 2, 2 ], [ 1, 2 ] ],
 		sideChildren: [ [ 0, 1 ], [ 1, 2 ], [ 1, 2 ], [ 0, 1 ], [ 0, 1 ], [ 0, 0 ] ],
-		gravity:      [ - 0.05, - 0.02, 0.08, 0.20, 0.32, 0.42 ],
+		gravity:      [ - 0.05, - 0.02, 0.08, 0.22, 0.36, 0.50 ],
 		photo:        [ 0.30, 0.26, 0.10, 0.02, - 0.02, - 0.05 ],
 		wobble:       [ 0.55, 0.72, 0.66, 0.60, 0.62, 0.66 ],
 		segLen:       [ 0.40, 0.44, 0.42, 0.36, 0.32, 0.28 ],
 		radial:       [ 12, 8, 6, 5, 4, 3 ],
 		barkBase: 0x2f2823, barkTip: 0x6a5c50, barkDead: 0x847d72,
 		blossom: {
-			density: 13.5, start: 0.16, cluster: [ 4, 7 ], size: [ 0.25, 0.43 ], spread: 0.165,
+			density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.29, 0.48 ], spread: 0.21,
 			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
 		}
 	}
@@ -443,6 +446,7 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 		if ( s === segs ) break;
 
 		p.addScaledVector( d, step );
+		if ( depth > 0 && p.y < cfg.floorY * 0.5 ) p.y = cfg.floorY * 0.5;
 		along += step;
 
 		_t1.copy( d );
@@ -452,6 +456,15 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 		_t1.x += rng.gauss() * wobble * step;
 		_t1.z += rng.gauss() * wobble * step;
 		_t1.y += rng.gauss() * wobble * step * 0.45;
+
+		// Steer wood up and away from the planting plane. floorY is authored per
+		// archetype: lowest for shidare so the whips still sweep the grass, higher
+		// for upright crowns. Depth 0 is exempt - the trunk root is deliberately
+		// buried by the placer. Thicker branches get more clearance (+ r * 1.5).
+		if ( depth > 0 && p.y < cfg.floorY + r * 1.5 ) {
+			_t1.y += ( cfg.floorY + r * 1.5 - p.y ) * 1.4;
+		}
+
 		_t1.normalize();
 
 		// rotation-minimising frame transport (prevents twig twisting)
@@ -727,6 +740,26 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 	geometry.computeBoundingBox();
 	geometry.computeBoundingSphere();
 
+	// Lowest branch wood per azimuth sector (local space, post-normalisation).
+	// The placer tests each sector against the terrain on that side of the
+	// trunk, so uphill ground cannot rise into the crown while low sweeping
+	// boughs over level ground stay exactly as low as they grew. Verts within
+	// 0.9 u of the axis are the root flare, which is meant to be buried.
+	const secLowY = new Float32Array( 8 ).fill( 1e9 );
+	const secLowR = new Float32Array( 8 ).fill( 1 );
+	{
+		const pa = geometry.attributes.position;
+		for ( let i = 0; i < pa.count; i ++ ) {
+			const px = pa.getX( i ), pz = pa.getZ( i );
+			const hr = Math.hypot( px, pz );
+			if ( hr < 0.9 ) continue;
+			const s = Math.min( 7, Math.floor( ( Math.atan2( pz, px ) + Math.PI ) / ( Math.PI * 2 ) * 8 ) );
+			const py = pa.getY( i );
+			if ( py < secLowY[ s ] ) { secLowY[ s ] = py; secLowR[ s ] = hr; }
+		}
+	}
+	const groundSectors = { lowY: secLowY, lowR: secLowR };
+
 	const canopyCenter = new THREE.Vector3( cx * k, cy * k, cz * k );
 	const canopyRadius = canopyR * k;
 
@@ -747,6 +780,7 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 		height: target,
 		canopyCenter,
 		canopyRadius,
+		groundSectors,
 		triangles: geometry.index.count / 3
 	};
 
@@ -1149,24 +1183,24 @@ export function createSakuraForest( options = {} ) {
 		minAltitude: 0.4,
 		maxAltitude: Infinity,
 		maxSlope: 0.55,
-		minSpacing: 3.2,
+		minSpacing: 3.0,
 		windUniforms: null,
 		prevailingWind: new THREE.Vector3( 1, 0, 0.38 ),
 		quality: 1.0,
 		blossomDensity: 1.0,
-		blossomChunks: 4,
-		terrainAlign: 0.35,
+		blossomChunks: 6,
+		terrainAlign: 0.25,
 		castShadow: true,
 		receiveShadow: true,
 		canopyShadows: true,
 		// Big massifs with real clearings between them: lower frequency = larger
 		// coherent groves, higher contrast = the sparse zones actually go sparse
 		// instead of everywhere being a uniform sprinkle.
-		groveScale: 0.018,
+		groveScale: 0.015,
 		groveContrast: 0.85,
 		keepBlossomSamples: true,
 		prototypeCounts: { somei: 4, shidare: 3, windswept: 3, ancient: 3, young: 3 },
-		weights: { somei: 0.38, shidare: 0.16, windswept: 0.14, ancient: 0.12, young: 0.20 }
+		weights: { somei: 0.46, shidare: 0.18, windswept: 0.10, ancient: 0.14, young: 0.12 }
 	}, options );
 
 	const rng  = makeRng( o.seed );
@@ -1321,7 +1355,7 @@ export function createSakuraForest( options = {} ) {
 		const proto = prototypes[ pi ];
 
 		const scale = rng.range( 0.84, 1.20 ) * ( flags.high ? 0.82 : 1.0 );
-		const spacing = Math.max( o.minSpacing, proto.canopyRadius * scale * 0.86 );
+		const spacing = Math.max( o.minSpacing, proto.canopyRadius * scale * 0.60 );
 		if ( tooClose( x, z, spacing * ( 1 - relax * 0.45 ) ) ) continue;
 
 		// orientation: terrain tilt -> downwind lean -> yaw
@@ -1342,10 +1376,37 @@ export function createSakuraForest( options = {} ) {
 		axis.normalize();
 		qLean.setFromAxisAngle( axis, leanAngle );
 
-		qYaw.setFromAxisAngle( UPV, rng.range( 0, Math.PI * 2 ) );
+		const yawAng = rng.range( 0, Math.PI * 2 );
+		qYaw.setFromAxisAngle( UPV, yawAng );
 
 		const quat = qLean.clone().multiply( qTilt ).multiply( qYaw );
 		const pos = new THREE.Vector3( x, h - 0.10 * scale, z );
+
+		// Branch wood must clear the terrain across the whole crown, not just
+		// under the trunk: on a slope the uphill ground rises into the crown
+		// faster than the terrain tilt compensates. Test each crown sector's
+		// lowest wood (baked in makeTree, yaw-rotated: world az = local - yaw)
+		// against the ground on that side. Lift a little when it clips - the
+		// buried root flare absorbs it - and give up on the spot when no
+		// reasonable lift can save it. Low boughs over LEVEL ground never
+		// trigger this; that hanami look is wanted.
+		const sec = proto.groundSectors;
+		let lift = 0, hopeless = false;
+		for ( let s = 0; s < 8; s ++ ) {
+
+			if ( sec.lowY[ s ] > 1e8 ) continue;
+			const az = - Math.PI + ( s + 0.5 ) * Math.PI * 0.25 - yawAng;
+			const sr = sec.lowR[ s ] * scale;
+			const hg = o.heightAt( x + Math.cos( az ) * sr, z + Math.sin( az ) * sr );
+			// 0.12 margin + a crude allowance for the downwind lean
+			const need = ( hg + 0.12 + Math.sin( leanAngle ) * sr * 0.5 )
+				- ( pos.y + sec.lowY[ s ] * scale );
+			if ( need > lift ) lift = need;
+			if ( lift > 1.0 ) { hopeless = true; break; }
+
+		}
+		if ( hopeless ) continue;
+		pos.y += Math.min( lift, 0.45 );
 
 		addToGrid( x, z );
 

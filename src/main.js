@@ -150,7 +150,7 @@ const forestWind = {
  * same tree.
  */
 function sakuraPrototypes(total) {
-  const w = { somei: 0.34, shidare: 0.18, windswept: 0.16, ancient: 0.14, young: 0.18 };
+  const w = { somei: 0.42, shidare: 0.18, windswept: 0.10, ancient: 0.16, young: 0.14 };
   const out = {};
   for (const k in w) out[k] = Math.max(2, Math.round(total * w[k]));
   return out;
@@ -321,7 +321,7 @@ async function boot() {
     // Once the branch structure actually built, the default blossom load left
     // the island looking like an orchard in March. The blossom is the subject —
     // it should hide most of the branch it grows on.
-    blossomDensity: q.label === 'ultra' ? 2.6 : q.label === 'high' ? 2.0 : 1.4,
+    blossomDensity: q.label === 'ultra' ? 2.2 : q.label === 'high' ? 1.8 : 1.2,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
