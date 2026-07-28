@@ -358,16 +358,24 @@ async function boot() {
   // The forest exposes canopy positions as `emitters` ({position, radius}); the
   // petal system wants flat {x, z, radius}. Without this the spawn falls back to
   // a uniform box and petals rain everywhere instead of drifting off the trees.
+  // The forest emitter y is the canopy CENTRE in world space (sakura.js bakes
+  // canopyCenter through the placement transform) — the petal system needs it
+  // to spawn petals at crown height instead of a global ceiling.
   world.canopies = (world.forest.emitters ?? []).map((e) => ({
-    x: e.position.x, z: e.position.z, radius: e.radius,
+    x: e.position.x, y: e.position.y, z: e.position.z, radius: e.radius,
   }));
   world.petals = createPetals({
     seed: SEED, quality: q,
     canopies: world.canopies,
     wind: world.wind,
     heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    // Same contract as grass: keeps the fallen-petal carpet out of the river,
+    // the ponds and off the packed earth of the pilgrim path.
+    exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
   });
   scene.add(world.petals.mesh);
+  if (world.petals.carpet) scene.add(world.petals.carpet);
 
   await step('ciel');
   world.sky = createSky({ scene, renderer, camera, quality: q });

@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 import { WORLD } from './config.js';
-import { streamFor, R } from './noise.js';
+import { streamFor, R, clamp } from './noise.js';
 import { NOISE_GLSL } from './noise.js';
 import { WIND_GLSL } from './wind.js';
 
@@ -49,14 +49,14 @@ function makePetalGeometry() {
   return g;
 }
 
-export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
+export function createPetals({ seed, quality, canopies = [], wind, heightAt, slopeAt = null, exclude = null }) {
   const COUNT = quality.petals;
   const rng = streamFor(seed, 'petals');
 
   const geo = makePetalGeometry();
 
   // Per-instance data, packed to keep the attribute count low.
-  const aOrigin = new Float32Array(COUNT * 3); // spawn column (x, groundY, z)
+  const aOrigin = new Float32Array(COUNT * 4); // spawn column (x, groundY, z, spawnHeight)
   const aSeedA  = new Float32Array(COUNT * 4); // phase, tumbleRate, size, lifeOffset
   const aSeedB  = new Float32Array(COUNT * 4); // spiralR, spiralRate, axisTilt, tint
   const aMode   = new Float32Array(COUNT);     // 0 = airborne, 1 = settled on ground
@@ -67,13 +67,15 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
   for (let i = 0; i < COUNT; i++) {
     // Bias spawn positions toward tree canopies — petals should come FROM the
     // trees, not rain uniformly out of an invisible box.
-    let x, z;
-    if (canopies.length && rng() < 0.78) {
-      const c = canopies[(rng() * canopies.length) | 0];
+    let x, z, canopy = null;
+    if (canopies.length && rng() < 0.85) {
+      canopy = canopies[(rng() * canopies.length) | 0];
       const a = rng() * Math.PI * 2;
-      const r = Math.sqrt(rng()) * (c.radius || 6) * 1.9;
-      x = c.x + Math.cos(a) * r;
-      z = c.z + Math.sin(a) * r;
+      // Tighter than the old 1.9× spread: the horizontal launch now carries
+      // petals OFF the crown, so they no longer need to be born outside it.
+      const r = Math.sqrt(rng()) * (canopy.radius || 6) * 1.25;
+      x = canopy.x + Math.cos(a) * r;
+      z = canopy.z + Math.sin(a) * r;
     } else {
       x = R.range(rng, -half, half);
       z = R.range(rng, -half, half);
@@ -83,9 +85,23 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
 
     const groundY = heightAt ? heightAt(x, z) : 0;
 
-    aOrigin[i * 3 + 0] = x;
-    aOrigin[i * 3 + 1] = groundY;
-    aOrigin[i * 3 + 2] = z;
+    // Spawn height ABOVE this ground column, per petal. Canopy spawns start
+    // inside the upper half of THEIR OWN crown (emitter y = canopy centre in
+    // world space); the old global uFallHeight of 46 units is what made every
+    // petal read as falling out of the sky. Ambient spawns fill the air
+    // between groves at a modest height.
+    let spawnH;
+    if (canopy) {
+      const topY = (canopy.y ?? groundY + 9) + (canopy.radius || 6) * R.range(rng, 0.1, 0.55);
+      spawnH = Math.max(3.5, topY - groundY);
+    } else {
+      spawnH = R.range(rng, 16, 30);
+    }
+
+    aOrigin[i * 4 + 0] = x;
+    aOrigin[i * 4 + 1] = groundY;
+    aOrigin[i * 4 + 2] = z;
+    aOrigin[i * 4 + 3] = spawnH;
 
     aSeedA[i * 4 + 0] = rng() * Math.PI * 2;          // phase
     aSeedA[i * 4 + 1] = R.range(rng, 0.7, 2.4);       // tumble rate
@@ -105,7 +121,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
     aMode[i] = rng() < SETTLED_FRACTION ? 1 : 0;
   }
 
-  geo.setAttribute('aOrigin', new THREE.InstancedBufferAttribute(aOrigin, 3));
+  geo.setAttribute('aOrigin', new THREE.InstancedBufferAttribute(aOrigin, 4));
   geo.setAttribute('aSeedA',  new THREE.InstancedBufferAttribute(aSeedA, 4));
   geo.setAttribute('aSeedB',  new THREE.InstancedBufferAttribute(aSeedB, 4));
   geo.setAttribute('aMode',   new THREE.InstancedBufferAttribute(aMode, 1));
@@ -113,9 +129,9 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
   const uniforms = THREE.UniformsUtils.merge([
     THREE.UniformsLib.fog,
     {
-      uFallHeight:  { value: 46 },
       uFallSpeed:   { value: 0.052 },
       uDrift:       { value: 5.2 },
+      uLaunch:      { value: 6.5 },  // horizontal detach glide, world units
       uSunDir:      { value: new THREE.Vector3(0, 1, 0) },
       uSunColor:    { value: new THREE.Color(1, 1, 1) },
       uAmbient:     { value: new THREE.Color(0.4, 0.42, 0.5) },
@@ -136,14 +152,14 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
     side: THREE.DoubleSide,
 
     vertexShader: /* glsl */ `
-      attribute vec3  aOrigin;
+      attribute vec4  aOrigin;   // x, groundY, z, spawnHeight
       attribute vec4  aSeedA;   // phase, tumbleRate, size, lifeOffset
       attribute vec4  aSeedB;   // spiralR, spiralRate, axisTilt, tint
       attribute float aMode;    // 0 airborne, 1 settled
 
-      uniform float uFallHeight;
       uniform float uFallSpeed;
       uniform float uDrift;
+      uniform float uLaunch;
 
       varying vec2  vUv;
       varying vec3  vNormalW;
@@ -178,7 +194,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
         float tilt    = aSeedB.z;
 
         // ── where is this petal right now ────────────────────────
-        vec3 base = aOrigin;
+        vec3 base = aOrigin.xyz;
+        float spawnH = aOrigin.w;
         float gust = windGust(base);
 
         vec3 worldPos;
@@ -192,25 +209,42 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
           worldPos += windForce(base, uTime) * lift * 1.4;
           airborne = lift;
         } else {
-          // AIRBORNE: fall on a looping lifetime, drifting with the wind.
+          // AIRBORNE: detach and GLIDE. A petal does not rain straight down
+          // out of a tree: it leaves the crown sideways, caught by the wind,
+          // and only later does gravity win. Two changes from the naive fall:
+          // the vertical drop is eased (pow > 1: nearly level at first, fast
+          // late), and an impulsive horizontal launch along the wind heading,
+          // jittered per petal, decays over the early life.
           float life = fract(uTime * uFallSpeed + lifeOff);
-          float fallY = base.y + uFallHeight * (1.0 - life);
 
-          // Lateral travel accumulates over the petal's life — a petal that has
-          // been falling longer has been carried further downwind.
+          // Vertical: from THIS petal's own canopy top (aOrigin.w).
+          float fallY = base.y + spawnH * (1.0 - pow(life, 1.7));
+
+          // Launch: heading = wind rotated by a per-petal jitter of +-37 deg.
+          // Displacement 1-(1-life)^3 is the integral of a decaying initial
+          // velocity: fastest at the instant of detachment, spent by mid-life.
+          float ja = (fract(phase * 0.6366) - 0.5) * 1.3;
+          float cj = cos(ja), sj = sin(ja);
+          vec2 ld = vec2(uWindDir.x * cj - uWindDir.y * sj,
+                         uWindDir.x * sj + uWindDir.y * cj);
+          float launch = uLaunch * (0.55 + 0.35 * spiralR) * (0.6 + 0.4 * gust)
+                       * (1.0 - pow(1.0 - life, 3.0));
+
+          // Wind carry still accumulates over the whole life on top of the
+          // launch, so long-lived petals end far downwind.
           vec3 w = windForce(vec3(base.x, fallY, base.z), uTime);
-          vec3 drift = w * uDrift * life;
+          vec3 drift = vec3(ld.x, 0.0, ld.y) * launch + w * uDrift * life;
 
-          // Lazy spiral, decorrelated per petal.
+          // Spiral and wander fade IN over the first quarter of the life, so
+          // the crown sheds a coherent stream instead of a pre-scattered cloud.
+          float grow = smoothstep(0.04, 0.30, life);
           float sa = uTime * spiralS + phase;
-          vec3 spiral = vec3(cos(sa) * spiralR, 0.0, sin(sa) * spiralR);
-
-          // Gentle wander so the column never reads as a straight line.
+          vec3 spiral = vec3(cos(sa) * spiralR, 0.0, sin(sa) * spiralR) * grow;
           vec3 wander = vec3(
             sk_noise3(vec3(base.xz * 0.05, uTime * 0.25 + phase)),
             0.0,
             sk_noise3(vec3(base.zx * 0.05, uTime * 0.25 + phase + 9.1))
-          ) * 2.4;
+          ) * 2.4 * grow;
 
           worldPos = vec3(base.x, fallY, base.z) + drift + spiral + wander;
           airborne = 1.0;
@@ -313,6 +347,172 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
   for (let i = 0; i < COUNT; i++) mesh.setMatrixAt(i, identity);
   mesh.instanceMatrix.needsUpdate = true;
 
+  /* ── fallen-petal carpet ─────────────────────────────────────────
+   * A second, STATIC InstancedMesh: blossom already shed, pooled under the
+   * canopies. It lives here (not details.js) because it shares the petal
+   * geometry, the procedural silhouette, and the day/night lighting uniforms
+   * — shared BY REFERENCE, so the one update() below lights both meshes.
+   * Placement is baked once; per-frame cost is a single opaque draw call.
+   * Opaque cut-out (discard, depth-write) on purpose: 40k ground quads must
+   * never enter the transparent sort against the airborne pass.
+   */
+  let carpet = null, carpetGeo = null, carpetMat = null;
+  const CARPET_COUNT = (quality.fallenPetals | 0) || 0;
+  if (CARPET_COUNT > 0 && canopies.length) {
+    const crng = streamFor(seed, 'petals.carpet');
+
+    carpetGeo = makePetalGeometry();
+    // Lay the petal flat: length into -Z, the cupped face turned UP, so a
+    // slight instance tilt catches the light on the convex side.
+    carpetGeo.rotateX(-Math.PI / 2);
+
+    // Per instance: x = pink tint (same axis as airborne), y = age 0..1.
+    const aTintAge = new Float32Array(CARPET_COUNT * 2);
+    carpetGeo.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(aTintAge, 2));
+
+    const carpetUniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]);
+    // Lighting slots shared BY REFERENCE with the airborne material.
+    carpetUniforms.uSunDir   = uniforms.uSunDir;
+    carpetUniforms.uSunColor = uniforms.uSunColor;
+    carpetUniforms.uAmbient  = uniforms.uAmbient;
+    carpetUniforms.uGlow     = uniforms.uGlow;
+    // Slightly desaturated against the airborne pinks — yesterday's blossom.
+    carpetUniforms.uPaleColor = { value: new THREE.Color('#f6ecec') };
+    carpetUniforms.uDeepColor = { value: new THREE.Color('#e6bcc8') };
+
+    carpetMat = new THREE.ShaderMaterial({
+      uniforms: carpetUniforms,
+      fog: true,
+      side: THREE.DoubleSide,
+
+      vertexShader: /* glsl */ `
+        attribute vec2 aTintAge;
+
+        varying vec2  vUv;
+        varying vec3  vNormalW;
+        varying float vTint;
+        varying float vAge;
+
+        #include <fog_pars_vertex>
+
+        void main() {
+          vUv   = uv;
+          vTint = aTintAge.x;
+          vAge  = aTintAge.y;
+
+          // instanceMatrix is declared by three's prefix on any InstancedMesh.
+          vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          vNormalW = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * normal));
+
+          // NOTE: must be named mvPosition -- the fog_vertex chunk reads it.
+          vec4 mvPosition = viewMatrix * wp;
+          gl_Position = projectionMatrix * mvPosition;
+
+          #include <fog_vertex>
+        }
+      `,
+
+      fragmentShader: /* glsl */ `
+        uniform vec3  uSunDir;
+        uniform vec3  uSunColor;
+        uniform vec3  uAmbient;
+        uniform float uGlow;
+        uniform vec3  uPaleColor;
+        uniform vec3  uDeepColor;
+
+        varying vec2  vUv;
+        varying vec3  vNormalW;
+        varying float vTint;
+        varying float vAge;
+
+        #include <fog_pars_fragment>
+
+        void main() {
+          // Same procedural sakura silhouette as the airborne petals.
+          vec2 p = vUv * 2.0 - 1.0;
+          float y = p.y * 0.5 + 0.5;
+          float w = 0.92 * sqrt(max(0.0, 1.0 - pow(abs(p.y), 1.7)));
+          w *= mix(0.55, 1.0, smoothstep(0.0, 0.45, y));
+          float notch = smoothstep(0.62, 1.0, y) * 0.55 * (1.0 - smoothstep(0.0, 0.42, abs(p.x)));
+          float d = abs(p.x) - (w - notch);
+          float alpha = 1.0 - smoothstep(-0.06, 0.03, d);
+          if (alpha < 0.45) discard;
+
+          vec3 base = mix(uPaleColor, uDeepColor, vTint);
+          base = mix(base * 0.90, base, smoothstep(0.0, 0.7, y));
+          // Age: bruise toward ivory-brown, the pink going first.
+          base = mix(base, vec3(0.87, 0.80, 0.72) * (0.75 + 0.25 * base.r), vAge * 0.55);
+
+          vec3 n = normalize(vNormalW);
+          float wrap = dot(n, uSunDir) * 0.5 + 0.5;
+          vec3 col = base * (uAmbient + uSunColor * wrap * 0.55);
+          col += uSunColor * uGlow * 0.10 * base;
+
+          gl_FragColor = vec4(col, 1.0);
+
+          #include <fog_fragment>
+        }
+      `,
+    });
+
+    // Big crowns shed more: canopy choice weighted by crown AREA.
+    const cum = new Float64Array(canopies.length);
+    let acc = 0;
+    for (let ci = 0; ci < canopies.length; ci++) {
+      const r = canopies[ci].radius || 6;
+      acc += r * r;
+      cum[ci] = acc;
+    }
+    const pickCanopy = () => {
+      const t = crng() * acc;
+      let lo = 0, hi = cum.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (cum[mid] < t) lo = mid + 1; else hi = mid; }
+      return canopies[lo];
+    };
+
+    const cMesh = new THREE.InstancedMesh(carpetGeo, carpetMat, CARPET_COUNT);
+    cMesh.name = 'petal-carpet';
+    cMesh.castShadow = false;
+    cMesh.receiveShadow = false;   // ShaderMaterial: no shadow chunks, same as airborne
+    cMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+
+    const UPV = new THREE.Vector3(0, 1, 0);
+    const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _tq = new THREE.Quaternion();
+    const _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+
+    let placed = 0, attempts = 0;
+    while (placed < CARPET_COUNT && attempts < CARPET_COUNT * 30) {
+      attempts++;
+      const c = pickCanopy();
+      const rad = (c.radius || 6) * 1.12;
+      // pow 0.7 biases toward the trunk: dense centre thinning to a fringe.
+      const rr = Math.pow(crng(), 0.7) * rad;
+      const a = crng() * Math.PI * 2;
+      const x = c.x + Math.cos(a) * rr;
+      const z = c.z + Math.sin(a) * rr;
+      if (exclude && exclude(x, z)) continue;
+      if (slopeAt && slopeAt(x, z) > 0.55) continue;
+      const h = heightAt ? heightAt(x, z) : 0;
+
+      // Random yaw, then a small tilt off the ground plane so faces vary
+      // against the light instead of forming one specular sheet.
+      _e.set(R.range(crng, -0.35, 0.35), 0, R.range(crng, -0.35, 0.35));
+      _q.setFromAxisAngle(UPV, crng() * Math.PI * 2).multiply(_tq.setFromEuler(_e));
+      const s = R.skew(crng, 0.16, 0.44, 1.6);
+      _m.compose(_p.set(x, h + R.range(crng, 0.02, 0.05), z), _q, _s.set(s, s, s));
+      cMesh.setMatrixAt(placed, _m);
+
+      // The fringe fell first: older (browner, duller) toward the disc edge.
+      aTintAge[placed * 2 + 0] = R.skew(crng, 0, 1, 2.4);
+      aTintAge[placed * 2 + 1] = clamp((rr / rad) * 0.6 + crng() * 0.45, 0, 1);
+      placed++;
+    }
+    cMesh.count = placed;
+    cMesh.instanceMatrix.needsUpdate = true;
+    cMesh.computeBoundingSphere();   // InstancedMesh version unions instances
+    carpet = cMesh;
+  }
+
   const _sun = new THREE.Vector3();
 
   function update(t, phase) {
@@ -341,7 +541,10 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
     geo.dispose();
     material.dispose();
     mesh.dispose();
+    carpetGeo?.dispose();
+    carpetMat?.dispose();
+    carpet?.dispose();
   }
 
-  return { mesh, update, dispose, count: COUNT };
+  return { mesh, carpet, update, dispose, count: COUNT, carpetCount: carpet ? carpet.count : 0 };
 }
