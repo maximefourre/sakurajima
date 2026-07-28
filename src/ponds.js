@@ -303,25 +303,30 @@ function makeKoiGeometry() {
 
   // — caudal fin: a forked vertical sweep, the part that actually reads as
   //   movement when the fish turns —
+  //
+  // The median fins are sheets in the x=0 plane, so their normal is ±X. Giving
+  // them +Z puts the normal IN the surface and every lighting term collapses to
+  // the wrap constant, which is why they used to read as grey card. One winding
+  // each: the material is DoubleSide and flips the normal on gl_FrontFacing, so
+  // a mirrored copy only costs a second blend pass over the same pixels — which
+  // on a transparent material darkens the fins relative to the body.
   const tailLen = 0.24, tailSpread = 0.145;
-  const tRoot = push(0, 0, zt, 0, 0, 1, 1.0, 0.5, 1);
-  const tNotch = push(0, 0, zt - tailLen * 0.52, 0, 0, 1, 1.0, 0.5, 1);
+  const tRoot = push(0, 0, zt, 1, 0, 0, 1.0, 0.5, 1);
+  const tNotch = push(0, 0, zt - tailLen * 0.52, 1, 0, 0, 1.0, 0.5, 1);
   for (const side of [1, -1]) {
-    const mid = push(0, side * tailSpread * 0.55, zt - tailLen * 0.55, 0, 0, 1, 1.0, 0.5, 1);
-    const tip = push(0, side * tailSpread, zt - tailLen, 0, 0, 1, 1.0, 0.5, 1);
+    const mid = push(0, side * tailSpread * 0.55, zt - tailLen * 0.55, 1, 0, 0, 1.0, 0.5, 1);
+    const tip = push(0, side * tailSpread, zt - tailLen, 1, 0, 0, 1.0, 0.5, 1);
     idx.push(tRoot, mid, tip, tRoot, tip, tNotch);
-    idx.push(tRoot, tNotch, tip, tRoot, tip, mid);   // both windings: the fin is a sheet
   }
 
   // — dorsal ridge —
   const dz0 = 0.5 - 0.34, dz1 = 0.5 - 0.76;
-  const d0 = push(0, halfH(0.38) * 0.92, dz0, 0, 0, 1, 0.38, 0.5, 1);
-  const d1 = push(0, halfH(0.55) * 0.92 + 0.052, (dz0 + dz1) * 0.5, 0, 0, 1, 0.55, 0.5, 1);
-  const d2 = push(0, halfH(0.80) * 0.92, dz1, 0, 0, 1, 0.80, 0.5, 1);
-  const d3 = push(0, halfH(0.38) * 0.55, dz0, 0, 0, 1, 0.38, 0.5, 1);
-  const d4 = push(0, halfH(0.80) * 0.55, dz1, 0, 0, 1, 0.80, 0.5, 1);
+  const d0 = push(0, halfH(0.38) * 0.92, dz0, 1, 0, 0, 0.38, 0.5, 1);
+  const d1 = push(0, halfH(0.55) * 0.92 + 0.052, (dz0 + dz1) * 0.5, 1, 0, 0, 0.55, 0.5, 1);
+  const d2 = push(0, halfH(0.80) * 0.92, dz1, 1, 0, 0, 0.80, 0.5, 1);
+  const d3 = push(0, halfH(0.38) * 0.55, dz0, 1, 0, 0, 0.38, 0.5, 1);
+  const d4 = push(0, halfH(0.80) * 0.55, dz1, 1, 0, 0, 0.80, 0.5, 1);
   idx.push(d3, d0, d1, d3, d1, d4, d4, d1, d2);
-  idx.push(d1, d0, d3, d4, d1, d3, d2, d1, d4);
 
   // — pectorals, splayed nearly flat so they show from above —
   for (const side of [1, -1]) {
@@ -330,7 +335,7 @@ function makeKoiGeometry() {
     const root = push(side * w0, -0.012, zr, 0, 1, 0, s0, 0.25, 2);
     const back = push(side * w0, -0.020, zr - 0.075, 0, 1, 0, s0, 0.25, 2);
     const tip = push(side * (w0 + 0.115), -0.045, zr - 0.10, 0, 1, 0, s0, 0.25, 2);
-    idx.push(root, back, tip, root, tip, back);
+    idx.push(root, back, tip);
   }
 
   const g = new THREE.BufferGeometry();
@@ -563,10 +568,11 @@ function makeReedTuftGeometry(rng) {
       nrm.push(Math.cos(a), 0.35, Math.sin(a));
       uvs.push(1, t); kind.push(1);
     }
+    // One winding: marginMat is DoubleSide, so the mirrored copy only rasterised
+    // the same strip twice.
     for (let l = 0; l < LEVELS; l++) {
       const i0 = base + l * 2;
       idx.push(i0, i0 + 1, i0 + 2, i0 + 1, i0 + 3, i0 + 2);
-      idx.push(i0 + 2, i0 + 1, i0, i0 + 2, i0 + 3, i0 + 1);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -1033,8 +1039,11 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
         const r = sh + R.range(rng, -0.9, 0.7);
         const x = b.x + Math.cos(ang) * r;
         const z = b.z + Math.sin(ang) * r;
+        // Rooted in the GROUND, not at the waterline. Clamping the base to
+        // waterY buried every stand on the dry bank: the bank climbs 0.15-0.45
+        // over the half-metre outside the shore, which is most of a reed.
         const g = sampleHeight(x, z);
-        reedInst.push(x, Math.min(g, b.waterY) - 0.06, z, R.range(rng, 0.7, 1.35));
+        reedInst.push(x, g - 0.06, z, R.range(rng, 0.7, 1.35));
         reedTrim.push(R.range(rng, 0, TAU), R.range(rng, 0, TAU), rng(), R.range(rng, 0.6, 1.0));
       }
     }
