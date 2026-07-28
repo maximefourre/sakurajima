@@ -157,7 +157,14 @@ export function createWind() {
     uniforms.uWindMaster.value = v;
   }
 
-  return { uniforms, state, update, windAt, setMaster, WIND_GLSL };
+  // Hand out noise + wind as ONE self-contained block. Consumers were written
+  // against a "just give me windForce()" contract and should not have to know
+  // that it depends on the noise helpers; both halves are #ifndef-guarded, so
+  // including this alongside a separate NOISE_GLSL is harmless.
+  return {
+    uniforms, state, update, windAt, setMaster,
+    WIND_GLSL: NOISE_GLSL + WIND_GLSL,
+  };
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -177,7 +184,17 @@ export function createWind() {
  *   uFrontSharp uTurbulence uTurbScale uTurbRate
  */
 export const WIND_GLSL = /* glsl */ `
+#ifndef SK_WIND_GLSL
+#define SK_WIND_GLSL 1
+
+  // uTime is guarded separately: a host shader may already declare it, and a
+  // redefinition is a hard compile error. Any module that declares its own
+  // uTime must #define SK_UTIME_DECLARED before including this block.
+  #ifndef SK_UTIME_DECLARED
+  #define SK_UTIME_DECLARED 1
   uniform float uTime;
+  #endif
+
   uniform vec2  uWindDir;
   uniform float uWindStrength;
   uniform float uWindMaster;
@@ -222,4 +239,5 @@ export const WIND_GLSL = /* glsl */ `
   vec3 windForce(vec3 worldPos) {
     return windForce(worldPos, uTime);
   }
+#endif
 `;

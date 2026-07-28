@@ -9,14 +9,26 @@
 
 export const SEED = 20260727;
 
-/** World extent. The island lives inside this square; ocean fills the rest. */
+/**
+ * World extent.
+ *
+ * The island is deliberately WIDE and LOW rather than tall: a 240-unit island
+ * with a 34-unit peak reads as a dome — you see the whole thing at once and it
+ * looks like a hill in a bowl. Widening the footprint while flattening the
+ * relief turns it into a landscape you could walk across, with the ridge as a
+ * feature on it rather than the whole subject.
+ *
+ * Segment count is raised far less than the size, so triangle density per unit
+ * drops. That is intentional — terrain build time is already the slowest step
+ * of the load, and at this scale the extra resolution buys nothing visible.
+ */
 export const WORLD = {
-  size: 240,          // island tile is SIZE x SIZE world units
-  segments: 320,      // terrain mesh resolution (segments^2 quads)
+  size: 460,          // island tile is SIZE x SIZE world units
+  segments: 400,      // terrain mesh resolution (segments^2 quads)
   seaLevel: 0,        // y = 0 is the waterline
-  maxHeight: 34,      // peak of the ridge above sea level
-  beachTop: 1.5,      // above this height sand gives way to grass
-  grassTop: 22,       // above this, upland rock takes over
+  maxHeight: 17,      // peak of the ridge above sea level — low, rolling
+  beachTop: 1.2,      // above this height sand gives way to grass
+  grassTop: 13,       // above this, upland rock takes over
   grassMaxSlope: 0.62,// grass refuses to grow on slopes steeper than this
 };
 
@@ -117,10 +129,47 @@ export const DEFAULT_QUALITY = 'ultra';
 export const CAMERA = {
   fov: 42,
   near: 0.5,
-  far: 2400,
-  start: { x: 96, y: 38, z: 104 },
-  target: { x: -6, y: 10, z: -4 },
-  minDistance: 12,
-  maxDistance: 340,
+  far: 3200,
+  start: { x: 165, y: 74, z: 190 },
+  target: { x: -10, y: 6, z: -10 },
+  minDistance: 14,
+  maxDistance: 620,
   maxPolar: Math.PI * 0.495, // stop just above the horizon so you can't go under the island
+};
+
+/**
+ * The river. A single watercourse from the ridge to the sea, crossed by a
+ * wooden bridge. Its path is a hand-placed spline rather than something derived
+ * from the terrain: a real drainage simulation would wander plausibly but boringly,
+ * whereas an authored curve can be made to pass exactly where the bridge should be.
+ */
+export const RIVER = {
+  // Control points in world XZ, source (up on the ridge) to mouth (the sea).
+  //
+  // These are not guesses: the terrain was probed for its actual land extent
+  // (x ∈ [-102, 102], z ∈ [-110, 94], summit at (-60, 0) ≈ 20.6) and the line
+  // was then chosen to descend monotonically from the ridge shoulder to the
+  // south-east coast — roughly 19 → 17 → 13 → 8 → 0.6 → sea. An authored path
+  // that climbs anywhere makes the water surface either flow uphill or, once
+  // the descent constraint kicks in, flatten out entirely.
+  path: [
+    [-48,  -4],
+    [-30,  14],
+    [-10,  32],
+    [ 10,  50],
+    [ 30,  70],
+    [ 48,  88],
+    [ 64, 104],
+  ],
+  width: 8.5,         // water channel width
+  bankWidth: 15.0,    // how far the carved banks extend beyond the water
+  depth: 2.6,         // how deep the channel cuts below the surrounding ground
+  flowSpeed: 0.55,    // surface scroll rate
+
+  // Where along the path (0..1) the bridge sits. 0.46 puts it on the middle
+  // reach, where the banks are widest and the crossing reads best.
+  bridgeAt: 0.46,
+  bridgeSpan: 26,     // deck length across the water
+  bridgeWidth: 4.2,
+  bridgeRise: 3.1,    // camber of the arch — taiko-bashi are steeply humped
 };

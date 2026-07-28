@@ -170,6 +170,8 @@ export const mix = (a, b, t) => a + (b - a) * t;
  * like turbulent air, not agree with a heightfield.
  */
 export const NOISE_GLSL = /* glsl */ `
+#ifndef SK_NOISE_GLSL
+#define SK_NOISE_GLSL 1
   vec3 sk_hash33(vec3 p) {
     p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
              dot(p, vec3(269.5, 183.3, 246.1)),
@@ -204,4 +206,5 @@ export const NOISE_GLSL = /* glsl */ `
     for (int i = 0; i < 4; i++) { s += a * sk_noise3(p); p *= 2.02; a *= 0.5; }
     return s;
   }
+#endif
 `;

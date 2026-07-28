@@ -15,6 +15,7 @@ import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
 import { createIsland } from './island.js';
 import { createPonds } from './ponds.js';
+import { createRiver } from './river.js';
 import { createSakuraForest } from './sakura.js';
 import { createGrass } from './grass.js';
 import { createPetals } from './petals.js';
@@ -31,12 +32,29 @@ const perfFps = $('perf-fps'), perfDraw = $('perf-draw'), perfTri = $('perf-tri'
 
 let loadStep = 0;
 const LOAD_STEPS = 9;
-/** Advance the loading bar and yield a frame so the browser can actually paint it. */
+/**
+ * Advance the loading bar and yield so the browser can paint it.
+ *
+ * The yield races requestAnimationFrame against a timeout on purpose: Chrome
+ * suspends rAF entirely in a backgrounded or occluded tab, so an rAF-only await
+ * never resolves and the whole load stalls at whatever step it reached. The
+ * timeout guarantees forward progress; the rAF gives a real paint when the tab
+ * is actually visible.
+ */
+function yieldFrame() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    requestAnimationFrame(() => requestAnimationFrame(finish));
+    setTimeout(finish, 60);
+  });
+}
+
 async function step(msg) {
   loadStep++;
   status.textContent = msg;
   bar.style.width = `${(loadStep / LOAD_STEPS) * 100}%`;
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  await yieldFrame();
 }
 
 /* ── renderer / scene / camera ───────────────────────────────── */
@@ -78,7 +96,7 @@ const world = {
   daySpeed: 1,
   paused: false,
   wind: null,
-  island: null, ponds: null, forest: null, grass: null,
+  island: null, ponds: null, river: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null,
 };
 
@@ -98,21 +116,36 @@ async function boot() {
 
   await step('relief de l’île');
   world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null });
-  // The island composes the pond basins into its own heightfield, so the two
-  // agree on where the ground is by construction rather than by coincidence.
-  world.island = createIsland({ seed: SEED, quality: q, carve: world.ponds.carvePonds });
+  world.river = createRiver({ wind: world.wind });
+  // Both the pond basins and the river channel are composed INTO the island's
+  // heightfield, so the terrain mesh and every heightAt() query agree on where
+  // the ground is by construction rather than by coincidence. Carving after the
+  // fact would leave the water floating over higher ground.
+  const carve = (x, z, h) => world.river.carveRiver(x, z, world.ponds.carvePonds(x, z, h));
+  world.island = createIsland({ seed: SEED, quality: q, carve });
   scene.add(world.island.group);
 
+  // island.js already bakes its heightfield onto a grid and interpolates it,
+  // so heightAt is a cheap array lookup, not a noise evaluation. An extra cache
+  // on top of it was caching a cache.
+  world.heightAt = world.island.heightAt;
+  world.slopeAt = world.island.slopeAt;
+
+  // The river needs the finished terrain to know where its own bed ended up,
+  // so the water surface and bridge are built here rather than at construction.
+  world.river.build(world.heightAt);
+
   await step('étangs et carpes');
-  world.ponds.attach({ heightAt: world.island.heightAt });
+  world.ponds.attach({ heightAt: world.heightAt });
   scene.add(world.ponds.group);
+  scene.add(world.river.group);
 
   await step('cerisiers');
   world.forest = createSakuraForest({
     seed: SEED, quality: q,
-    heightAt: world.island.heightAt,
-    slopeAt: world.island.slopeAt,
-    isInPond: world.ponds.isInPond,
+    heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
     wind: world.wind,
   });
   scene.add(world.forest.group);
@@ -120,19 +153,31 @@ async function boot() {
   await step('herbe');
   world.grass = createGrass({
     seed: SEED, quality: q,
-    heightAt: world.island.heightAt,
-    slopeAt: world.island.slopeAt,
-    isInPond: world.ponds.isInPond,
+    // createGrass does not read `quality`; these are the option names it
+    // actually honours. Without them it silently falls back to its own
+    // defaults — 96k blades over the wrong footprint, which on a 460-unit
+    // island reads as no grass at all.
+    count: q.grassBlades,
+    bounds: { size: WORLD.size },
+    heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
     wind: world.wind,
   });
   scene.add(world.grass.mesh);
 
   await step('pétales');
+  // The forest exposes canopy positions as `emitters` ({position, radius}); the
+  // petal system wants flat {x, z, radius}. Without this the spawn falls back to
+  // a uniform box and petals rain everywhere instead of drifting off the trees.
+  world.canopies = (world.forest.emitters ?? []).map((e) => ({
+    x: e.position.x, z: e.position.z, radius: e.radius,
+  }));
   world.petals = createPetals({
     seed: SEED, quality: q,
-    canopies: world.forest.canopies,
+    canopies: world.canopies,
     wind: world.wind,
-    heightAt: world.island.heightAt,
+    heightAt: world.heightAt,
   });
   scene.add(world.petals.mesh);
 
@@ -146,7 +191,7 @@ async function boot() {
   await step('oiseaux');
   world.birds = createBirds({
     seed: SEED, quality: q,
-    heightAt: world.island.heightAt,
+    heightAt: world.heightAt,
     wind: world.wind,
     ponds: world.ponds.PONDS,
   });
@@ -158,6 +203,9 @@ async function boot() {
   veil.classList.add('gone');
   hud.classList.add('on');
   panel.classList.add('on');
+
+  // Handy for debugging from the console: window.__sk.world.river, etc.
+  globalThis.__sk = { world, scene, camera, renderer, THREE };
 
   renderer.setAnimationLoop(frame);
 }
@@ -177,15 +225,34 @@ function frame() {
   world.wind.update(t, dt);
   const phase = world.sky.update(world.dayTime, dt);
 
+  // Each subsystem was designed independently, so their update() signatures
+  // differ. This block is the single place that adapts the sky's `phase` object
+  // to what each one actually expects — keeping the translation here rather
+  // than editing five modules to agree.
+  //
+  // `keyDir`/`keyColor`/`keyIntensity` are used in preference to the sun fields:
+  // they resolve to whichever of sun or moon currently dominates, so vegetation
+  // is lit by moonlight at night instead of by a sun that has set.
   world.island.update(t, phase);
   world.ponds.update(t, dt, phase);
-  world.forest.update(t, phase);
-  // grass.update's second argument is the CAMERA (it drives LOD ring selection),
-  // not the day/night phase. Sun colour reaches it through setSun() instead.
+  world.river.update(t, phase);
+
+  // Trees take the wind uniforms as their second argument, not the phase; the
+  // lighting arrives separately through setEnvironment().
+  world.forest.update(t, world.wind.uniforms);
+  world.forest.setEnvironment?.({
+    sunDirection: phase.keyDir,
+    sunColor: phase.keyColor,
+    sunIntensity: phase.keyIntensity,
+    ambientSky: phase.skyColor,
+    ambientGround: phase.groundColor,
+    ambientIntensity: phase.ambient,
+  });
+
+  // grass.update's second argument is the CAMERA (it drives LOD ring selection).
   world.grass.update(t, camera);
-  if (phase?.sunDirection) {
-    world.grass.setSun?.(phase.sunDirection, phase.sunColor, phase.sunIntensity);
-  }
+  world.grass.setSun?.(phase.keyDir, phase.keyColor, phase.keyIntensity);
+
   world.petals.update(t, phase);
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);
@@ -269,18 +336,24 @@ async function rebuildForQuality() {
 
   world.grass = createGrass({
     seed: SEED, quality: q,
-    heightAt: world.island.heightAt,
-    slopeAt: world.island.slopeAt,
-    isInPond: world.ponds.isInPond,
+    // createGrass does not read `quality`; these are the option names it
+    // actually honours. Without them it silently falls back to its own
+    // defaults — 96k blades over the wrong footprint, which on a 460-unit
+    // island reads as no grass at all.
+    count: q.grassBlades,
+    bounds: { size: WORLD.size },
+    heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
     wind: world.wind,
   });
   scene.add(world.grass.mesh);
 
   world.petals = createPetals({
     seed: SEED, quality: q,
-    canopies: world.forest.canopies,
+    canopies: world.canopies,
     wind: world.wind,
-    heightAt: world.island.heightAt,
+    heightAt: world.heightAt,
   });
   scene.add(world.petals.mesh);
 

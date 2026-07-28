@@ -332,6 +332,9 @@ attribute vec4  aParams;   // x: phase, y: stiffness, z: rest bend (rad), w: hei
 attribute float aWidth;    // relative width jitter
 attribute vec3  aTint;     // linear working-space colour
 
+// Tell the shared wind block that uTime already exists here, so its own
+// guarded declaration is skipped. Two declarations is a compile error.
+#define SK_UTIME_DECLARED 1
 uniform float uTime;
 uniform float uBladeHeight;
 uniform float uBladeWidth;

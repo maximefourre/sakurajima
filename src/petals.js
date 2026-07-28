@@ -317,12 +317,24 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt }) {
 
   function update(t, phase) {
     // Wind uniforms are shared by reference and already updated by wind.update().
-    if (phase) {
-      if (phase.sunDirection) uniforms.uSunDir.value.copy(phase.sunDirection);
-      if (phase.sunColor)     uniforms.uSunColor.value.copy(phase.sunColor);
-      if (phase.ambientColor) uniforms.uAmbient.value.copy(phase.ambientColor);
-      uniforms.uGlow.value = phase.goldenHour ?? 0;
+    if (!phase) return;
+    // keyDir/keyColor resolve to sun by day and moon by night, so petals stay
+    // lit after sunset instead of going flat black.
+    const dir = phase.keyDir || phase.sunDirection;
+    const col = phase.keyColor || phase.sunColor;
+    if (dir) uniforms.uSunDir.value.copy(dir);
+    if (col) {
+      const k = phase.keyIntensity ?? 1;
+      uniforms.uSunColor.value.setRGB(col.r * k, col.g * k, col.b * k);
     }
+    const amb = phase.skyColor || phase.ambientColor;
+    if (amb) {
+      const a = phase.ambient ?? 1;
+      uniforms.uAmbient.value.setRGB(amb.r * a, amb.g * a, amb.b * a);
+    }
+    // `emissive` is the sky module's own "how much should things glow" weight,
+    // which peaks through golden hour and night.
+    uniforms.uGlow.value = phase.emissive ?? phase.golden ?? 0;
   }
 
   function dispose() {
