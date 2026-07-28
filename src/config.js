@@ -19,15 +19,25 @@ export const SEED = 20260727;
  * landmass with the river ending nowhere near the sea.
  *
  * So the footprint is ONE knob and every authored XZ coordinate is multiplied by
- * it at the point where it is defined. Heights are deliberately NOT scaled: the
+ * it at the point where it is defined. Heights do NOT follow this knob: the
  * island is meant to be wide and low, and a taller island at this footprint
- * reads as a mountain in a bowl rather than as a landscape.
+ * reads as a mountain in a bowl rather than as a landscape. They get their own,
+ * much gentler knob — HEIGHT_SCALE below.
  *
  * Anything derived from noise scales for free — the coastline wobble and the
  * domain warp keep their absolute frequency, so a bigger island simply gets
  * proportionally finer coves, which is the right way round.
  */
-export const LAND_SCALE = 1.42;
+export const LAND_SCALE = 1.42 * Math.sqrt(5); // ≈3.175 — the √5 multiplies the original footprint's AREA by exactly 5
+
+/**
+ * Partial relief raise. Heights deliberately do NOT follow LAND_SCALE (see
+ * above — the island must stay wide and low), but at ×2.24 linear the original
+ * 17-unit ridge on a 1120-unit island reads as a pancake (1:66 height:width vs
+ * the authored 1:41). A partial raise keeps the "landscape, not mountain"
+ * doctrine while giving the silhouette back its presence (1:47).
+ */
+export const HEIGHT_SCALE = 1.4;
 
 /**
  * World extent.
@@ -47,11 +57,11 @@ export const WORLD = {
   // there is seabed on every side; the ocean disc reads its depth from this
   // tile's baked heightfield and clamps to the edge value beyond it.
   size: Math.round(460 * LAND_SCALE),
-  segments: 460,      // terrain mesh resolution (segments^2 quads)
+  segments: 768,      // terrain mesh resolution (segments^2 quads) — keeps quads under ~2 units so the beach band stays resolved
   seaLevel: 0,        // y = 0 is the waterline
-  maxHeight: 17,      // peak of the ridge above sea level — low, rolling
-  beachTop: 1.2,      // above this height sand gives way to grass
-  grassTop: 13,       // above this, upland rock takes over
+  maxHeight: Math.round(17 * HEIGHT_SCALE), // peak of the ridge above sea level — low, rolling
+  beachTop: 1.2,      // above this height sand gives way to grass (absolute — the sand band doesn't grow with relief)
+  grassTop: Math.round(13 * HEIGHT_SCALE),  // above this, upland rock takes over
   grassMaxSlope: 0.62,// grass refuses to grow on slopes steeper than this
 };
 
@@ -110,17 +120,28 @@ export const START_TIME = 0.235; // just before sunrise — best first impressio
  * turns a grove into an orchard and a meadow into a lawn — the counts stay
  * impressive in the profiler and the density on screen quietly halves.
  */
-const AREA = LAND_SCALE * LAND_SCALE;
+export const AREA = LAND_SCALE * LAND_SCALE;
+
+/**
+ * At ×5 area, full AREA scaling of the expensive scatters (grass, trees,
+ * petals, rocks) blows past what loads and renders comfortably (3M blades,
+ * 3000+ trees). Those budgets scale by AREA^0.75 instead: density per square
+ * unit drops a little, and the per-instance knobs (blade size, canopy
+ * fullness) are raised to compensate — fewer, more magnificent things.
+ * Cheap instanced dressing (wildflowers, pebbles in details.js) still uses
+ * full AREA.
+ */
+export const AREA_SOFT = Math.pow(AREA, 0.75);
 
 export const QUALITY = {
   low: {
     label: 'low',
-    grassBlades: Math.round(45000 * AREA),
+    grassBlades: Math.round(45000 * AREA_SOFT),
     grassRadius: Math.round(70 * LAND_SCALE),
-    petals: Math.round(2500 * AREA),
-    trees: Math.round(90 * AREA),
+    petals: Math.round(1400 * AREA_SOFT),
+    trees: Math.round(56 * AREA_SOFT),
     uniqueTrees: 10,
-    rocks: Math.round(60 * AREA),
+    rocks: Math.round(35 * AREA_SOFT),
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -128,12 +149,12 @@ export const QUALITY = {
   },
   high: {
     label: 'high',
-    grassBlades: Math.round(150000 * AREA),
+    grassBlades: Math.round(200000 * AREA_SOFT),
     grassRadius: Math.round(105 * LAND_SCALE),
-    petals: Math.round(7000 * AREA),
-    trees: Math.round(215 * AREA),
-    uniqueTrees: 16,
-    rocks: Math.round(100 * AREA),
+    petals: Math.round(4200 * AREA_SOFT),
+    trees: Math.round(150 * AREA_SOFT),
+    uniqueTrees: 18,
+    rocks: Math.round(74 * AREA_SOFT),
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -141,12 +162,12 @@ export const QUALITY = {
   },
   ultra: {
     label: 'ultra',
-    grassBlades: Math.round(300000 * AREA),
+    grassBlades: Math.round(470000 * AREA_SOFT),
     grassRadius: Math.round(130 * LAND_SCALE),
-    petals: Math.round(12000 * AREA),
-    trees: Math.round(310 * AREA),
-    uniqueTrees: 24,
-    rocks: Math.round(140 * AREA),
+    petals: Math.round(8500 * AREA_SOFT),
+    trees: Math.round(250 * AREA_SOFT),
+    uniqueTrees: 28,
+    rocks: Math.round(110 * AREA_SOFT),
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -156,11 +177,28 @@ export const QUALITY = {
 
 export const DEFAULT_QUALITY = 'ultra';
 
+/**
+ * The pilgrim path: from the cliff-top overlook on the west coast, along the
+ * ridge flank and the river's south bank, down to the west end of the bridge.
+ * Authored in unit-island coordinates like everything else. Torii stand at
+ * `toriiAt` fractions along the spline. The route deliberately keeps ≥ ~19
+ * units from the river centreline until the abutment — closer and it falls
+ * into the carved bank.
+ */
+export const PATH = {
+  points: [
+    [-88, 0], [-80, 10], [-70, 18], [-60, 25], [-50, 33],
+    [-38, 42], [-26, 48], [-16, 52], [-9, 54],
+  ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]),
+  width: 3.2,
+  toriiAt: [0.06, 0.5, 0.93],
+};
+
 /** Camera framing. Chosen so the opening shot reads as a postcard, not a debug view. */
 export const CAMERA = {
   fov: 42,
   near: 0.5,
-  far: 3200,
+  far: Math.round(1750 * LAND_SCALE), // must exceed the ocean disc's far radius (≈ SIZE * 3.37)
   // Framed to read as an island: far enough out that the coastline and the
   // surrounding sea are both in shot, high enough to see the river's whole run.
   start: { x: 215 * LAND_SCALE * 0.86, y: 112 * LAND_SCALE * 0.86, z: 250 * LAND_SCALE * 0.86 },
@@ -205,18 +243,46 @@ export const RIVER = {
     [ 50,  94],
     [ 64, 106],
   ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]),
+
+  // Distributaries of the delta — the river reaches the sea at three mouths.
+  // Each path BEGINS with the two trunk control points around the junction
+  // ([24,72] then [40,80], t ≈ 0.80 on the trunk, downstream of the bridge) so
+  // the Catmull-Rom tangent at the split matches the trunk's flow direction,
+  // then diverges to its own mouth. Mouths are 60+ world units apart with land
+  // tongues between them; all end past the coast so the bank-based mouth
+  // detection in river.js finds each estuary on its own. `widthK` is the share
+  // of the flow a distributary carries — the carve blends from full trunk
+  // width at the junction down to this.
+  // The junction sits where the trunk's water is already near sea level
+  // (probed: waterY ≈ 0.9 at [40,80]) — splitting higher upstream pins the
+  // branches to a water level ABOVE the low coastal flat they then cross,
+  // which reads as a floating sheet. The whole south-east quadrant is a low
+  // braided plain, so the arms fan out WIDE: mouths are 135–165 world units
+  // apart, each meeting its own stretch of surf.
+  branches: [
+    { path: [[24, 72], [40, 80], [56, 84], [72, 84], [86, 82], [98, 80]],  widthK: 0.55 }, // east mouth
+    { path: [[24, 72], [40, 80], [38, 92], [32, 104], [24, 116], [16, 126]], widthK: 0.50 }, // south-west mouth
+  ].map((b) => ({ ...b, path: b.path.map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]) })),
+
   // The channel widens with the island, but only partly — a river is sized by
   // its catchment, not by the map, and at full scale it starts to read as an
   // estuary all the way up.
   width: 6.0 * (1 + (LAND_SCALE - 1) * 0.6),
   bankWidth: 6.5 * (1 + (LAND_SCALE - 1) * 0.6),
-  depth: 3.4,         // how deep the channel cuts below the surrounding ground
+  // Depth follows the relief raise, capped — a deeper cut than ~4.3 starts to
+  // read as a gorge at this channel width.
+  depth: 3.4 * Math.min(HEIGHT_SCALE, 1.25),
   flowSpeed: 0.55,    // surface scroll rate
 
   // Where along the path (0..1) the bridge sits. 0.46 puts it on the middle
   // reach, where the banks are widest and the crossing reads best.
   bridgeAt: 0.46,
-  bridgeSpan: 26 * (1 + (LAND_SCALE - 1) * 0.6),  // must still span the widened channel
-  bridgeWidth: 4.2,
-  bridgeRise: 3.1,    // camber of the arch — taiko-bashi are steeply humped
+  // Spans the wetted channel plus a margin, NOT the full carve: the river runs
+  // along the ridge flank here, so the west bank climbs forever — a longer
+  // deck just drives its west end into the hillside and leaves the east end
+  // on a stone tower. buildBridge() also slides the deck a few units along its
+  // own axis to find the most level pair of abutments.
+  bridgeSpan: 16 * (1 + (LAND_SCALE - 1) * 0.6),
+  bridgeWidth: 5.5,
+  bridgeRise: 4.6,    // camber of the arch — taiko-bashi are steeply humped
 };

@@ -48,7 +48,7 @@ const SEP = 5.0, SEP2 = SEP * SEP;
 const W_SEP = 2.2, W_ALI = 0.95, W_COH = 0.8, W_WANDER = 4.6;
 
 const MIN_CLEAR = 4.5;      // never fly closer than this to ground or water
-const CEILING = 98;
+const CEILING = 140; // above the raised ridge (~30) and just above the cloud deck's low base
 
 /* The repeller — the dog. Deliberately violent: the whole point of the feature
  * is birds exploding off the grass as something runs at them. */

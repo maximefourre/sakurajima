@@ -190,8 +190,8 @@ const ARCHETYPES = {
 		radial:       [ 10, 7, 5, 4, 3 ],
 		barkBase: 0x3b2f29, barkTip: 0x6f5a4c, barkDead: 0x6d675e,
 		blossom: {
-			density: 12.0, start: 0.14, cluster: [ 3, 6 ], size: [ 0.175, 0.30 ], spread: 0.125,
-			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.02, leaf: 0.02
+			density: 15.0, start: 0.14, cluster: [ 4, 7 ], size: [ 0.24, 0.40 ], spread: 0.155,
+			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.03
 		}
 	},
 
@@ -216,8 +216,8 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 4, 3 ],
 		barkBase: 0x39302c, barkTip: 0x6a5344, barkDead: 0x69635b,
 		blossom: {
-			density: 11.0, start: 0.04, cluster: [ 3, 5 ], size: [ 0.155, 0.25 ], spread: 0.090,
-			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.03, leaf: 0.02
+			density: 14.0, start: 0.04, cluster: [ 4, 6 ], size: [ 0.21, 0.34 ], spread: 0.115,
+			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
 		}
 	},
 
@@ -242,8 +242,8 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 5, 4, 3 ],
 		barkBase: 0x342b26, barkTip: 0x6b5a4e, barkDead: 0x7c766c,
 		blossom: {
-			density: 9.5, start: 0.18, cluster: [ 3, 5 ], size: [ 0.160, 0.265 ], spread: 0.110,
-			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.09, leaf: 0.03
+			density: 12.0, start: 0.18, cluster: [ 4, 6 ], size: [ 0.21, 0.35 ], spread: 0.135,
+			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
 		}
 	},
 
@@ -268,8 +268,8 @@ const ARCHETYPES = {
 		radial:       [ 7, 5, 4, 3 ],
 		barkBase: 0x4a3226, barkTip: 0x7b5340, barkDead: 0x6f685d,
 		blossom: {
-			density: 9.5, start: 0.12, cluster: [ 2, 4 ], size: [ 0.140, 0.225 ], spread: 0.095,
-			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.05, leaf: 0.12
+			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.18, 0.29 ], spread: 0.115,
+			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
 		}
 	},
 
@@ -294,8 +294,8 @@ const ARCHETYPES = {
 		radial:       [ 12, 8, 6, 5, 4, 3 ],
 		barkBase: 0x2f2823, barkTip: 0x6a5c50, barkDead: 0x847d72,
 		blossom: {
-			density: 10.5, start: 0.16, cluster: [ 3, 6 ], size: [ 0.185, 0.325 ], spread: 0.135,
-			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.14, leaf: 0.05
+			density: 13.5, start: 0.16, cluster: [ 4, 7 ], size: [ 0.25, 0.43 ], spread: 0.165,
+			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
 		}
 	}
 
@@ -1159,8 +1159,11 @@ export function createSakuraForest( options = {} ) {
 		castShadow: true,
 		receiveShadow: true,
 		canopyShadows: true,
-		groveScale: 0.030,
-		groveContrast: 0.55,
+		// Big massifs with real clearings between them: lower frequency = larger
+		// coherent groves, higher contrast = the sparse zones actually go sparse
+		// instead of everywhere being a uniform sprinkle.
+		groveScale: 0.018,
+		groveContrast: 0.85,
 		keepBlossomSamples: true,
 		prototypeCounts: { somei: 4, shidare: 3, windswept: 3, ancient: 3, young: 3 },
 		weights: { somei: 0.38, shidare: 0.16, windswept: 0.14, ancient: 0.12, young: 0.20 }

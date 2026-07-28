@@ -23,7 +23,7 @@ import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
 import { createShiba } from './shiba.js';
-import { createDetails } from './details.js';
+import { createDetails, isOnPath } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -286,11 +286,11 @@ async function boot() {
     // and `isInPond` looked right and did nothing at all.
     count: q.trees,
     radius: 104 * LAND_SCALE,        // the land's own half-extent, before LAND_SCALE
-    quality: q.label === 'ultra' ? 1.15 : q.label === 'high' ? 0.9 : 0.6,
+    quality: q.label === 'ultra' ? 1.25 : q.label === 'high' ? 0.9 : 0.6,
     // Once the branch structure actually built, the default blossom load left
     // the island looking like an orchard in March. The blossom is the subject —
     // it should hide most of the branch it grows on.
-    blossomDensity: q.label === 'ultra' ? 2.2 : q.label === 'high' ? 1.8 : 1.3,
+    blossomDensity: q.label === 'ultra' ? 2.6 : q.label === 'high' ? 2.0 : 1.4,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
@@ -317,8 +317,8 @@ async function boot() {
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
     // river are carved into the heightfield, so their beds pass every test grass
     // does apply — gentle slope, right altitude — and the pools fill with
-    // submerged blades.
-    exclude: world.inWater,
+    // submerged blades. The pilgrim path is packed earth for the same reason.
+    exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
     wind: world.wind,
   });
   scene.add(world.grass.mesh);
@@ -575,8 +575,8 @@ async function rebuildForQuality() {
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
     // river are carved into the heightfield, so their beds pass every test grass
     // does apply — gentle slope, right altitude — and the pools fill with
-    // submerged blades.
-    exclude: world.inWater,
+    // submerged blades. The pilgrim path is packed earth for the same reason.
+    exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
     wind: world.wind,
   });
   scene.add(world.grass.mesh);

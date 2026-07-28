@@ -1,5 +1,7 @@
 /**
  * river.js — a watercourse across the island, and the bridge that crosses it.
+ * One trunk from the ridge, splitting at an authored junction into a delta
+ * that reaches the sea at three mouths (see RIVER.branches in config.js).
  *
  * Three responsibilities, in dependency order:
  *
@@ -33,22 +35,49 @@ import { fbm2, smoothstep, clamp } from './noise.js';
    Curve + spatial index
    ──────────────────────────────────────────────────────────────── */
 
-const curve = new THREE.CatmullRomCurve3(
-  RIVER.path.map(([x, z]) => new THREE.Vector3(x, 0, z)),
-  false,
-  'catmullrom',
-  0.5
-);
+/**
+ * One entry per watercourse: index 0 is the trunk, the rest are the delta's
+ * distributaries. Each keeps its own curve, sample tables, water profile and
+ * mouth fade; the spatial index and the baked field below are min-combined
+ * over all of them, so every consumer (terrain carve, rejection sampling)
+ * sees one river system with three mouths.
+ */
+const BRANCHES = [
+  { path: RIVER.path, samples: 420, widthK: 1 },
+  ...(RIVER.branches || []).map((b) => ({ path: b.path, samples: 120, widthK: b.widthK })),
+].map((spec) => {
+  const curve = new THREE.CatmullRomCurve3(
+    spec.path.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+    false,
+    'catmullrom',
+    0.5
+  );
+  const N = spec.samples;
+  const pts = curve.getSpacedPoints(N);               // evenly spaced along arc length
+  const sx = new Float32Array(N + 1);
+  const sz = new Float32Array(N + 1);
+  const st = new Float32Array(N + 1);                 // 0..1 along this branch
+  for (let i = 0; i <= N; i++) {
+    sx[i] = pts[i].x;
+    sz[i] = pts[i].z;
+    st[i] = i / N;
+  }
+  return { curve, N, sx, sz, st, widthK: spec.widthK, profile: null, fade: null };
+});
 
-const SAMPLES = 420;
-const _pts = curve.getSpacedPoints(SAMPLES);          // evenly spaced along arc length
-const SAMPLE_X = new Float32Array(SAMPLES + 1);
-const SAMPLE_Z = new Float32Array(SAMPLES + 1);
-const SAMPLE_T = new Float32Array(SAMPLES + 1);       // 0..1 along the river
-for (let i = 0; i <= SAMPLES; i++) {
-  SAMPLE_X[i] = _pts[i].x;
-  SAMPLE_Z[i] = _pts[i].z;
-  SAMPLE_T[i] = i / SAMPLES;
+const TRUNK = BRANCHES[0];
+const curve = TRUNK.curve;   // the bridge and the exported waterYAt keep their trunk meaning
+
+/**
+ * Effective width multiplier at (branch, t). A distributary is trunk-width
+ * where its path still overlaps the trunk and narrows to its own share as it
+ * diverges — so the carve has no step at the junction. The ramp starts at the
+ * junction (the branch's second control point, t ≈ 0.2 of its own arc).
+ */
+function widthKAt(b, t) {
+  if (b === 0) return 1;
+  const k = BRANCHES[b].widthK;
+  return 1 + (k - 1) * smoothstep(0.20, 0.55, t);
 }
 
 // Uniform grid over the world, cell ≈ the influence radius, so a query only
@@ -66,9 +95,15 @@ const cellOf = (x, z) => {
   return cz * GRID_N + cx;
 };
 
-for (let i = 0; i <= SAMPLES; i++) {
-  const c = cellOf(SAMPLE_X[i], SAMPLE_Z[i]);
-  (grid[c] ||= []).push(i);
+// Buckets hold a packed (branch << 12) | sampleIndex — sample counts stay
+// well under 4096, and one flat integer per entry keeps the inner query loop
+// allocation-free.
+for (let b = 0; b < BRANCHES.length; b++) {
+  const br = BRANCHES[b];
+  for (let i = 0; i <= br.N; i++) {
+    const c = cellOf(br.sx[i], br.sz[i]);
+    (grid[c] ||= []).push((b << 12) | i);
+  }
 }
 
 /**
@@ -83,7 +118,7 @@ function nearestOnRiverExact(x, z) {
   const cx = clamp(Math.floor((x + HALF) / CELL), 0, GRID_N - 1);
   const cz = clamp(Math.floor((z + HALF) / CELL), 0, GRID_N - 1);
 
-  let best = Infinity, bestT = 0;
+  let best = Infinity, bestT = 0, bestB = 0;
   for (let dz = -1; dz <= 1; dz++) {
     const rz = cz + dz;
     if (rz < 0 || rz >= GRID_N) continue;
@@ -93,14 +128,16 @@ function nearestOnRiverExact(x, z) {
       const bucket = grid[rz * GRID_N + rx];
       if (!bucket) continue;
       for (let k = 0; k < bucket.length; k++) {
-        const i = bucket[k];
-        const ddx = x - SAMPLE_X[i], ddz = z - SAMPLE_Z[i];
+        const packed = bucket[k];
+        const b = packed >> 12, i = packed & 0xfff;
+        const br = BRANCHES[b];
+        const ddx = x - br.sx[i], ddz = z - br.sz[i];
         const d2 = ddx * ddx + ddz * ddz;
-        if (d2 < best) { best = d2; bestT = SAMPLE_T[i]; }
+        if (d2 < best) { best = d2; bestT = br.st[i]; bestB = b; }
       }
     }
   }
-  return { dist: best === Infinity ? Infinity : Math.sqrt(best), t: bestT };
+  return { dist: best === Infinity ? Infinity : Math.sqrt(best), t: bestT, b: bestB };
 }
 
 /* ── baked distance field ─────────────────────────────────────────
@@ -114,6 +151,7 @@ const FIELD_CELL = 2.5;
 const FIELD_N = Math.ceil((HALF * 2) / FIELD_CELL) + 1;
 const _fieldDist = new Float32Array(FIELD_N * FIELD_N);
 const _fieldT = new Float32Array(FIELD_N * FIELD_N);
+const _fieldB = new Uint8Array(FIELD_N * FIELD_N);   // which branch is nearest
 
 for (let j = 0; j < FIELD_N; j++) {
   const z = -HALF + j * FIELD_CELL;
@@ -124,10 +162,11 @@ for (let j = 0; j < FIELD_N; j++) {
     // Clamp rather than store Infinity: NaNs propagate horribly through lerps.
     _fieldDist[k] = r.dist === Infinity ? REACH * 4 : r.dist;
     _fieldT[k] = r.t;
+    _fieldB[k] = r.b;
   }
 }
 
-const _result = { dist: 0, t: 0 };   // reused; never allocate in a hot loop
+const _result = { dist: 0, t: 0, b: 0 };   // reused; never allocate in a hot loop
 
 function nearestOnRiver(x, z) {
   let fx = (x + HALF) / FIELD_CELL;
@@ -146,7 +185,9 @@ function nearestOnRiver(x, z) {
           + (_fieldDist[r1 + i] * (1 - tx) + _fieldDist[r1 + i1] * tx) * tz;
 
   _result.dist = d;
-  _result.t = _fieldT[(tz < 0.5 ? r0 : r1) + (tx < 0.5 ? i : i1)];
+  const kNear = (tz < 0.5 ? r0 : r1) + (tx < 0.5 ? i : i1);
+  _result.t = _fieldT[kNear];
+  _result.b = _fieldB[kNear];
   return _result;
 }
 
@@ -162,31 +203,34 @@ function nearestOnRiver(x, z) {
  * So the channel is now carved RELATIVE to the local terrain, and the water
  * surface is sampled from the resulting bed afterwards.
  */
-let _profile = null;   // Float32Array of water Y, indexed like SAMPLE_*
-let _fade = null;      // Float32Array of 0..1 "still a river here", same indexing
-
-/** How much river there still is at t. 1 upstream, 0 once the banks are sea. */
-function fadeAt(t) {
-  if (!_fade) return 1;
-  const f = clamp(t, 0, 1) * SAMPLES;
-  const i = Math.min(SAMPLES, f | 0);
-  const i1 = Math.min(SAMPLES, i + 1);
+/** How much river there still is at (branch, t). 1 upstream, 0 once the banks are sea. */
+function fadeAtB(b, t) {
+  const br = BRANCHES[b];
+  if (!br.fade) return 1;
+  const f = clamp(t, 0, 1) * br.N;
+  const i = Math.min(br.N, f | 0);
+  const i1 = Math.min(br.N, i + 1);
   const a = f - i;
-  return _fade[i] * (1 - a) + _fade[i1] * a;
+  return br.fade[i] * (1 - a) + br.fade[i1] * a;
 }
 
-function waterYAt(t) {
-  if (!_profile) {
+function waterYAtB(b, t) {
+  const br = BRANCHES[b];
+  if (!br.profile) {
     // Fallback before build(): a plain descent, only used if something queries
     // the river before the terrain exists.
     return WORLD.seaLevel + Math.pow(1 - t, 1.55) * RIVER.depth + 0.12;
   }
-  const f = clamp(t, 0, 1) * SAMPLES;
-  const i = Math.min(SAMPLES, f | 0);
-  const i1 = Math.min(SAMPLES, i + 1);
+  const f = clamp(t, 0, 1) * br.N;
+  const i = Math.min(br.N, f | 0);
+  const i1 = Math.min(br.N, i + 1);
   const a = f - i;
-  return _profile[i] * (1 - a) + _profile[i1] * a;
+  return br.profile[i] * (1 - a) + br.profile[i1] * a;
 }
+
+/** Trunk-only views — the bridge and external callers keep their old meaning. */
+const fadeAt = (t) => fadeAtB(0, t);
+const waterYAt = (t) => waterYAtB(0, t);
 
 /* ────────────────────────────────────────────────────────────────
    1. Terrain carving
@@ -197,24 +241,29 @@ function waterYAt(t) {
  * Cuts a channel with soft banks and a slightly meandering, noisy edge.
  */
 export function carveRiver(x, z, h) {
-  const { dist } = nearestOnRiver(x, z);
+  const { dist, t, b } = nearestOnRiver(x, z);
   if (dist > REACH) return h;
 
-  // Wobble the effective width so the banks are never parallel lines.
+  // Wobble the effective width so the banks are never parallel lines, and
+  // narrow a distributary to its share of the flow once it leaves the trunk.
+  const wk = widthKAt(b, t);
   const wob = fbm2(x * 0.035, z * 0.035, 3) * 0.35 + 1;
-  const halfW = RIVER.width * 0.5 * wob;
-  const bank = RIVER.bankWidth * wob;
+  const halfW = RIVER.width * 0.5 * wob * wk;
+  const bank = RIVER.bankWidth * wob * wk;
 
   let inChannel = 1 - smoothstep(halfW, halfW + bank, dist);
   if (inChannel <= 0) return h;
 
-  // A river carves LAND, not seabed. Once the surrounding ground has dropped to
-  // the waterline there is nothing left to cut, and cutting anyway drags the
-  // trench on out under the sea as a dark groove aimed at the horizon — the
-  // channel stays perfectly legible through water that should have swallowed it.
-  // Fading the cut out over the last couple of units of elevation turns the last
-  // stretch into an estuary that opens and disappears.
-  inChannel *= smoothstep(WORLD.seaLevel - 0.2, WORLD.seaLevel + 2.2, h);
+  // A river carves LAND, not seabed. Once the surrounding ground has dropped
+  // well below the waterline there is nothing left to cut, and cutting anyway
+  // drags the trench on out under the sea as a dark groove aimed at the
+  // horizon. But the fade must reach a little BELOW sea level: the delta
+  // crosses a wide sand flat that sits barely above the waterline, and with
+  // the cut dying at +2.2 the three arms had no bed there — the water sank
+  // under the sand and the delta read as damp stains instead of channels. A
+  // channel that stays carved through the flat and only dissolves once the
+  // ground is genuinely seabed is exactly what a real river mouth scours.
+  inChannel *= smoothstep(WORLD.seaLevel - 0.5, WORLD.seaLevel + 1.2, h);
   if (inChannel <= 0) return h;
 
   // Cut RELATIVE to the local ground: the bed sits `depth` below whatever the
@@ -231,8 +280,8 @@ export function carveRiver(x, z, h) {
 
 /** True inside the wetted channel — used to keep grass and trees out of the water. */
 export function isInRiver(x, z) {
-  const { dist } = nearestOnRiver(x, z);
-  return dist < RIVER.width * 0.5 + 1.5;
+  const { dist, t, b } = nearestOnRiver(x, z);
+  return dist < RIVER.width * 0.5 * widthKAt(b, t) + 1.5;
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -240,29 +289,40 @@ export function isInRiver(x, z) {
    ──────────────────────────────────────────────────────────────── */
 
 /**
- * @param {Function} [fadeAt] (t) => 0..1 — how much river there still is here.
- *   Drops to 0 at the mouth, where the ribbon has to dissolve into the sea
- *   instead of ending at a rectangular edge sitting proud of it.
+ * One ribbon per branch. `startT` lets a distributary's ribbon begin only once
+ * it has slid out from under the trunk's — both are transparent with
+ * depthWrite off, so overlapping them would double-blend into a dark patch at
+ * the junction. The first few segments after startT ramp their fade in from 0
+ * so the branch surface slides out from under the trunk instead of starting
+ * on a hard edge.
+ *
+ * @param {number} b       branch index into BRANCHES
+ * @param {number} startT  0..1 along the branch where the ribbon starts
+ * @param {boolean} faded  whether mouth fade is available yet (post-build)
  */
-function buildWaterRibbon(fadeAt = null) {
-  const N = 240, W = RIVER.width * 0.5;
+function buildWaterRibbon(b = 0, startT = 0, faded = false) {
+  const br = BRANCHES[b];
+  const N = b === 0 ? 240 : 90;
+  const W = RIVER.width * 0.5;
+  const RAMP = 8; // segments over which a distributary fades in at the junction
   const pos = [], uv = [], idx = [], fade = [];
   const p = new THREE.Vector3(), tan = new THREE.Vector3();
 
   for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    curve.getPointAt(t, p);
-    curve.getTangentAt(t, tan);
+    const t = startT + (i / N) * (1 - startT);
+    br.curve.getPointAt(t, p);
+    br.curve.getTangentAt(t, tan);
     // Left-hand normal in the XZ plane.
     const nx = -tan.z, nz = tan.x;
     const len = Math.hypot(nx, nz) || 1;
     const wob = fbm2(p.x * 0.03, p.z * 0.03, 2) * 0.28 + 1;
     // The channel widens as it reaches the sea. An estuary that stays exactly as
     // wide as the upper reach reads as a canal.
-    const flare = fadeAt ? 1 + 1.5 * (1 - fadeAt(t)) : 1;
-    const w = W * wob * flare;
-    const y = waterYAt(t);
-    const f = fadeAt ? fadeAt(t) : 1;
+    const flare = faded ? 1 + 1.5 * (1 - fadeAtB(b, t)) : 1;
+    const w = W * wob * flare * widthKAt(b, t);
+    const y = waterYAtB(b, t);
+    let f = faded ? fadeAtB(b, t) : 1;
+    if (b > 0) f *= Math.min(1, i / RAMP);
 
     pos.push(p.x + (nx / len) * w, y, p.z + (nz / len) * w);
     pos.push(p.x - (nx / len) * w, y, p.z - (nz / len) * w);
@@ -370,7 +430,7 @@ const RIVER_FRAG = /* glsl */ `
  * driven into the bed. The steep camber is the whole character of the form —
  * a flat plank across a stream reads as a boardwalk, not as a garden bridge.
  */
-function buildBridge(group) {
+function buildBridge(group, heightAt = null) {
   const span = RIVER.bridgeSpan;
   const halfW = RIVER.bridgeWidth * 0.5;
   const rise = RIVER.bridgeRise;
@@ -451,14 +511,14 @@ function buildBridge(group) {
     }
   }
 
-  // — piles into the riverbed —
+  // — piles into the riverbed (long enough to reach the deeper carve) —
   for (const u of [-0.62, 0.62]) {
     for (const side of [-1, 1]) {
       const pile = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.17, 0.2, 5.5, 8),
+        new THREE.CylinderGeometry(0.17, 0.2, 8.5, 8),
         woodDark
       );
-      pile.position.set(u * span * 0.5, arch(u) - 2.8, side * (halfW - 0.5));
+      pile.position.set(u * span * 0.5, arch(u) - 4.2, side * (halfW - 0.5));
       pile.castShadow = true;
       bridge.add(pile);
     }
@@ -467,9 +527,43 @@ function buildBridge(group) {
   // — place and orient it across the river —
   const p = curve.getPointAt(RIVER.bridgeAt);
   const tan = curve.getTangentAt(RIVER.bridgeAt);
-  bridge.position.set(p.x, waterYAt(RIVER.bridgeAt) + 0.55, p.z);
   // The deck's long axis (+X) must lie ACROSS the flow, i.e. along the normal.
-  bridge.rotation.y = Math.atan2(tan.x, tan.z);
+  const ry = Math.atan2(tan.x, tan.z);
+  // Local +X expressed in world space for this yaw — used to find where the
+  // two abutments actually land on the banks.
+  const ax = Math.cos(ry), az = -Math.sin(ry);
+
+  // Seat the bridge on the BANKS, not on the water: with a fixed water-relative
+  // height the deck ends either bury themselves in a high bank or hang in the
+  // air over a low one. The river runs along a hillside, so first slide the
+  // deck along its own axis to the position where the two abutments land most
+  // level with each other; then float the arch so the higher bank meets its
+  // deck end flush, and close the remaining gap with low stone footings.
+  const wy = waterYAt(RIVER.bridgeAt) + 0.55;
+  let shift = 0, gA = wy, gB = wy;
+  if (heightAt) {
+    let best = Infinity;
+    for (let s = -12; s <= 12; s += 1) {
+      const a = heightAt(p.x + ax * (s + span * 0.5), p.z + az * (s + span * 0.5));
+      const b = heightAt(p.x + ax * (s - span * 0.5), p.z + az * (s - span * 0.5));
+      const cost = Math.abs(a - b) + Math.abs(s) * 0.08; // stay near the water unless it pays
+      if (cost < best) { best = cost; shift = s; gA = a; gB = b; }
+    }
+  }
+  const cx2 = p.x + ax * shift, cz2 = p.z + az * shift;
+  const baseY = Math.max(wy, Math.max(gA, gB) + 0.10);
+
+  const stone = new THREE.MeshStandardMaterial({ color: 0x8f8a80, roughness: 0.95, metalness: 0.0 });
+  for (const [side, g] of [[1, gA], [-1, gB]]) {
+    const hF = Math.min(4.0, Math.max(0.6, baseY - g + 0.5));
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(2.8, hF, RIVER.bridgeWidth * 1.06), stone);
+    foot.position.set(side * span * 0.5, 0.10 - hF * 0.5, 0);
+    foot.castShadow = foot.receiveShadow = true;
+    bridge.add(foot);
+  }
+
+  bridge.position.set(cx2, baseY, cz2);
+  bridge.rotation.y = ry;
 
   group.add(bridge);
   return bridge;
@@ -489,80 +583,143 @@ export function createRiver({ wind } = {}) {
    * flows uphill, but a noisy heightfield sampled along a curve will happily
    * suggest it does), then builds the water surface and the bridge on top.
    */
+  /**
+   * Nearest sample on the TRUNK only. Used to pin a distributary's water level
+   * to the trunk's through the junction, and to find where its ribbon can
+   * start. Brute force over 421 stations — build-time only, a few hundred
+   * calls total.
+   */
+  function nearestOnTrunk(x, z) {
+    let best = Infinity, bt = 0;
+    for (let i = 0; i <= TRUNK.N; i++) {
+      const dx = x - TRUNK.sx[i], dz = z - TRUNK.sz[i];
+      const d2 = dx * dx + dz * dz;
+      if (d2 < best) { best = d2; bt = TRUNK.st[i]; }
+    }
+    return { dist: Math.sqrt(best), t: bt };
+  }
+
   function build(heightAt) {
-    _profile = new Float32Array(SAMPLES + 1);
+    // Trunk first: the distributaries seed their water level from its profile.
+    for (let b = 0; b < BRANCHES.length; b++) {
+      const br = BRANCHES[b];
+      const N = br.N;
+      br.profile = new Float32Array(N + 1);
 
-    // Bed height at each station, lifted to a water surface just below the banks.
-    const bed = new Float32Array(SAMPLES + 1);
-    for (let i = 0; i <= SAMPLES; i++) {
-      bed[i] = heightAt(SAMPLE_X[i], SAMPLE_Z[i]);
-      _profile[i] = bed[i] + RIVER.depth * 0.72;
-    }
+      // Bed height at each station, lifted to a water surface just below the banks.
+      const bed = new Float32Array(N + 1);
+      for (let i = 0; i <= N; i++) {
+        bed[i] = heightAt(br.sx[i], br.sz[i]);
+        br.profile[i] = bed[i] + RIVER.depth * 0.72;
+      }
 
-    // Enforce monotonic descent from source to mouth.
-    //
-    // Guard against a badly-placed source: if the path happens to begin lower
-    // than points downstream (because it starts offshore, say), a naive
-    // "never rise" pass propagates that low value along the whole river and
-    // flattens it into a single submerged plane. Seed the descent from the
-    // HIGHEST station instead, and leave anything upstream of it clamped to
-    // its own bed.
-    let src = 0;
-    for (let i = 1; i <= SAMPLES; i++) if (_profile[i] > _profile[src]) src = i;
-    for (let i = src + 1; i <= SAMPLES; i++) {
-      if (_profile[i] > _profile[i - 1]) _profile[i] = _profile[i - 1];
-    }
-    for (let i = src - 1; i >= 0; i--) {
-      _profile[i] = Math.min(_profile[i], bed[i] + RIVER.depth * 0.72);
-    }
-    // Smooth the steps out so the surface does not read as a staircase.
-    for (let pass = 0; pass < 3; pass++) {
-      for (let i = 1; i < SAMPLES; i++) {
-        _profile[i] = (_profile[i - 1] + _profile[i] * 2 + _profile[i + 1]) * 0.25;
+      // Enforce monotonic descent from source to mouth.
+      //
+      // Trunk: guard against a badly-placed source — if the path happens to
+      // begin lower than points downstream, a naive "never rise" pass
+      // propagates that low value along the whole river and flattens it into
+      // a single submerged plane. Seed the descent from the HIGHEST station.
+      //
+      // Distributary: the seed is the JUNCTION — while the branch still runs
+      // inside the trunk's channel its surface IS the trunk's, station by
+      // station. Anything else puts a visible step in the water where the
+      // delta splits.
+      let src = 0;
+      let pinnedTo = -1;
+      if (b === 0) {
+        for (let i = 1; i <= N; i++) if (br.profile[i] > br.profile[src]) src = i;
+        for (let i = src - 1; i >= 0; i--) {
+          br.profile[i] = Math.min(br.profile[i], bed[i] + RIVER.depth * 0.72);
+        }
+      } else {
+        for (let i = 0; i <= N; i++) {
+          const nt = nearestOnTrunk(br.sx[i], br.sz[i]);
+          if (nt.dist < RIVER.width * 0.9) {
+            br.profile[i] = waterYAt(nt.t);
+            pinnedTo = i;
+          } else break;
+        }
+        src = Math.max(0, pinnedTo);
+      }
+      for (let i = src + 1; i <= N; i++) {
+        if (br.profile[i] > br.profile[i - 1]) br.profile[i] = br.profile[i - 1];
+      }
+      // Smooth the steps out so the surface does not read as a staircase —
+      // re-pinning the junction stations after each pass so smoothing cannot
+      // detach the join from the trunk.
+      for (let pass = 0; pass < 3; pass++) {
+        for (let i = 1; i < N; i++) {
+          br.profile[i] = (br.profile[i - 1] + br.profile[i] * 2 + br.profile[i + 1]) * 0.25;
+        }
+        for (let i = 0; i <= pinnedTo; i++) {
+          const nt = nearestOnTrunk(br.sx[i], br.sz[i]);
+          br.profile[i] = waterYAt(nt.t);
+        }
+      }
+      // The mouth must meet the sea.
+      const M = b === 0 ? 24 : 14;
+      for (let i = N - M; i <= N; i++) {
+        const a = (i - (N - M)) / M;
+        br.profile[i] = br.profile[i] * (1 - a) + (WORLD.seaLevel + 0.05) * a;
+      }
+
+      // Where does the river stop being a river?
+      //
+      // Not at the end of the curve — every path deliberately runs on past the
+      // coast so the mouth is not a special case to author. The honest test is
+      // the BANKS: sample the ground either side of the corridor, outside the
+      // carve, and ask how far above the waterline it still is. Once the banks
+      // are gone there is only sea, and both the channel and the ribbon have
+      // to dissolve rather than run on as a trench with a lid.
+      const bank = new Float32Array(N + 1);
+      const off = (RIVER.width * 0.5 + RIVER.bankWidth) * br.widthK + 3;
+      const _tan = new THREE.Vector3();
+      for (let i = 0; i <= N; i++) {
+        br.curve.getTangentAt(i / N, _tan);
+        const nx = -_tan.z, nz = _tan.x;
+        const l = Math.hypot(nx, nz) || 1;
+        bank[i] = Math.max(
+          heightAt(br.sx[i] + (nx / l) * off, br.sz[i] + (nz / l) * off),
+          heightAt(br.sx[i] - (nx / l) * off, br.sz[i] - (nz / l) * off)
+        );
+      }
+      br.fade = new Float32Array(N + 1);
+      for (let i = 0; i <= N; i++) {
+        // Thresholds are soft (fully faded only once the banks are truly awash)
+        // because the delta crosses a wide, barely-above-sea sand flat: with
+        // the old 2.4-unit ceiling all three arms dissolved at the flat's
+        // inner edge and the delta read as one lagoon instead of three
+        // channels reaching the surf.
+        br.fade[i] = smoothstep(WORLD.seaLevel + 0.05, WORLD.seaLevel + 1.4, bank[i]);
+      }
+      // Monotonic downstream: a sandbar mid-estuary must not make the river
+      // reappear beyond it.
+      for (let i = N - 1; i >= 0; i--) br.fade[i] = Math.max(br.fade[i], br.fade[i + 1]);
+      for (let pass = 0; pass < 4; pass++) {
+        for (let i = 1; i < N; i++) {
+          br.fade[i] = (br.fade[i - 1] + br.fade[i] * 2 + br.fade[i + 1]) * 0.25;
+        }
       }
     }
-    // The mouth must meet the sea.
-    for (let i = SAMPLES - 24; i <= SAMPLES; i++) {
-      const a = (i - (SAMPLES - 24)) / 24;
-      _profile[i] = _profile[i] * (1 - a) + (WORLD.seaLevel + 0.05) * a;
-    }
 
-    // Where does the river stop being a river?
-    //
-    // Not at the end of the curve — the path deliberately runs on past the
-    // coast so the mouth is not a special case to author. The honest test is
-    // the BANKS: sample the ground either side of the corridor, outside the
-    // carve, and ask how far above the waterline it still is. Once the banks
-    // are gone there is only sea, and both the channel and the ribbon have to
-    // dissolve rather than run on as a trench with a lid.
-    const bank = new Float32Array(SAMPLES + 1);
-    const off = RIVER.width * 0.5 + RIVER.bankWidth + 3;
-    const _tan = new THREE.Vector3();
-    for (let i = 0; i <= SAMPLES; i++) {
-      curve.getTangentAt(i / SAMPLES, _tan);
-      const nx = -_tan.z, nz = _tan.x;
-      const l = Math.hypot(nx, nz) || 1;
-      bank[i] = Math.max(
-        heightAt(SAMPLE_X[i] + (nx / l) * off, SAMPLE_Z[i] + (nz / l) * off),
-        heightAt(SAMPLE_X[i] - (nx / l) * off, SAMPLE_Z[i] - (nz / l) * off)
-      );
-    }
-    _fade = new Float32Array(SAMPLES + 1);
-    for (let i = 0; i <= SAMPLES; i++) {
-      _fade[i] = smoothstep(WORLD.seaLevel + 0.1, WORLD.seaLevel + 2.4, bank[i]);
-    }
-    // Monotonic downstream: a sandbar mid-estuary must not make the river
-    // reappear beyond it.
-    for (let i = SAMPLES - 1; i >= 0; i--) _fade[i] = Math.max(_fade[i], _fade[i + 1]);
-    for (let pass = 0; pass < 4; pass++) {
-      for (let i = 1; i < SAMPLES; i++) {
-        _fade[i] = (_fade[i - 1] + _fade[i] * 2 + _fade[i + 1]) * 0.25;
-      }
-    }
-
+    // One ribbon per branch, all sharing the trunk's material (and therefore
+    // its uniforms — update() touches all three surfaces at once). Each
+    // distributary's ribbon starts only once its centreline has slid out from
+    // under the trunk's, so the two transparent surfaces never double-blend.
     water.geometry.dispose();
-    water.geometry = buildWaterRibbon(fadeAt);
-    buildBridge(group);
+    water.geometry = buildWaterRibbon(0, 0, true);
+    for (let b = 1; b < BRANCHES.length; b++) {
+      const br = BRANCHES[b];
+      let i0 = 0;
+      for (let i = 0; i <= br.N; i++) {
+        if (nearestOnTrunk(br.sx[i], br.sz[i]).dist > RIVER.width * 0.55) { i0 = i; break; }
+      }
+      const mesh = new THREE.Mesh(buildWaterRibbon(b, i0 / br.N, true), water.material);
+      mesh.name = `river-branch-${b}`;
+      mesh.renderOrder = 2;
+      group.add(mesh);
+    }
+    buildBridge(group, heightAt);
   }
 
   const uniforms = {

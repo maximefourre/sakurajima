@@ -29,7 +29,7 @@
  */
 
 import * as THREE from 'three';
-import { WORLD, LAND_SCALE } from './config.js';
+import { WORLD, LAND_SCALE, HEIGHT_SCALE } from './config.js';
 import {
   noise2, fbm2, ridged2,
   streamFor, smoothstep as sstep, clamp, mix,
@@ -43,9 +43,12 @@ const TAU = Math.PI * 2;
 
 /*
  * Everything below is authored against a unit island and stretched by
- * LAND_SCALE. HEIGHTS are pointedly not stretched: this island is meant to be
- * wide and low, and scaling the relief with the footprint would just give a
- * bigger version of the same dome instead of a landscape you could walk across.
+ * LAND_SCALE. HEIGHTS do not follow the footprint knob — this island is meant
+ * to be wide and low, and scaling the relief with the footprint would just give
+ * a bigger version of the same dome instead of a landscape you could walk
+ * across. They follow the much gentler HEIGHT_SCALE, applied once to the whole
+ * land accumulator in analyticHeight so ridge, bumps and base relief keep
+ * their proportions.
  */
 const S = LAND_SCALE;
 
@@ -63,7 +66,7 @@ const BUMPS = [
 ].map((b) => ({ x: b.x * S, z: b.z * S, h: b.h, r: b.r * S }));
 
 /** The flat shelf where the cherry grove will read best. */
-const MEADOW = { x: 14 * S, z: -38 * S, r: 34 * S, y: 5.4, strength: 0.82 };
+const MEADOW = { x: 14 * S, z: -38 * S, r: 34 * S, y: 5.4 * HEIGHT_SCALE, strength: 0.82 };
 
 const BEACH_SOFT   = 0.58;  // 0..1 — how hard heights are compressed toward sea level
 const BEACH_WIDTH  = 2.8;   // world units of the compression band
@@ -222,7 +225,9 @@ const WATER_VERT = /* glsl */ `
     float depth = uSeaLevel - terrainH(wp.xz);
     float shore = smoothstep(0.15, 4.0, depth);
     float dist  = length(wp.xz);
-    float far   = 1.0 - 0.82 * smoothstep(650.0, 1900.0, dist);
+    // 650/1900 at the original footprint; scaled with LAND_SCALE so the swell
+    // still survives past the coastline and only dies on the coarse horizon.
+    float far   = 1.0 - 0.82 * smoothstep(1450.0, 4250.0, dist);
     float amp   = uWaveAmp * shore * far;
 
     vec2 d1 = vec2( 0.860,  0.510);
@@ -403,8 +408,8 @@ const WATER_FRAG = /* glsl */ `
 export function createIsland({ seed = 1337, quality = null, carve = null, isInPond = null } = {}) {
   const SIZE = WORLD.size;
   const HALF = SIZE * 0.5;
-  const SEG = quality && quality.label === 'low' ? 224
-            : quality && quality.label === 'high' ? 288
+  const SEG = quality && quality.label === 'low' ? 320
+            : quality && quality.label === 'high' ? 512
             : WORLD.segments;
   const W = SEG + 1;
   const STEP = SIZE / SEG;
@@ -459,7 +464,10 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     }
 
     // Land above water, seabed below, with the mask driving the transition.
-    let y = land * Math.pow(mask, 1.30) - 9.0 * (1 - mask);
+    // HEIGHT_SCALE lands here, once, so every relief component keeps its
+    // proportions; the seabed deepens with it so the wider shelf still reads
+    // as sea depth rather than a flooded plain.
+    let y = land * HEIGHT_SCALE * Math.pow(mask, 1.30) - 12.0 * (1 - mask);
     if (mask < 0.985) {
       y += (1 - mask) * 1.7 * fbm2(x * 0.026 + 3.3, z * 0.026 - 7.7, 3);
     }
@@ -471,6 +479,25 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       const w = sstep(MEADOW.r, MEADOW.r * 0.40, md) * MEADOW.strength * mask;
       const flat = MEADOW.y + 1.1 * fbm2(x * 0.035 - 14.2, z * 0.035 + 6.6, 3);
       y = mix(y, flat, w);
+    }
+
+    // ── the west cliff ─────────────────────────────────────────
+    // One stretch of coast refuses the beach: inside a sector facing due west
+    // the land swells into a high grassy rim and then drops off a ragged face
+    // straight into deep water. Built on the warped coords and the wobbled
+    // radial distance, so the rim line inherits the same raggedness as the
+    // coastline instead of reading as a stamped arc.
+    {
+      const a = Math.atan2(wz, wx);
+      const dAng = Math.abs(Math.atan2(Math.sin(a - Math.PI), Math.cos(a - Math.PI)));
+      const cw = sstep(0.85, 0.45, dAng);      // 1 due west, 0 past ~±49°
+      if (cw > 0.002) {
+        const rim = 8.0 * HEIGHT_SCALE + 2.2 * fbm2(x * 0.020 + 9.3, z * 0.020 - 4.1, 3);
+        const lift = sstep(0.34, 0.50, d);     // land swells toward the rim from inland
+        const plateau = mix(y, Math.max(y, rim), lift);
+        const face = sstep(0.545, 0.585, d);   // then falls off the face into deep water
+        y = mix(y, mix(plateau, -15.0, face), cw);
+      }
     }
 
     // Beach: compress heights toward sea level so sand and shelf get room.
@@ -600,7 +627,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     // sand -> meadow grass, keyed to where grass is actually allowed to grow
     cA.lerp(C_G1, sstep(WORLD.beachTop * 0.55, WORLD.beachTop + 1.35, hj));
     // meadow -> mid grass -> upland grass
-    cA.lerp(C_G2, sstep(4.5, 12.0, hj + cn2 * 1.6));
+    cA.lerp(C_G2, sstep(4.5 * HEIGHT_SCALE, 12.0 * HEIGHT_SCALE, hj + cn2 * 1.6));
     cA.lerp(C_G3, sstep(WORLD.grassTop * 0.62, WORLD.grassTop + 4.0, hj));
     // seabed, so shallow water reads turquoise over sand and dark further out
     cA.lerp(C_SEABED, sstep(-1.2, -6.5, h));
@@ -767,10 +794,12 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   });
 
   // Rings raised with the swell: a wave needs several triangles per wavelength,
-  // and the disc's spacing grows fast with radius. 240 rings keeps roughly a
+  // and the disc's spacing grows fast with radius. 320 rings keeps roughly a
   // dozen samples across the longest crest out to the distance the waves now
   // survive to, for one extra draw of nothing and no extra draw call.
-  const waterGeo = makeOceanDisc(240, 256, 380, 2200);
+  // Radii derive from the island so a footprint rescale moves the fine
+  // tessellation zone with the coastline instead of leaving it inland.
+  const waterGeo = makeOceanDisc(320, 256, Math.round(ISLAND_R * 1.5), Math.round(SIZE * 3.37));
   const water = new THREE.Mesh(waterGeo, waterMat);
   water.name = 'ocean';
   water.position.y = SEA;

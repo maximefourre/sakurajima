@@ -39,22 +39,25 @@
  */
 
 import * as THREE from 'three';
+import { LAND_SCALE } from './config.js';
 import { streamFor, R, noise2, clamp } from './noise.js';
 
-/* Field extent. Half-span is comfortably beyond CAMERA.maxDistance (620) so the
- * radial fade never eats the clouds nearest the viewer. */
-const FIELD_HALF = 850;
-const FADE_NEAR = 640;
-const FADE_FAR = 830;
+/* Field extent. Half-span is comfortably beyond CAMERA.maxDistance (620·L) so
+ * the radial fade never eats the clouds nearest the viewer — hence it rides
+ * LAND_SCALE with the camera. */
+const FIELD_HALF = Math.round(620 * LAND_SCALE);
+const FADE_NEAR = Math.round(460 * LAND_SCALE);
+const FADE_FAR = Math.round(600 * LAND_SCALE);
 
 /* Cumulus condensation level: most of the deck shares a base height, because
  * real cumulus do — they all condense at the same altitude. A quarter of the
- * population is parked much higher purely to give the sky depth. */
-const DECK_LOW = [100, 145];
-const DECK_HIGH = [185, 250];
+ * population is parked much higher purely to give the sky depth. Raised with
+ * the bigger island so the deck doesn't sit on the ridge like a lid. */
+const DECK_LOW = [130, 190];
+const DECK_HIGH = [240, 330];
 
-const CLUSTER_W = [55, 132]; // horizontal half-span of a cluster
-const CLUSTER_H = [24, 58];  // vertical extent above its base
+const CLUSTER_W = [80, 190]; // horizontal half-span of a cluster
+const CLUSTER_H = [30, 72];  // vertical extent above its base
 
 /* Drift, world units per second. The low end is a lull, the high end a squall.
  * At 7 u/s a cloud crosses the visible field in about four minutes, which is

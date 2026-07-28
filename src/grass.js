@@ -161,27 +161,30 @@ const DEFAULTS = {
 	exclude: null,         // optional: (x, z) -> bool, true = no grass here
 
 	// --- blade shape -------------------------------------------------------------
-	bladeHeight: 0.55,     // world units at heightScale = 1
-	bladeWidth: 0.055,     // world units at widthJitter = 1
+	bladeHeight: 0.62,     // world units at heightScale = 1
+	bladeWidth: 0.068,     // world units at widthJitter = 1
 	segmentsHi: 5,
 	segmentsLo: 2,
-	loWidthMul: 1.55,      // far blades are fatter so a sparser far field still covers
+	loWidthMul: 1.75,      // far blades are fatter so a sparser far field still covers
 	normalBow: 0.55,       // fake cross-section cupping baked into the normals
 
 	// --- placement ---------------------------------------------------------------
+	// Coverage is deliberately generous: wide clump mask, few bare patches,
+	// grass climbing slightly steeper ground. Perceived density comes from
+	// COVERAGE far more than from blade count.
 	beachY: 1.6,
 	beachBlend: 1.5,
 	shoreWobble: 0.9,      // wiggle on the beach line so it is not a contour ring
-	uplandY: 17.0,
-	uplandBlend: 4.5,
+	uplandY: 24.0,         // follows HEIGHT_SCALE — the raised ridge flanks stay grassed
+	uplandBlend: 6.0,
 	slopeSoft: 0.13,       // 1 - n.y   (~30 deg) -> density starts dropping
-	slopeMax: 0.30,        // ~46 deg -> no grass
+	slopeMax: 0.34,        // ~48 deg -> no grass
 	patchScale: 0.030,     // low-freq clump mask
-	patchLow: 0.30,
-	patchHigh: 0.68,
+	patchLow: 0.14,
+	patchHigh: 0.52,
 	bareScale: 0.115,      // higher-freq bare-earth mask
-	bareThreshold: 0.74,
-	bareFloor: 0.05,
+	bareThreshold: 0.86,
+	bareFloor: 0.12,
 	tintScale: 0.021,      // low-freq colour patches
 	terrainTilt: 0.38,     // 0 = always vertical, 1 = fully aligned to the ground normal
 	rootSink: 0.035,
@@ -189,10 +192,10 @@ const DEFAULTS = {
 
 	// --- colour (authored sRGB hex; ColorManagement converts to linear) -----------
 	colorShade: 0x3e6b45,  // blue-green, shaded hollows
-	colorMid:   0x6f9d45,  // fresh mid green
-	colorSun:   0xaac257,  // yellow-green, sunny ridges
+	colorMid:   0x63a24b,  // fresh mid green, pushed lusher
+	colorSun:   0xa9cf60,  // yellow-green, sunny ridges — brighter for the fairy-tale brief
 	colorDry:   0xc8b06c,  // straw
-	tintJitter: 0.16,
+	tintJitter: 0.19,
 	dryBase: 0.015,
 	dryEdge: 0.11,
 
@@ -219,12 +222,15 @@ const DEFAULTS = {
 	sunDirection: [ 0.4, 0.35, 0.85 ],
 
 	// --- LOD / culling -----------------------------------------------------------
-	chunkDivisions: 6,
-	lodDistance: 34,
+	// Distances stretched for the ×5 island: the old 135-unit fade end vanished
+	// the meadow from the postcard camera. chunkDivisions raised so frustum
+	// culling stays fine-grained over the much larger bounds.
+	chunkDivisions: 10,
+	lodDistance: 48,
 	lodHysteresis: 4,
 	lodKeep: 0.45,
-	fadeStart: 95,
-	fadeEnd: 135
+	fadeStart: 160,
+	fadeEnd: 230
 
 };
 

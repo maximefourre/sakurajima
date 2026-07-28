@@ -23,9 +23,63 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
-import { WORLD, LAND_SCALE } from './config.js';
+import { WORLD, LAND_SCALE, AREA, RIVER, PATH } from './config.js';
 
 const TAU = Math.PI * 2;
+
+/* ────────────────────────────────────────────────────────────────
+   The pilgrim path — spatial index
+   ──────────────────────────────────────────────────────────────── */
+
+const PATH_CURVE = new THREE.CatmullRomCurve3(
+  PATH.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
+);
+const PATH_N = 240;
+const _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+
+// Bounding box + coarse bucket grid: `isOnPath` is called for every one of the
+// grass system's millions of rejection samples, so anything not standing near
+// the route must pay four comparisons and nothing more.
+const P_PAD = PATH.width * 0.5 + 1.4;
+let _pMinX = Infinity, _pMaxX = -Infinity, _pMinZ = Infinity, _pMaxZ = -Infinity;
+for (const p of _pp) {
+  if (p.x < _pMinX) _pMinX = p.x; if (p.x > _pMaxX) _pMaxX = p.x;
+  if (p.z < _pMinZ) _pMinZ = p.z; if (p.z > _pMaxZ) _pMaxZ = p.z;
+}
+_pMinX -= P_PAD; _pMaxX += P_PAD; _pMinZ -= P_PAD; _pMaxZ += P_PAD;
+const P_CELL = 12;
+const P_NX = Math.max(1, Math.ceil((_pMaxX - _pMinX) / P_CELL));
+const P_NZ = Math.max(1, Math.ceil((_pMaxZ - _pMinZ) / P_CELL));
+const _pGrid = new Array(P_NX * P_NZ);
+for (let i = 0; i <= PATH_N; i++) {
+  const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((_pp[i].x - _pMinX) / P_CELL)));
+  const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((_pp[i].z - _pMinZ) / P_CELL)));
+  (_pGrid[cz * P_NX + cx] ||= []).push(i);
+}
+
+/** True on the packed earth of the pilgrim path — keeps the grass off it. */
+export function isOnPath(x, z) {
+  if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return false;
+  const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((x - _pMinX) / P_CELL)));
+  const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((z - _pMinZ) / P_CELL)));
+  const r2 = (PATH.width * 0.5 + 1.3) ** 2;
+  for (let dz = -1; dz <= 1; dz++) {
+    const rz = cz + dz;
+    if (rz < 0 || rz >= P_NZ) continue;
+    for (let dx = -1; dx <= 1; dx++) {
+      const rx = cx + dx;
+      if (rx < 0 || rx >= P_NX) continue;
+      const bucket = _pGrid[rz * P_NX + rx];
+      if (!bucket) continue;
+      for (let k = 0; k < bucket.length; k++) {
+        const p = _pp[bucket[k]];
+        const ddx = x - p.x, ddz = z - p.z;
+        if (ddx * ddx + ddz * ddz < r2) return true;
+      }
+    }
+  }
+  return false;
+}
 
 /* ── art direction ───────────────────────────────────────────────
  * Four species, weighted. The white daisy is the workhorse and reads at the
@@ -175,6 +229,46 @@ function makeLanternGeometry() {
 }
 
 /* ────────────────────────────────────────────────────────────────
+   Torii
+   ──────────────────────────────────────────────────────────────── */
+
+const VERMILION = 0xc73e2a;
+const TORII_DARK = 0x30261e;
+
+/**
+ * A myōjin-style torii: two posts, the tie beam (nuki), the strut (gakuzuka),
+ * and the double lintel (shimaki under a dark kasagi). Merged into one
+ * geometry with painted vertex colours, same trick as the lantern, so three
+ * gates are one instanced draw call.
+ */
+function makeToriiGeometry() {
+  const parts = [];
+  const tint = new THREE.Color();
+  const part = (geo, hex, y, x = 0) => {
+    geo.translate(x, y, 0);
+    tint.setHex(hex);
+    const n = geo.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { c[i * 3] = tint.r; c[i * 3 + 1] = tint.g; c[i * 3 + 2] = tint.b; }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+    geo.deleteAttribute('uv');
+    parts.push(geo);
+  };
+
+  part(new THREE.CylinderGeometry(0.20, 0.25, 4.5, 10), VERMILION, 2.25, -1.9);
+  part(new THREE.CylinderGeometry(0.20, 0.25, 4.5, 10), VERMILION, 2.25, 1.9);
+  part(new THREE.BoxGeometry(5.0, 0.26, 0.22), VERMILION, 3.30);
+  part(new THREE.BoxGeometry(0.22, 0.92, 0.20), VERMILION, 3.88);
+  part(new THREE.BoxGeometry(5.3, 0.24, 0.32), VERMILION, 4.44);
+  part(new THREE.BoxGeometry(6.1, 0.32, 0.40), TORII_DARK, 4.72);
+
+  const merged = mergeGeometries(parts);
+  for (const p of parts) p.dispose();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/* ────────────────────────────────────────────────────────────────
    Factory
    ──────────────────────────────────────────────────────────────── */
 
@@ -214,7 +308,9 @@ export function createDetails({
   const flowerMeshes = [];
   {
     const rng = streamFor(seed, 'details.flowers');
-    const total = Math.round(9000 * budget);
+    // Quoted per unit island and multiplied by AREA — flowers cover ground, and
+    // instanced quads are cheap enough to afford full-density coverage.
+    const total = Math.round(2500 * budget * AREA);
 
     // Species are laid out as separate drifts, each with its own low-frequency
     // mask offset, so they clump apart from each other instead of every patch
@@ -292,8 +388,29 @@ export function createDetails({
     // its own in the middle of a field reads as set dressing nobody put there.
     const spots = [
       [-14, 26], [4, 40], [22, 54], [40, 66],   // the approach to the bridge
-      [-52, 6], [-38, -14],                     // up towards the ridge
+      [-79, 12.5], [-59, 27.5], [-37, 44],      // beside the pilgrim path, cliff to bridge
     ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]);
+
+    // A pair of lanterns flanking each end of the bridge, computed from the
+    // same curve the bridge is placed on so they land on its actual abutments
+    // wherever the footprint scale puts them. RIVER.path is already in world
+    // units — no LAND_SCALE here.
+    {
+      const c = new THREE.CatmullRomCurve3(
+        RIVER.path.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
+      );
+      const p = c.getPointAt(RIVER.bridgeAt);
+      const tn = c.getTangentAt(RIVER.bridgeAt);
+      const l = Math.hypot(tn.x, tn.z) || 1;
+      const nx = -tn.z / l, nz = tn.x / l;      // deck axis
+      const tx = tn.x / l, tz = tn.z / l;       // flow axis
+      const end = RIVER.bridgeSpan * 0.5 + 2.0;
+      for (const side of [-1, 1]) {
+        for (const along of [-1, 1]) {
+          spots.push([p.x + nx * end * side + tx * 2.6 * along, p.z + nz * end * side + tz * 2.6 * along]);
+        }
+      }
+    }
     const usable = spots.filter(([x, z]) => heightAt(x, z) >= WORLD.beachTop && !wet(x, z));
     lanternCount = usable.length;
 
@@ -384,7 +501,7 @@ export function createDetails({
     }
     disposables.push(pebbleGeo, pebbleMat);
 
-    const want = Math.round(420 * budget);
+    const want = Math.round(120 * budget * AREA);
     const mesh = new THREE.InstancedMesh(pebbleGeo, pebbleMat, want);
     mesh.name = 'shore-pebbles';
     mesh.castShadow = true;
@@ -416,6 +533,88 @@ export function createDetails({
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     group.add(mesh);
+  }
+
+  /* ── 4. the pilgrim path and its torii ───────────────────────── */
+
+  {
+    // — packed-earth ribbon, draped on the terrain column by column. Three
+    // columns (left edge, crown, right edge) so the surface twists with a
+    // cross-slope and crowns slightly instead of sagging between quads.
+    const N = 260;
+    const pos = [], col = [], idx = [];
+    const p = new THREE.Vector3(), tn = new THREE.Vector3();
+    const base = new THREE.Color(0xb59d76);   // dry packed earth, light enough to read against the grass
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      PATH_CURVE.getPointAt(t, p);
+      PATH_CURVE.getTangentAt(t, tn);
+      const l = Math.hypot(tn.x, tn.z) || 1;
+      const nx = -tn.z / l, nz = tn.x / l;
+      const w = PATH.width * 0.5 * (0.85 + 0.30 * fbm2(p.x * 0.07, p.z * 0.07, 2));
+      const cols = [
+        [p.x + nx * w, p.z + nz * w, 0.08],
+        [p.x, p.z, 0.16],                    // the crown rides a touch higher
+        [p.x - nx * w, p.z - nz * w, 0.08],
+      ];
+      for (let c = 0; c < 3; c++) {
+        const [cx, cz, lift] = cols[c];
+        pos.push(cx, heightAt(cx, cz) + lift, cz);
+        // worn lighter along the crown, darker at the verges
+        const v = (c === 1 ? 1.06 : 0.86) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
+        col.push(base.r * v, base.g * v, base.b * v);
+      }
+      if (i < N) {
+        // Winding chosen so the faces point UP — the trap that has now bitten
+        // this project four times (ocean disc, corolla, bird wings, and this
+        // ribbon): with the default FrontSide material a downward-wound strip
+        // simply does not render, silently.
+        const a = i * 3, b = a + 3;
+        idx.push(a, b, a + 1, a + 1, b, b + 1);
+        idx.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+      }
+    }
+    const pathGeo = new THREE.BufferGeometry();
+    pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    pathGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    pathGeo.setIndex(idx);
+    pathGeo.computeVertexNormals();
+    const pathMat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 1.0, metalness: 0,
+      // Wins the depth fight against the terrain it hugs on steeper ground.
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    });
+    disposables.push(pathGeo, pathMat);
+    const path = new THREE.Mesh(pathGeo, pathMat);
+    path.name = 'pilgrim-path';
+    path.receiveShadow = true;
+    group.add(path);
+
+    // — the torii along the route —
+    const toriiGeo = makeToriiGeometry();
+    const toriiMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0 });
+    disposables.push(toriiGeo, toriiMat);
+    const torii = new THREE.InstancedMesh(toriiGeo, toriiMat, PATH.toriiAt.length);
+    torii.name = 'torii';
+    torii.castShadow = true;
+    torii.receiveShadow = true;
+    const _m = new THREE.Matrix4();
+    const _q = new THREE.Quaternion();
+    const _e = new THREE.Euler();
+    const _p = new THREE.Vector3();
+    const _s = new THREE.Vector3(1, 1, 1);
+    PATH.toriiAt.forEach((t, i) => {
+      PATH_CURVE.getPointAt(t, p);
+      PATH_CURVE.getTangentAt(t, tn);
+      // Local +X across the walking direction — the posts flank the path.
+      _e.set(0, Math.atan2(tn.x, tn.z), 0);
+      _q.setFromEuler(_e);
+      _m.compose(_p.set(p.x, heightAt(p.x, p.z) - 0.06, p.z), _q, _s);
+      torii.setMatrixAt(i, _m);
+    });
+    torii.instanceMatrix.needsUpdate = true;
+    torii.computeBoundingSphere();
+    group.add(torii);
   }
 
   /* ── update ──────────────────────────────────────────────────── */

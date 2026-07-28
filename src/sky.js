@@ -59,8 +59,13 @@ export const SKY_TUNE = {
   moonPhaseAngle: 0.70,  // radians of terminator offset. 0 = full, ~1.2 = half.
 
   /* — key light — */
-  sunDistance: 320,      // where the DirectionalLight sits. Only affects the shadow frustum.
+  // Where the DirectionalLight sits. Only affects the shadow frustum — but it
+  // MUST stay comfortably larger than islandRadius: the shadow camera's near
+  // plane is D_SUN - R_ISLAND - 80, and a fixed distance goes NEGATIVE (killing
+  // every shadow) as soon as the island outgrows it. Hence derived, not fixed.
+  sunDistance: Math.round(125 * LAND_SCALE + 220),
   islandRadius: 125 * LAND_SCALE, // must cover the land. Drives the ortho shadow camera.
+  // Note: at this footprint 4096 texels over 2×islandRadius ≈ 0.19 units/texel.
   shadowMapSize: 2048,   // overridden by quality.shadowMap
   shadowBias: -0.00018,  // tiny. normalBias does the real work — see notes below.
   normalBiasHigh: 0.045, // sun overhead
@@ -311,7 +316,11 @@ const K_FOG_COLOR = colorKeys([
 // clear all the way to a razor-sharp line at the horizon, which is the one thing
 // that reliably breaks the illusion of distance. The sea reaches 2500 units out;
 // the density has to be enough to dissolve it there.
-const FOG_SCALE = 0.56;
+// 0.56 was the 460-unit-world value; the island is now ×2.24 wider and the sea
+// disc reaches ~4900 units, so the same optical depth at the new horizon wants
+// the density scaled down by the same ratio. Raise if the horizon turns razor
+// sharp, lower if the island drowns in milk at noon.
+const FOG_SCALE = 0.25;
 const K_FOG_DENSITY = [
   [0.000, 0.00105], [0.210, 0.00165], [0.250, 0.00230], [0.300, 0.00185],
   [0.450, 0.00110], [0.500, 0.00095], [0.700, 0.00120], [0.750, 0.00190],
@@ -877,8 +886,8 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
   sunLight.shadow.camera.right = R_ISLAND;
   sunLight.shadow.camera.top = R_ISLAND;
   sunLight.shadow.camera.bottom = -R_ISLAND;
-  sunLight.shadow.camera.near = D_SUN - R_ISLAND - 80;   // 115
-  sunLight.shadow.camera.far = D_SUN + R_ISLAND + 80;    // 525
+  sunLight.shadow.camera.near = D_SUN - R_ISLAND - 80;   // stays positive because D_SUN derives from islandRadius
+  sunLight.shadow.camera.far = D_SUN + R_ISLAND + 80;
   sunLight.shadow.bias = SKY_TUNE.shadowBias;
   sunLight.shadow.normalBias = SKY_TUNE.normalBiasHigh;
   sunLight.shadow.radius = 2;   // only meaningful for VSM; harmless under PCFSoft
