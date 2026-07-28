@@ -154,6 +154,19 @@ function ensureWindUniforms( u ) {
 // 2. Archetypes.  Arrays are indexed by recursion depth (clamped to last entry).
 // -----------------------------------------------------------------------------
 
+/*
+ * Blossom colour is authored in HSL, and the original ranges were a very pale
+ * near-white: saturation from 0.10 and lightness up to 0.98. That is honest for
+ * a somei-yoshino seen close up in flat light, and from any distance at all it
+ * reads as a bare tree with snow on it. Saturation is up and lightness down
+ * across all five archetypes — enough to be unmistakably pink without going
+ * magenta, and with the weeping and veteran trees carried furthest because they
+ * are the ones the eye picks out of a grove.
+ *
+ * Cluster counts, petal size and spread are up with them. Blossom is instanced
+ * and costs almost nothing per flower, so filling the crown is cheap; leaving
+ * gaps in it is what made the island read as an orchard in March.
+ */
 const ARCHETYPES = {
 
 	// classic upright vase-shaped Yoshino, wide flat canopy
@@ -177,8 +190,8 @@ const ARCHETYPES = {
 		radial:       [ 10, 7, 5, 4, 3 ],
 		barkBase: 0x3b2f29, barkTip: 0x6f5a4c, barkDead: 0x6d675e,
 		blossom: {
-			density: 9.0, start: 0.18, cluster: [ 2, 4 ], size: [ 0.115, 0.20 ], spread: 0.09,
-			h: [ 0.948, 0.998 ], s: [ 0.12, 0.40 ], l: [ 0.85, 0.965 ], bare: 0.04, leaf: 0.02
+			density: 12.0, start: 0.14, cluster: [ 3, 6 ], size: [ 0.175, 0.30 ], spread: 0.125,
+			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.02, leaf: 0.02
 		}
 	},
 
@@ -203,8 +216,8 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 4, 3 ],
 		barkBase: 0x39302c, barkTip: 0x6a5344, barkDead: 0x69635b,
 		blossom: {
-			density: 8.0, start: 0.05, cluster: [ 2, 3 ], size: [ 0.10, 0.165 ], spread: 0.065,
-			h: [ 0.935, 0.978 ], s: [ 0.34, 0.62 ], l: [ 0.72, 0.88 ], bare: 0.05, leaf: 0.02
+			density: 11.0, start: 0.04, cluster: [ 3, 5 ], size: [ 0.155, 0.25 ], spread: 0.090,
+			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.03, leaf: 0.02
 		}
 	},
 
@@ -229,8 +242,8 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 5, 4, 3 ],
 		barkBase: 0x342b26, barkTip: 0x6b5a4e, barkDead: 0x7c766c,
 		blossom: {
-			density: 7.0, start: 0.22, cluster: [ 2, 3 ], size: [ 0.105, 0.175 ], spread: 0.08,
-			h: [ 0.950, 1.000 ], s: [ 0.10, 0.32 ], l: [ 0.86, 0.97 ], bare: 0.17, leaf: 0.03
+			density: 9.5, start: 0.18, cluster: [ 3, 5 ], size: [ 0.160, 0.265 ], spread: 0.110,
+			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.09, leaf: 0.03
 		}
 	},
 
@@ -255,8 +268,8 @@ const ARCHETYPES = {
 		radial:       [ 7, 5, 4, 3 ],
 		barkBase: 0x4a3226, barkTip: 0x7b5340, barkDead: 0x6f685d,
 		blossom: {
-			density: 7.0, start: 0.15, cluster: [ 1, 3 ], size: [ 0.09, 0.15 ], spread: 0.07,
-			h: [ 0.950, 0.995 ], s: [ 0.10, 0.30 ], l: [ 0.88, 0.98 ], bare: 0.10, leaf: 0.14
+			density: 9.5, start: 0.12, cluster: [ 2, 4 ], size: [ 0.140, 0.225 ], spread: 0.095,
+			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.05, leaf: 0.12
 		}
 	},
 
@@ -281,8 +294,8 @@ const ARCHETYPES = {
 		radial:       [ 12, 8, 6, 5, 4, 3 ],
 		barkBase: 0x2f2823, barkTip: 0x6a5c50, barkDead: 0x847d72,
 		blossom: {
-			density: 8.0, start: 0.20, cluster: [ 2, 4 ], size: [ 0.12, 0.215 ], spread: 0.10,
-			h: [ 0.940, 0.995 ], s: [ 0.16, 0.52 ], l: [ 0.78, 0.94 ], bare: 0.26, leaf: 0.05
+			density: 10.5, start: 0.16, cluster: [ 3, 6 ], size: [ 0.185, 0.325 ], spread: 0.135,
+			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.14, leaf: 0.05
 		}
 	}
 

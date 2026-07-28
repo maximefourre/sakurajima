@@ -10,6 +10,26 @@
 export const SEED = 20260727;
 
 /**
+ * Island footprint multiplier.
+ *
+ * Every hand-authored coordinate in this project — the ridge spine, the meadow
+ * shelf, the secondary bumps, the pond basins, the river's path, the lantern
+ * line — was laid out against one particular island size. Growing the island by
+ * editing `ISLAND_R` alone leaves all of it huddled in the middle of a bigger
+ * landmass with the river ending nowhere near the sea.
+ *
+ * So the footprint is ONE knob and every authored XZ coordinate is multiplied by
+ * it at the point where it is defined. Heights are deliberately NOT scaled: the
+ * island is meant to be wide and low, and a taller island at this footprint
+ * reads as a mountain in a bowl rather than as a landscape.
+ *
+ * Anything derived from noise scales for free — the coastline wobble and the
+ * domain warp keep their absolute frequency, so a bigger island simply gets
+ * proportionally finer coves, which is the right way round.
+ */
+export const LAND_SCALE = 1.42;
+
+/**
  * World extent.
  *
  * The island is deliberately WIDE and LOW rather than tall: a 240-unit island
@@ -23,8 +43,11 @@ export const SEED = 20260727;
  * of the load, and at this scale the extra resolution buys nothing visible.
  */
 export const WORLD = {
-  size: 460,          // island tile is SIZE x SIZE world units
-  segments: 400,      // terrain mesh resolution (segments^2 quads)
+  // The TILE, not the island. It has to stay comfortably wider than the land so
+  // there is seabed on every side; the ocean disc reads its depth from this
+  // tile's baked heightfield and clamps to the edge value beyond it.
+  size: Math.round(460 * LAND_SCALE),
+  segments: 460,      // terrain mesh resolution (segments^2 quads)
   seaLevel: 0,        // y = 0 is the waterline
   maxHeight: 17,      // peak of the ridge above sea level — low, rolling
   beachTop: 1.2,      // above this height sand gives way to grass
@@ -81,15 +104,23 @@ export const DAY_LENGTH = 180;
 /** Time of day the scene opens on. 0 = midnight, 0.25 = 06:00, 0.5 = noon. */
 export const START_TIME = 0.235; // just before sunrise — best first impression
 
+/**
+ * Scatter budgets are quoted for a unit island and multiplied by LAND_SCALE^2,
+ * because they cover an AREA. Growing the island without growing these is what
+ * turns a grove into an orchard and a meadow into a lawn — the counts stay
+ * impressive in the profiler and the density on screen quietly halves.
+ */
+const AREA = LAND_SCALE * LAND_SCALE;
+
 export const QUALITY = {
   low: {
     label: 'low',
-    grassBlades: 45000,
-    grassRadius: 70,
-    petals: 2500,
-    trees: 90,
+    grassBlades: Math.round(45000 * AREA),
+    grassRadius: Math.round(70 * LAND_SCALE),
+    petals: Math.round(2500 * AREA),
+    trees: Math.round(90 * AREA),
     uniqueTrees: 10,
-    rocks: 60,
+    rocks: Math.round(60 * AREA),
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -97,12 +128,12 @@ export const QUALITY = {
   },
   high: {
     label: 'high',
-    grassBlades: 150000,
-    grassRadius: 105,
-    petals: 7000,
-    trees: 215,
+    grassBlades: Math.round(150000 * AREA),
+    grassRadius: Math.round(105 * LAND_SCALE),
+    petals: Math.round(7000 * AREA),
+    trees: Math.round(215 * AREA),
     uniqueTrees: 16,
-    rocks: 100,
+    rocks: Math.round(100 * AREA),
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -110,12 +141,12 @@ export const QUALITY = {
   },
   ultra: {
     label: 'ultra',
-    grassBlades: 300000,
-    grassRadius: 130,
-    petals: 12000,
-    trees: 310,
+    grassBlades: Math.round(300000 * AREA),
+    grassRadius: Math.round(130 * LAND_SCALE),
+    petals: Math.round(12000 * AREA),
+    trees: Math.round(310 * AREA),
     uniqueTrees: 24,
-    rocks: 140,
+    rocks: Math.round(140 * AREA),
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -132,10 +163,10 @@ export const CAMERA = {
   far: 3200,
   // Framed to read as an island: far enough out that the coastline and the
   // surrounding sea are both in shot, high enough to see the river's whole run.
-  start: { x: 215, y: 112, z: 250 },
-  target: { x: 0, y: 4, z: 10 },
+  start: { x: 215 * LAND_SCALE * 0.86, y: 112 * LAND_SCALE * 0.86, z: 250 * LAND_SCALE * 0.86 },
+  target: { x: 0, y: 4, z: 10 * LAND_SCALE },
   minDistance: 14,
-  maxDistance: 620,
+  maxDistance: 620 * LAND_SCALE,
   maxPolar: Math.PI * 0.495, // stop just above the horizon so you can't go under the island
 };
 
@@ -157,6 +188,10 @@ export const RIVER = {
   // Sinuous rather than a straight diagonal: a river drawn as a smooth line
   // between two points reads unmistakably as a road. The lateral wander is what
   // makes it look like water found this route rather than an engineer choosing it.
+  //
+  // Scaled by LAND_SCALE, like every other authored coordinate: the path's whole
+  // point is where it meets the coast, and left unscaled on a larger island it
+  // would stop in open meadow.
   path: [
     [-48,  -4],
     [-42,  10],
@@ -169,16 +204,19 @@ export const RIVER = {
     [ 40,  80],
     [ 50,  94],
     [ 64, 106],
-  ],
-  width: 6.0,         // water channel width
-  bankWidth: 6.5,     // carved banks beyond the water — tight, so the cut reads
+  ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]),
+  // The channel widens with the island, but only partly — a river is sized by
+  // its catchment, not by the map, and at full scale it starts to read as an
+  // estuary all the way up.
+  width: 6.0 * (1 + (LAND_SCALE - 1) * 0.6),
+  bankWidth: 6.5 * (1 + (LAND_SCALE - 1) * 0.6),
   depth: 3.4,         // how deep the channel cuts below the surrounding ground
   flowSpeed: 0.55,    // surface scroll rate
 
   // Where along the path (0..1) the bridge sits. 0.46 puts it on the middle
   // reach, where the banks are widest and the crossing reads best.
   bridgeAt: 0.46,
-  bridgeSpan: 26,     // deck length across the water
+  bridgeSpan: 26 * (1 + (LAND_SCALE - 1) * 0.6),  // must still span the widened channel
   bridgeWidth: 4.2,
   bridgeRise: 3.1,    // camber of the arch — taiko-bashi are steeply humped
 };

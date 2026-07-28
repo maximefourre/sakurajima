@@ -29,7 +29,7 @@
  */
 
 import * as THREE from 'three';
-import { WORLD } from './config.js';
+import { WORLD, LAND_SCALE } from './config.js';
 import {
   noise2, fbm2, ridged2,
   streamFor, smoothstep as sstep, clamp, mix,
@@ -41,10 +41,18 @@ const TAU = Math.PI * 2;
    Art direction — the knobs a human actually wants
    ──────────────────────────────────────────────────────────────── */
 
+/*
+ * Everything below is authored against a unit island and stretched by
+ * LAND_SCALE. HEIGHTS are pointedly not stretched: this island is meant to be
+ * wide and low, and scaling the relief with the footprint would just give a
+ * bigger version of the same dome instead of a landscape you could walk across.
+ */
+const S = LAND_SCALE;
+
 /** Curved spine of the dominant massif, in world XZ. Off-centre on purpose. */
-const RIDGE_PTS = [[-58, -4], [-26, 14], [8, 24], [36, 12]];
-const RIDGE_H = 17.5;   // crest height above the surrounding land
-const RIDGE_W = 22.0;   // gaussian half-width of the spine
+const RIDGE_PTS = [[-58, -4], [-26, 14], [8, 24], [36, 12]].map(([x, z]) => [x * S, z * S]);
+const RIDGE_H = 17.5;       // crest height above the surrounding land
+const RIDGE_W = 22.0 * S;   // gaussian half-width of the spine
 
 /** Secondary relief. Keep these clear of the ridge or the island reads as one lump. */
 const BUMPS = [
@@ -52,10 +60,10 @@ const BUMPS = [
   { x: -36, z: -48, h: 7.5, r: 26 },
   { x: -50, z:  44, h: 6.0, r: 20 },
   { x:  28, z:  52, h: 4.5, r: 18 },
-];
+].map((b) => ({ x: b.x * S, z: b.z * S, h: b.h, r: b.r * S }));
 
 /** The flat shelf where the cherry grove will read best. */
-const MEADOW = { x: 14, z: -38, r: 34, y: 5.4, strength: 0.82 };
+const MEADOW = { x: 14 * S, z: -38 * S, r: 34 * S, y: 5.4, strength: 0.82 };
 
 const BEACH_SOFT   = 0.58;  // 0..1 — how hard heights are compressed toward sea level
 const BEACH_WIDTH  = 2.8;   // world units of the compression band
@@ -205,35 +213,50 @@ const WATER_VERT = /* glsl */ `
 
     // Swell dies in the shallows (water cannot be 40cm deep and 40cm tall) and
     // dies again far out, so the coarse horizon triangles stay flat.
+    //
+    // That far cut-off used to sit at 240-340 units, which was inside the frame:
+    // the sea heaved close to shore and went to glass everywhere else, so from
+    // the default camera the ocean read as a painted plane. It now holds most of
+    // its amplitude out to about a kilometre and only flattens where the disc's
+    // triangles get too coarse to carry a wave anyway.
     float depth = uSeaLevel - terrainH(wp.xz);
     float shore = smoothstep(0.15, 4.0, depth);
-    float far   = 1.0 - smoothstep(240.0, 340.0, length(wp.xz));
+    float dist  = length(wp.xz);
+    float far   = 1.0 - 0.82 * smoothstep(650.0, 1900.0, dist);
     float amp   = uWaveAmp * shore * far;
 
     vec2 d1 = vec2( 0.860,  0.510);
     vec2 d2 = vec2(-0.420,  0.907);
     vec2 d3 = vec2( 0.150, -0.989);
+    vec2 d4 = vec2( 0.640, -0.768);
 
-    float k1 = 6.2831853 / (46.0 * uWaveScale);
-    float k2 = 6.2831853 / (27.0 * uWaveScale);
-    float k3 = 6.2831853 / (15.0 * uWaveScale);
+    // Longer wavelengths than before. Open-ocean swell is tens of metres between
+    // crests; at 15-46 units against a 300-unit island it looked like a pond in
+    // a breeze rather than a sea.
+    float k1 = 6.2831853 / (108.0 * uWaveScale);
+    float k2 = 6.2831853 / ( 61.0 * uWaveScale);
+    float k3 = 6.2831853 / ( 33.0 * uWaveScale);
+    float k4 = 6.2831853 / ( 17.0 * uWaveScale);
 
-    float p1 = dot(wp.xz, d1) * k1 - uTime * 1.05;
-    float p2 = dot(wp.xz, d2) * k2 - uTime * 1.45;
-    float p3 = dot(wp.xz, d3) * k3 - uTime * 1.95;
+    float p1 = dot(wp.xz, d1) * k1 - uTime * 0.72;
+    float p2 = dot(wp.xz, d2) * k2 - uTime * 1.02;
+    float p3 = dot(wp.xz, d3) * k3 - uTime * 1.48;
+    float p4 = dot(wp.xz, d4) * k4 - uTime * 2.10;
 
-    float a1 = amp, a2 = amp * 0.55, a3 = amp * 0.26;
+    float a1 = amp, a2 = amp * 0.62, a3 = amp * 0.34, a4 = amp * 0.17;
 
-    wp.y += a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3);
+    wp.y += a1 * sin(p1) + a2 * sin(p2) + a3 * sin(p3) + a4 * sin(p4);
 
     // Gerstner lateral pinch — crests sharpen, troughs broaden.
-    wp.xz -= (a1 * cos(p1) * d1 * 0.45 + a2 * cos(p2) * d2 * 0.32);
+    wp.xz -= (a1 * cos(p1) * d1 * 0.52 + a2 * cos(p2) * d2 * 0.38
+            + a3 * cos(p3) * d3 * 0.22);
 
     // Analytic slope of the swell, handed to the fragment stage so the big
     // waves shade correctly without needing geometric normals.
     vSwell = a1 * cos(p1) * k1 * d1
            + a2 * cos(p2) * k2 * d2
-           + a3 * cos(p3) * k3 * d3;
+           + a3 * cos(p3) * k3 * d3
+           + a4 * cos(p4) * k4 * d4;
 
     vWorld = wp.xyz;
 
@@ -714,7 +737,9 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     uMapStep: { value: STEP },
     uMapRes: { value: W },
     uSeaLevel: { value: SEA },
-    uWaveAmp: { value: 0.42 },
+    // Real swell height. At 0.42 the sea moved but never broke the silhouette
+    // of its own horizon, which is the thing that reads as motion from a distance.
+    uWaveAmp: { value: 1.15 },
     uWaveScale: { value: 1.0 },
     uRipple: { value: 1.05 },
     uFoamWidth: { value: 1.9 },
@@ -741,7 +766,11 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     side: THREE.FrontSide,
   });
 
-  const waterGeo = makeOceanDisc(180, 256, 300, 2200);
+  // Rings raised with the swell: a wave needs several triangles per wavelength,
+  // and the disc's spacing grows fast with radius. 240 rings keeps roughly a
+  // dozen samples across the longest crest out to the distance the waves now
+  // survive to, for one extra draw of nothing and no extra draw call.
+  const waterGeo = makeOceanDisc(240, 256, 380, 2200);
   const water = new THREE.Mesh(waterGeo, waterMat);
   water.name = 'ocean';
   water.position.y = SEA;

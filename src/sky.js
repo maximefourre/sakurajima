@@ -38,7 +38,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 
-import { SEED } from './config.js';
+import { SEED, LAND_SCALE } from './config.js';
 import { streamFor } from './noise.js';
 
 const clamp = THREE.MathUtils.clamp;
@@ -60,7 +60,7 @@ export const SKY_TUNE = {
 
   /* — key light — */
   sunDistance: 320,      // where the DirectionalLight sits. Only affects the shadow frustum.
-  islandRadius: 125,     // WORLD.size(240)/2 + margin. Drives the ortho shadow camera.
+  islandRadius: 125 * LAND_SCALE, // must cover the land. Drives the ortho shadow camera.
   shadowMapSize: 2048,   // overridden by quality.shadowMap
   shadowBias: -0.00018,  // tiny. normalBias does the real work — see notes below.
   normalBiasHigh: 0.045, // sun overhead

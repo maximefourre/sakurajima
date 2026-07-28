@@ -30,14 +30,15 @@
  */
 
 import * as THREE from 'three';
-import { WORLD, RIVER } from './config.js';
+import { WORLD, RIVER, LAND_SCALE } from './config.js';
 import { streamFor, R, noise2, clamp, mix } from './noise.js';
 
 const TAU = Math.PI * 2;
 
 /* Soft home volume. Land runs x in [-102,102], z in [-110,94]; this sits just
  * inside it so excursions cross the coastline instead of the open sea. */
-const HOME_X = -4, HOME_Z = -8, HOME_RX = 90, HOME_RZ = 92;
+const HOME_X = -4 * LAND_SCALE, HOME_Z = -8 * LAND_SCALE,
+      HOME_RX = 90 * LAND_SCALE, HOME_RZ = 92 * LAND_SCALE;
 
 /* Boids. Neighbourhood is generous relative to the 0.7-unit bird because the
  * flock has to read as a flock from 250 units away, where a tight cluster is a

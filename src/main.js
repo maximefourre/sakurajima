@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DAY_LENGTH, START_TIME, WIND } from './config.js';
+import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DAY_LENGTH, START_TIME, WIND, LAND_SCALE } from './config.js';
 import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
 import { createIsland } from './island.js';
@@ -285,7 +285,7 @@ async function boot() {
     // radius, no water rejection, and its own private wind. Feeding it `quality`
     // and `isInPond` looked right and did nothing at all.
     count: q.trees,
-    radius: 104,                     // the land reaches about x ±102, z −110..94
+    radius: 104 * LAND_SCALE,        // the land's own half-extent, before LAND_SCALE
     quality: q.label === 'ultra' ? 1.15 : q.label === 'high' ? 0.9 : 0.6,
     // Once the branch structure actually built, the default blossom load left
     // the island looking like an orchard in March. The blossom is the subject —
@@ -311,7 +311,7 @@ async function boot() {
     // units of the 460-unit world; spreading the blade budget across the full
     // tile wasted three quarters of it on open sea and quartered the density
     // where it actually shows.
-    bounds: { size: 230 },
+    bounds: { size: 230 * LAND_SCALE },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
@@ -560,7 +560,7 @@ async function rebuildForQuality() {
     // units of the 460-unit world; spreading the blade budget across the full
     // tile wasted three quarters of it on open sea and quartered the density
     // where it actually shows.
-    bounds: { size: 230 },
+    bounds: { size: 230 * LAND_SCALE },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the

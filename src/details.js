@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
-import { WORLD } from './config.js';
+import { WORLD, LAND_SCALE } from './config.js';
 
 const TAU = Math.PI * 2;
 
@@ -246,8 +246,8 @@ export function createDetails({
 
       while (placed < want && attempts < maxAttempts) {
         attempts++;
-        const x = R.range(rng, -104, 104);
-        const z = R.range(rng, -112, 96);
+        const x = R.range(rng, -104 * LAND_SCALE, 104 * LAND_SCALE);
+        const z = R.range(rng, -112 * LAND_SCALE, 96 * LAND_SCALE);
 
         // Drift mask first — it rejects most candidates for the price of one
         // noise lookup, which is what keeps the attempt loop affordable.
@@ -293,7 +293,7 @@ export function createDetails({
     const spots = [
       [-14, 26], [4, 40], [22, 54], [40, 66],   // the approach to the bridge
       [-52, 6], [-38, -14],                     // up towards the ridge
-    ];
+    ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]);
     const usable = spots.filter(([x, z]) => heightAt(x, z) >= WORLD.beachTop && !wet(x, z));
     lanternCount = usable.length;
 
@@ -399,8 +399,8 @@ export function createDetails({
     let placed = 0, attempts = 0;
     while (placed < want && attempts < want * 60) {
       attempts++;
-      const x = R.range(rng, -112, 112);
-      const z = R.range(rng, -120, 104);
+      const x = R.range(rng, -112 * LAND_SCALE, 112 * LAND_SCALE);
+      const z = R.range(rng, -120 * LAND_SCALE, 104 * LAND_SCALE);
       const h = heightAt(x, z);
       // The tideline proper: damp sand just above the water, and a little below
       // it where the pebbles show through the shallows.

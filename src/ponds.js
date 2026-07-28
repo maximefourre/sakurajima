@@ -30,7 +30,7 @@
  */
 
 import * as THREE from 'three';
-import { WORLD } from './config.js';
+import { WORLD, LAND_SCALE } from './config.js';
 import { fbm2, smoothstep, clamp, streamFor, R } from './noise.js';
 
 const TAU = Math.PI * 2;
@@ -67,7 +67,10 @@ const SITES = [
   { x:  16, z: -42, radius: 7.2, depth: 2.90 },  // the big one, inside the grove
   { x:  -4, z: -73, radius: 5.2, depth: 2.60 },
   { x:  20, z: -70, radius: 4.0, depth: 3.10 },  // deeper carve: the ground here falls away
-];
+  // Positions and radii ride LAND_SCALE with the rest of the authored geography.
+  // Depth does not: a pond gets wider with the island, not deeper, and a deeper
+  // basin here would simply punch through to the seabed.
+].map((p) => ({ x: p.x * LAND_SCALE, z: p.z * LAND_SCALE, radius: p.radius * LAND_SCALE, depth: p.depth }));
 
 /** Bank width as a multiple of the waterline radius. */
 const REACH_K = 1.62;

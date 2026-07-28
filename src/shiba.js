@@ -19,7 +19,7 @@
 
 import * as THREE from 'three';
 import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
-import { WORLD } from './config.js';
+import { WORLD, LAND_SCALE } from './config.js';
 
 const TAU = Math.PI * 2;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -549,7 +549,7 @@ export function createShiba({
   group.add(prints.mesh);
 
   /* ── state ─────────────────────────────────────────────────── */
-  const position = new THREE.Vector3(18, 0, 44);
+  const position = new THREE.Vector3(18 * LAND_SCALE, 0, 44 * LAND_SCALE);
   position.y = heightAt(position.x, position.z);
 
   const state = {
