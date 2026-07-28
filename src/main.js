@@ -22,6 +22,7 @@ import { createPetals } from './petals.js';
 import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
+import { createShiba } from './shiba.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -31,7 +32,7 @@ const clockT = $('clock-t'), clockP = $('clock-p');
 const perfFps = $('perf-fps'), perfDraw = $('perf-draw'), perfTri = $('perf-tri');
 
 let loadStep = 0;
-const LOAD_STEPS = 9;
+const LOAD_STEPS = 10;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -97,13 +98,116 @@ const world = {
   paused: false,
   wind: null,
   island: null, ponds: null, river: null, forest: null, grass: null,
-  petals: null, sky: null, birds: null, clouds: null,
+  petals: null, sky: null, birds: null, clouds: null, shiba: null,
+  /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
+  camMode: 'orbit',
 };
 
 function applyDPR() {
   const cap = QUALITY[world.quality].dprCap;
   renderer.setPixelRatio(Math.min(devicePixelRatio, cap));
 }
+
+/* ── third-person camera rig ─────────────────────────────────────
+ * Deliberately NOT OrbitControls re-targeted at the dog. A follow camera wants
+ * lag, a ground clearance test and a heading that drifts back behind the subject
+ * on its own; an orbit controller wants a fixed pivot and no opinions. Trying to
+ * make one be the other is how third-person cameras end up inside hillsides. */
+const follow = {
+  distance: 7.5,
+  minDistance: 2.8,
+  maxDistance: 30,
+  height: 2.3,
+  pitch: 0.22,
+  yaw: 0,        // trails the dog's heading
+  yawOffset: 0,  // how far the player has dragged the view off centre
+  pitchOffset: 0,
+  dragging: false,
+  lastX: 0,
+  lastY: 0,
+};
+const _camWant = new THREE.Vector3();
+const _lookAt = new THREE.Vector3();
+
+function updateFollowCamera(dt) {
+  const s = world.shiba;
+  if (!s) return;
+
+  // Swing round behind him quickly while he runs, barely at all while he stands
+  // still — a camera that keeps correcting around a stationary subject is the
+  // fastest way to make someone put the mouse down.
+  let d = s.heading - follow.yaw;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  follow.yaw += d * Math.min(1, dt * (s.speed > 0.1 ? 2.4 : 0.35));
+
+  if (!follow.dragging && s.speed > 0.4) {
+    const decay = Math.max(0, 1 - dt * 0.8);
+    follow.yawOffset *= decay;
+    follow.pitchOffset *= decay;
+  }
+
+  const yaw = follow.yaw + follow.yawOffset;
+  // Stop short of straight down and of ducking under the dog's feet.
+  const pitch = Math.max(-0.22, Math.min(1.15, follow.pitch + follow.pitchOffset));
+  const horiz = Math.cos(pitch) * follow.distance;
+  _camWant.set(
+    s.position.x - Math.sin(yaw) * horiz,
+    s.position.y + follow.height + Math.sin(pitch) * follow.distance,
+    s.position.z - Math.cos(yaw) * horiz
+  );
+
+  // Keep the lens out of the ground. Without this the camera spends every
+  // downhill run buried in the terrain looking at the inside of the island.
+  const floor = world.heightAt(_camWant.x, _camWant.z) + 1.2;
+  if (_camWant.y < floor) _camWant.y = floor;
+
+  camera.position.lerp(_camWant, Math.min(1, dt * 4.5));
+  _lookAt.set(s.position.x, s.position.y + 1.1, s.position.z);
+  camera.lookAt(_lookAt);
+}
+
+function setCamMode(mode) {
+  if (mode === world.camMode) return;
+  world.camMode = mode;
+  controls.enabled = mode === 'orbit';
+  if (mode === 'orbit' && world.shiba) {
+    // Hand the pivot over where the eye already is, so the switch back is a
+    // change of control rather than a cut.
+    controls.target.copy(world.shiba.position);
+    controls.target.y += 1.0;
+    controls.autoRotate = false;
+    controls.update();
+  } else if (mode === 'follow' && world.shiba) {
+    follow.yaw = world.shiba.heading;
+    follow.yawOffset = 0;
+    follow.pitchOffset = 0;
+  }
+}
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (world.camMode !== 'follow') return;
+  follow.dragging = true;
+  follow.lastX = e.clientX;
+  follow.lastY = e.clientY;
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (!follow.dragging) return;
+  follow.yawOffset -= (e.clientX - follow.lastX) * 0.006;
+  follow.pitchOffset += (e.clientY - follow.lastY) * 0.004;
+  follow.lastX = e.clientX;
+  follow.lastY = e.clientY;
+});
+const endDrag = () => { follow.dragging = false; };
+renderer.domElement.addEventListener('pointerup', endDrag);
+renderer.domElement.addEventListener('pointercancel', endDrag);
+renderer.domElement.addEventListener('wheel', (e) => {
+  if (world.camMode !== 'follow') return;
+  e.preventDefault();
+  follow.distance = Math.min(follow.maxDistance,
+    Math.max(follow.minDistance, follow.distance * (1 + Math.sign(e.deltaY) * 0.12)));
+}, { passive: false });
 
 /* ── build ───────────────────────────────────────────────────── */
 async function boot() {
@@ -201,6 +305,18 @@ async function boot() {
   });
   scene.add(world.birds.group);
 
+  await step('shiba');
+  world.shiba = createShiba({
+    seed: SEED,
+    heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    normalAt: world.island.normalAt,
+    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
+    wind: world.wind,
+    seaLevel: world.island.seaLevel,
+  });
+  scene.add(world.shiba.group);
+
   // Prime the cycle once before the first frame so we never flash a black scene.
   world.sky.update(world.dayTime, 0);
 
@@ -209,7 +325,7 @@ async function boot() {
   panel.classList.add('on');
 
   // Handy for debugging from the console: window.__sk.world.river, etc.
-  globalThis.__sk = { world, scene, camera, renderer, controls, THREE };
+  globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock };
 
   renderer.setAnimationLoop(frame);
 }
@@ -273,7 +389,20 @@ function frame() {
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);
 
-  controls.update();
+  // The dog reads the camera to work out which way "forward" is, so he updates
+  // before the camera moves this frame. One frame of lag in the control frame is
+  // imperceptible; the reverse order makes fast turns feel like ice.
+  world.shiba.update(t, dt, { camera });
+  world.birds.setRepeller?.(world.shiba.position);
+
+  if (world.camMode === 'follow') {
+    updateFollowCamera(dt);
+  } else {
+    // Walking him is an interaction like any other: the idle drift should stop
+    // the moment the player takes over, exactly as it does when you grab the view.
+    if (world.shiba.state.moving) controls.autoRotate = false;
+    controls.update();
+  }
 
   if (world.sky.composer) world.sky.composer.render();
   else renderer.render(scene, camera);
@@ -382,6 +511,7 @@ async function rebuildForQuality() {
 
 addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); world.paused = !world.paused; }
+  if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
   if (e.key === 'h' || e.key === 'H') {
     const hidden = hud.style.opacity === '0';
     hud.style.opacity = panel.style.opacity = hidden ? '' : '0';
