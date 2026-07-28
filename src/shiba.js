@@ -55,8 +55,8 @@ const SHIBA = {
    */
   standHeight: 0.66,
 
-  walkSpeed: 3.2,
-  runSpeed: 7.4,
+  walkSpeed: 6.4,
+  runSpeed: 14.8,
   accel: 14.0,
   brake: 18.0,
   turnRate: 7.0,          // rad/s the body swings toward its heading
@@ -571,6 +571,8 @@ export function createShiba({
     sitting: 0,        // 0..1 blend, not a boolean — he folds down over ~0.8 s
     excitement: 0,     // decays after a run; drives the tail
     tailPhase: 0,      // integrated wag phase — sin(t*rate) with a moving rate whips
+    vy: 0,             // vertical velocity while airborne
+    airborne: false,
     idleTime: 0,
     gait: 0,           // accumulated stride phase in radians
   };
@@ -719,7 +721,7 @@ export function createShiba({
     // sits so the chest lifts and the front legs straighten under him.
     rig.body.position.y = Math.sin(state.gait * 2) * 0.028 * speedN * bounce - 0.20 * sit;
     rig.body.rotation.z = Math.sin(state.gait) * 0.055 * speedN * bounce;
-    rig.body.rotation.x = mix(-0.05 * speedN, -0.30, sit);
+    rig.body.rotation.x = mix(-0.05 * speedN, -0.30, sit) + (state.airborne ? state.vy * 0.025 : 0);
 
     // Head. It leads the turn while moving, scans slowly when idle, and lifts
     // when something drifts past — the scene is full of falling petals and a dog
@@ -863,9 +865,17 @@ export function createShiba({
     const onDeck = dHere !== null && position.y > dHere - 2.0;
     const ground = onDeck ? dHere : heightAt(position.x, position.z);
     state.wading = ground < seaLevel + 0.06;
-    // Settle onto the ground rather than snapping: a hard clamp to heightAt makes
-    // him judder over the terrain's triangle edges at speed.
-    position.y += (ground - position.y) * Math.min(1, dt * 18);
+    if (state.airborne) {
+      // Ballistic: gravity only, land when the arc meets the ground (deck
+      // included - you can hop onto the bridge planks).
+      state.vy -= 26 * dt;
+      position.y += state.vy * dt;
+      if (position.y <= ground) { position.y = ground; state.vy = 0; state.airborne = false; }
+    } else {
+      // Settle onto the ground rather than snapping: a hard clamp to heightAt makes
+      // him judder over the terrain's triangle edges at speed.
+      position.y += (ground - position.y) * Math.min(1, dt * 18);
+    }
 
     /* — sit / stand — */
     state.idleTime = state.moving ? 0 : state.idleTime + dt;
@@ -915,6 +925,9 @@ export function createShiba({
     state,
     update,
     dispose,
+    jump() {
+      if (!state.airborne && state.sitting < 0.3) { state.vy = 9.5; state.airborne = true; }
+    },
     /** Suspend the controls without unmounting him — used by the free camera. */
     setEnabled(v) { enabled = !!v; if (!v) held.clear(); },
     get heading() { return state.heading; },

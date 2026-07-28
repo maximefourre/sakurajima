@@ -104,7 +104,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     aOrigin[i * 4 + 3] = spawnH;
 
     aSeedA[i * 4 + 0] = rng() * Math.PI * 2;          // phase
-    aSeedA[i * 4 + 1] = R.range(rng, 0.7, 2.4);       // tumble rate
+    aSeedA[i * 4 + 1] = R.range(rng, 0.22, 0.85);     // tumble rate — a petal flutters, it does not spin like a top
     // Size: a real petal is ~1.5cm. Rendering it at true scale makes it
     // invisible past a few metres, so this is deliberately exaggerated — but
     // only to roughly 10-25cm. Any larger and they read as confetti, not blossom.

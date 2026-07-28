@@ -186,6 +186,59 @@ piège n°8).
 
 ---
 
+## Session « immersion » du 28/07 (nuit) — pipeline multi-agents
+
+Première vraie passe du pipeline d'équipe (AGENTS.md « Rôles ») : specs par
+agents de conception parallèles → briefs chirurgicaux → **Grok 4.5 écrit** →
+Claude review/vérifie/committe → **Codex sol (high) en revue adversariale**.
+Sept chantiers (commits 837e8f2..398087b) :
+
+1. **Physique du pont** : `bridgeDeckHeightAt/NormalAt` sur l'api rivière
+   (l'arche reste privée au pont), `passable()` du shiba court-circuite eau et
+   pente à hauteur de tablier, garde-corps par refus glissant, empreintes
+   coupées sur les planches, sol composite `world.groundAt` réservé aux
+   MOVERS (chien + caméra) — les scatters restent sur `heightAt`.
+2. **Eau v2** : profondeur RÉELLE lue du heightfield baké (surface − lit
+   creusé) → couleur/alpha/écume de rive/bras du delta ; lit sable-galets
+   recoloré via `riverBedFactor` (island importe river — l'inverse est
+   INTERDIT, cycle ESM avec TDZ) ; chaque bord de ruban MARCHE jusqu'à sa
+   ligne d'eau ; cascades blanchies par ratio de dérivées (fwidth brut
+   écumerait toute l'eau lointaine en incidence rasante) ; source rétrécie
+   (widthK 0.35→1 sur t 0–0.10) naissant dans un récif de rochers authorés à
+   ZÉRO tirage rngRock ; `waterSurfaceYAt` interdit de marcher sous la nappe.
+3. **Hanami** : 1867 arbres, floorY par archétype dans l'intégrateur de
+   croissance, bois-le-plus-bas par secteur d'azimut baké par prototype et
+   testé contre le terrain au placement, canopées chevauchantes (0.60).
+4. **Herbe joueur** : uPlayer + traîne qui lague (sillage), poussée radiale en
+   vecteur rotation sommée au vent, squash vertical. 3.17 M brins, fondu
+   240/330, lo-LOD aminci (le POP venait de l'écart de largeur hi/lo).
+5. **Pétales** : spawn à hauteur de canopée réelle (le « ça tombe du ciel »
+   était un plafond global de 46 u), lancement horizontal porté par le vent,
+   tapis statique 39.6k sous les couronnes (cut-out opaque, uniforms
+   partagés), 65k en l'air.
+6. **Lotus** : fleurs dressées vertex-colorées dans la frange peu profonde
+   hors budget d'excursion des koi ; nénuphars −35 %.
+7. **Shiba** : yeux sortis du crâne (ils étaient modelés SOUS la surface du
+   sweep) + glint ; phase de queue INTÉGRÉE (sin(t·wag) à wag variable balaye
+   à wag + t·dwag/dt → frénésie exactement à l'arrêt après une course).
+
+**Leçons d'orchestration payées cash :**
+- Tuer un run d'agent codeur puis `git checkout` pendant que le run suivant a
+  DÉJÀ LU les fichiers = le second croit les éditions « déjà présentes » et
+  ne les réapplique pas → trou silencieux (ReferenceError au boot). Toujours
+  reset AVANT de relancer, jamais entre lecture et écriture.
+- Le clamp de berges échantillonné à +1 u du ruban tombe DANS le bol de carve
+  (sol ≈ lit) → il a plaqué toute la surface sur son propre lit : nappe
+  d'écume pâle uniforme + murs d'eau à chaque creux. Échantillonner à +3 u.
+- Diagnostic shader express : forcer un uniform en rouge vif tranche en une
+  frame entre « pipeline cassé » et « tuning terne » (ici : tuning — le
+  fresnel rasant délavait un uDeep désaturé).
+
+Revue adversariale Codex de la passe : voir `ADVERSARIAL_REVIEW_CLAUDE.md`
+(section ADV-2026-07-28-398087B).
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

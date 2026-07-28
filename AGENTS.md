@@ -12,11 +12,12 @@ pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
 - **Grok 4.5** (`grok` CLI, headless : `grok -p "<brief>" --model grok-4.5
   --permission-mode acceptEdits`) : ÉCRIT le code, un chantier à la fois,
   d'après un brief précis de Claude (fichiers, ancrages, contraintes AGENTS).
-- **Codex gpt-5.6-sol, effort high** (`codex exec` / `codex review` — le
-  config par défaut est déjà sol+high) : REVIEW ADVERSARIALE après chaque
-  passe substantielle. Le rapport va dans `ADVERSARIAL_REVIEW_CLAUDE.md`
-  (remplacer la section courante ou versionner l'id `ADV-...`), avec table de
-  suivi remplie par Claude au traitement.
+- **Codex gpt-5.6-sol, effort high** : REVIEW ADVERSARIALE après chaque passe
+  substantielle — via le skill du plugin Claude Code `codex:adversarial-review`,
+  PAS en appelant le CLI codex à la main (consigne utilisateur).
+  Le rapport va dans `ADVERSARIAL_REVIEW_CLAUDE.md`
+  (versionner l'id `ADV-...`), avec table de suivi remplie par Claude au
+  traitement.
 - Après chaque chantier Grok : `git diff` relu par Claude, `node --check`,
   `test/invariants.html` (8 pass), vérification visuelle navigateur, PUIS
   commit.

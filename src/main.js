@@ -603,7 +603,8 @@ for (const b of $('s-quality').children) {
 }
 
 addEventListener('keydown', (e) => {
-  if (e.code === 'Space') { e.preventDefault(); world.paused = !world.paused; }
+  if (e.code === 'Space') { e.preventDefault(); world.shiba?.jump?.(); }
+  if (e.code === 'KeyP') world.paused = !world.paused;
   if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
   if (e.key === 'h' || e.key === 'H') {
     const hidden = hud.style.opacity === '0';

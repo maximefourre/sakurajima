@@ -371,7 +371,7 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     for (let k = 1; k <= 6; k++) {
       if (heightAt(x + dx * wMax * (k / 6), z + dz * wMax * (k / 6)) > waterY - 0.04) {
         // back off to just before the breach, then tuck a little into the bank
-        return Math.max(wMax * (k - 0.5) / 6, wMax * 0.18) + 0.35;
+        return Math.max(wMax * (k - 0.5) / 6, wMax * 0.18) + 0.12;
       }
     }
     return wMax;
@@ -425,6 +425,7 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
 
 const RIVER_VERT = /* glsl */ `
   attribute float aFade;
+  uniform float uTime;
   varying vec2 vUv;
   varying vec3 vWorld;
   varying float vFade;
@@ -433,6 +434,12 @@ const RIVER_VERT = /* glsl */ `
     vUv = uv;
     vFade = aFade;
     vec4 wp = modelMatrix * vec4(position, 1.0);
+    // A living surface: two travelling micro-swells plus fine chop. Total
+    // amplitude stays well under the bank-clamp margin, so the sheet never
+    // lifts over its banks; vWorld.y feeds the fragment depth, so colour,
+    // alpha and the waterline foam all breathe with it.
+    wp.y += (sin(wp.x * 0.55 + uTime * 1.7) + sin(wp.z * 0.47 - uTime * 2.3)) * 0.045
+          + sin((wp.x + wp.z) * 1.3 + uTime * 3.1) * 0.02;
     vWorld = wp.xyz;
     vec4 mvPosition = viewMatrix * wp;
     gl_Position = projectionMatrix * mvPosition;
@@ -516,7 +523,7 @@ const RIVER_FRAG = /* glsl */ `
     // Foam at the WATERLINE: the shallow rim where the surface meets the bed,
     // plus cresting ripples at the mouth. The rim line is what anchors the
     // surface to its banks instead of floating over them.
-    float rim = 1.0 - smoothstep(0.03, 0.42, depth);
+    float rim = 1.0 - smoothstep(0.0, 0.55, depth);
     float foam = max(smoothstep(0.72, 0.95, ripple) * rim,
                      smoothstep(0.80 - 0.22 * mouth, 0.97 - 0.12 * mouth, ripple) * mouth * 0.65);
     // Rapids: where the surface FALLS relative to its horizontal run the
@@ -525,7 +532,7 @@ const RIVER_FRAG = /* glsl */ `
     // is view-invariant; raw fwidth would foam all distant water at grazing.
     float cascade = fwidth(vWorld.y) / max(fwidth(vWorld.x) + fwidth(vWorld.z), 1e-4);
     foam = max(foam, smoothstep(0.10, 0.30, cascade) * (0.55 + 0.35 * ripple));
-    col = mix(col, vec3(0.92, 0.95, 0.96), foam * 0.5);
+    col = mix(col, vec3(0.92, 0.95, 0.96), foam * 0.62);
 
     if (vFade < 0.004) discard;
     // Transparency follows depth: thin water is glass over the sandy bed, the

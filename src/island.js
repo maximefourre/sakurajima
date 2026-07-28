@@ -591,7 +591,9 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   const cB = new THREE.Color();
   const cRock = new THREE.Color();
   const cBed = new THREE.Color();
-  const C_BED = new THREE.Color(0xb3a88e);   // scoured wet pebble-sand
+  const C_BED = new THREE.Color(0xb3a88e);          // scoured wet sand
+  const C_BED_GRAVEL = new THREE.Color(0x8d867c);   // grey gravel banks
+  const C_BED_ROCK = new THREE.Color(0x6f685f);     // dark scoured stone
 
   const C_SEABED = new THREE.Color(PAL.seabed);
   const C_WET = new THREE.Color(PAL.sandWet);
@@ -644,8 +646,14 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     // water above it is genuinely transparent now, so the bed is on screen.
     const bedK = riverBedFactor(x, z);
     if (bedK > 0.02) {
-      cBed.copy(C_BED).lerp(C_WET, 0.35 + cn * 0.20);
-      cA.lerp(cBed, bedK * 0.85);
+      // Sand, gravel and scoured stone in PATCHES down the channel — one flat
+      // sand tint read as a paved path, not a riverbed.
+      const m1 = fbm2(x * 0.055 + 21.0, z * 0.055 - 8.0, 3);
+      const m2 = fbm2(x * 0.35 - 4.0, z * 0.35 + 15.0, 2);
+      cBed.copy(m1 > 0.45 ? C_BED_ROCK : m1 > 0.12 ? C_BED_GRAVEL : C_BED);
+      cBed.lerp(C_WET, 0.30 + cn * 0.15);
+      cBed.multiplyScalar(0.92 + 0.16 * m2);
+      cA.lerp(cBed, bedK * 0.88);
     }
 
     // Curvature shading + grain.

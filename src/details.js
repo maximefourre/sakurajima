@@ -25,6 +25,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
 import { makeWoodBump } from './detailtex.js';
 import { WORLD, LAND_SCALE, AREA, RIVER, PATH } from './config.js';
+import { riverBedFactor, waterSurfaceYAt } from './river.js';
 
 const TAU = Math.PI * 2;
 
@@ -593,6 +594,41 @@ export function createDetails({
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     group.add(mesh);
+
+    // — river gravel: pebbles strewn along the carved beds, seen through the
+    // now-transparent water. Sampled by jittering along the authored paths
+    // instead of island-wide rejection (the channels are a sliver of the map).
+    {
+      const wantR = Math.round(420 * budget);
+      const meshR = new THREE.InstancedMesh(pebbleGeo, pebbleMat, wantR);
+      meshR.name = 'river-pebbles';
+      meshR.castShadow = false;
+      meshR.receiveShadow = true;
+      const paths = [RIVER.path, ...(RIVER.branches || []).map((b) => b.path)];
+      let placedR = 0, attemptsR = 0;
+      while (placedR < wantR && attemptsR < wantR * 30) {
+        attemptsR++;
+        const path = paths[(rng() * paths.length) | 0];
+        const a = path[(rng() * (path.length - 1)) | 0];
+        const b2 = path[Math.min(path.length - 1, ((rng() * (path.length - 1)) | 0) + 1)];
+        const tt = rng();
+        const x = a[0] + (b2[0] - a[0]) * tt + R.range(rng, -9, 9);
+        const z = a[1] + (b2[1] - a[1]) * tt + R.range(rng, -9, 9);
+        if (riverBedFactor(x, z) < 0.45) continue;
+        const h = heightAt(x, z);
+        const w = waterSurfaceYAt(x, z);
+        if (w === null || h > w - 0.08) continue;   // only the wetted bed
+        _e.set(rng() * TAU, rng() * TAU, rng() * TAU);
+        _q.setFromEuler(_e);
+        const sc = R.skew(rng, 0.4, 1.9, 1.6);
+        _m.compose(_p.set(x, h - 0.03 * sc, z), _q, _s.set(sc, sc * 0.6, sc * 1.2));
+        meshR.setMatrixAt(placedR++, _m);
+      }
+      meshR.count = placedR;
+      meshR.instanceMatrix.needsUpdate = true;
+      meshR.computeBoundingSphere();
+      group.add(meshR);
+    }
   }
 
   /* ── 4. the pilgrim path and its torii ───────────────────────── */
