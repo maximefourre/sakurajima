@@ -23,6 +23,7 @@ import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
 import { createShiba } from './shiba.js';
+import { createDetails } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -32,7 +33,7 @@ const clockT = $('clock-t'), clockP = $('clock-p');
 const perfFps = $('perf-fps'), perfDraw = $('perf-draw'), perfTri = $('perf-tri');
 
 let loadStep = 0;
-const LOAD_STEPS = 10;
+const LOAD_STEPS = 11;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -98,7 +99,7 @@ const world = {
   paused: false,
   wind: null,
   island: null, ponds: null, river: null, forest: null, grass: null,
-  petals: null, sky: null, birds: null, clouds: null, shiba: null,
+  petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -353,6 +354,17 @@ async function boot() {
   });
   scene.add(world.birds.group);
 
+  await step('fleurs et lanternes');
+  world.details = createDetails({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    normalAt: world.island.normalAt,
+    inWater: world.inWater,
+    wind: world.wind,
+  });
+  scene.add(world.details.group);
+
   await step('shiba');
   world.shiba = createShiba({
     seed: SEED,
@@ -445,6 +457,7 @@ function frame() {
   world.petals.update(t, shaderPhase);
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);
+  world.details.update(t, phase);
 
   // The dog reads the camera to work out which way "forward" is, so he updates
   // before the camera moves this frame. One frame of lag in the control frame is

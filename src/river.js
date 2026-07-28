@@ -163,6 +163,17 @@ function nearestOnRiver(x, z) {
  * surface is sampled from the resulting bed afterwards.
  */
 let _profile = null;   // Float32Array of water Y, indexed like SAMPLE_*
+let _fade = null;      // Float32Array of 0..1 "still a river here", same indexing
+
+/** How much river there still is at t. 1 upstream, 0 once the banks are sea. */
+function fadeAt(t) {
+  if (!_fade) return 1;
+  const f = clamp(t, 0, 1) * SAMPLES;
+  const i = Math.min(SAMPLES, f | 0);
+  const i1 = Math.min(SAMPLES, i + 1);
+  const a = f - i;
+  return _fade[i] * (1 - a) + _fade[i1] * a;
+}
 
 function waterYAt(t) {
   if (!_profile) {
@@ -194,7 +205,16 @@ export function carveRiver(x, z, h) {
   const halfW = RIVER.width * 0.5 * wob;
   const bank = RIVER.bankWidth * wob;
 
-  const inChannel = 1 - smoothstep(halfW, halfW + bank, dist);
+  let inChannel = 1 - smoothstep(halfW, halfW + bank, dist);
+  if (inChannel <= 0) return h;
+
+  // A river carves LAND, not seabed. Once the surrounding ground has dropped to
+  // the waterline there is nothing left to cut, and cutting anyway drags the
+  // trench on out under the sea as a dark groove aimed at the horizon — the
+  // channel stays perfectly legible through water that should have swallowed it.
+  // Fading the cut out over the last couple of units of elevation turns the last
+  // stretch into an estuary that opens and disappears.
+  inChannel *= smoothstep(WORLD.seaLevel - 0.2, WORLD.seaLevel + 2.2, h);
   if (inChannel <= 0) return h;
 
   // Cut RELATIVE to the local ground: the bed sits `depth` below whatever the
@@ -219,9 +239,14 @@ export function isInRiver(x, z) {
    2. Water ribbon
    ──────────────────────────────────────────────────────────────── */
 
-function buildWaterRibbon() {
+/**
+ * @param {Function} [fadeAt] (t) => 0..1 — how much river there still is here.
+ *   Drops to 0 at the mouth, where the ribbon has to dissolve into the sea
+ *   instead of ending at a rectangular edge sitting proud of it.
+ */
+function buildWaterRibbon(fadeAt = null) {
   const N = 240, W = RIVER.width * 0.5;
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], fade = [];
   const p = new THREE.Vector3(), tan = new THREE.Vector3();
 
   for (let i = 0; i <= N; i++) {
@@ -232,13 +257,18 @@ function buildWaterRibbon() {
     const nx = -tan.z, nz = tan.x;
     const len = Math.hypot(nx, nz) || 1;
     const wob = fbm2(p.x * 0.03, p.z * 0.03, 2) * 0.28 + 1;
-    const w = W * wob;
+    // The channel widens as it reaches the sea. An estuary that stays exactly as
+    // wide as the upper reach reads as a canal.
+    const flare = fadeAt ? 1 + 1.5 * (1 - fadeAt(t)) : 1;
+    const w = W * wob * flare;
     const y = waterYAt(t);
+    const f = fadeAt ? fadeAt(t) : 1;
 
     pos.push(p.x + (nx / len) * w, y, p.z + (nz / len) * w);
     pos.push(p.x - (nx / len) * w, y, p.z - (nz / len) * w);
     uv.push(0, t * 26);
     uv.push(1, t * 26);
+    fade.push(f, f);
 
     if (i < N) {
       const a = i * 2;
@@ -249,17 +279,21 @@ function buildWaterRibbon() {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aFade', new THREE.Float32BufferAttribute(fade, 1));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
 }
 
 const RIVER_VERT = /* glsl */ `
+  attribute float aFade;
   varying vec2 vUv;
   varying vec3 vWorld;
+  varying float vFade;
   #include <fog_pars_vertex>
   void main() {
     vUv = uv;
+    vFade = aFade;
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorld = wp.xyz;
     vec4 mvPosition = viewMatrix * wp;
@@ -278,6 +312,7 @@ const RIVER_FRAG = /* glsl */ `
   uniform vec3  uSkyColor;
   varying vec2 vUv;
   varying vec3 vWorld;
+  varying float vFade;
   #include <fog_pars_fragment>
 
   float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.545); }
@@ -319,7 +354,8 @@ const RIVER_FRAG = /* glsl */ `
     float foam = smoothstep(0.80, 0.97, ripple) * shallow;
     col = mix(col, vec3(0.90, 0.94, 0.95), foam * 0.30);
 
-    gl_FragColor = vec4(col, 0.90);
+    if (vFade < 0.004) discard;
+    gl_FragColor = vec4(col, 0.90 * vFade);
     #include <fog_fragment>
   }
 `;
@@ -491,8 +527,41 @@ export function createRiver({ wind } = {}) {
       _profile[i] = _profile[i] * (1 - a) + (WORLD.seaLevel + 0.05) * a;
     }
 
+    // Where does the river stop being a river?
+    //
+    // Not at the end of the curve — the path deliberately runs on past the
+    // coast so the mouth is not a special case to author. The honest test is
+    // the BANKS: sample the ground either side of the corridor, outside the
+    // carve, and ask how far above the waterline it still is. Once the banks
+    // are gone there is only sea, and both the channel and the ribbon have to
+    // dissolve rather than run on as a trench with a lid.
+    const bank = new Float32Array(SAMPLES + 1);
+    const off = RIVER.width * 0.5 + RIVER.bankWidth + 3;
+    const _tan = new THREE.Vector3();
+    for (let i = 0; i <= SAMPLES; i++) {
+      curve.getTangentAt(i / SAMPLES, _tan);
+      const nx = -_tan.z, nz = _tan.x;
+      const l = Math.hypot(nx, nz) || 1;
+      bank[i] = Math.max(
+        heightAt(SAMPLE_X[i] + (nx / l) * off, SAMPLE_Z[i] + (nz / l) * off),
+        heightAt(SAMPLE_X[i] - (nx / l) * off, SAMPLE_Z[i] - (nz / l) * off)
+      );
+    }
+    _fade = new Float32Array(SAMPLES + 1);
+    for (let i = 0; i <= SAMPLES; i++) {
+      _fade[i] = smoothstep(WORLD.seaLevel + 0.1, WORLD.seaLevel + 2.4, bank[i]);
+    }
+    // Monotonic downstream: a sandbar mid-estuary must not make the river
+    // reappear beyond it.
+    for (let i = SAMPLES - 1; i >= 0; i--) _fade[i] = Math.max(_fade[i], _fade[i + 1]);
+    for (let pass = 0; pass < 4; pass++) {
+      for (let i = 1; i < SAMPLES; i++) {
+        _fade[i] = (_fade[i - 1] + _fade[i] * 2 + _fade[i + 1]) * 0.25;
+      }
+    }
+
     water.geometry.dispose();
-    water.geometry = buildWaterRibbon();
+    water.geometry = buildWaterRibbon(fadeAt);
     buildBridge(group);
   }
 
