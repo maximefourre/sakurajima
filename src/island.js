@@ -29,7 +29,7 @@
  */
 
 import * as THREE from 'three';
-import { WORLD, LAND_SCALE, HEIGHT_SCALE } from './config.js';
+import { WORLD, LAND_SCALE, HEIGHT_SCALE, RIVER } from './config.js';
 import { makeGrainBump } from './detailtex.js';
 import {
   noise2, fbm2, ridged2,
@@ -994,12 +994,44 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     placed.push({ x, z, h, slope: slopeAt(x, z), stack: true });
   }
 
+  // — the spring: an authored boulder cluster hiding the river's source —
+  // The trunk ribbon simply began mid-meadow at full width; these rocks cap
+  // the upstream end and flank the first metres so the water reads as rising
+  // from between them. Fixed shapes/scales/yaws: consuming zero rngRock()
+  // draws keeps every other boulder on the island exactly where it was.
+  {
+    const [spx, spz] = RIVER.path[0];
+    const [sqx, sqz] = RIVER.path[1];
+    let ux = sqx - spx, uz = sqz - spz;
+    const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;   // downstream
+    const vx = -uz, vz = ux;                                   // across the flow
+    const SPRING_ROCKS = [
+      // a = along flow (world u), b = across, s = base scale, ky = vertical squash
+      { a: -7.0, b:  0.5, s: 4.6, ky: 1.15, shape: 2, yaw: 0.8, sink: 0.34 }, // back wall
+      { a: -3.5, b: -3.8, s: 3.9, ky: 1.05, shape: 1, yaw: 2.1, sink: 0.30 }, // left cap
+      { a: -2.5, b:  4.0, s: 3.6, ky: 0.95, shape: 4, yaw: 4.4, sink: 0.30 }, // right cap
+      { a:  2.5, b: -4.6, s: 2.9, ky: 0.80, shape: 0, yaw: 1.3, sink: 0.28 },
+      { a:  4.0, b:  4.8, s: 2.7, ky: 0.85, shape: 3, yaw: 5.2, sink: 0.28 },
+      { a:  6.5, b:  0.9, s: 1.4, ky: 0.75, shape: 5, yaw: 0.2, sink: 0.35 }, // midstream, parts the water
+      { a: 10.0, b: -5.6, s: 2.3, ky: 0.75, shape: 5, yaw: 3.0, sink: 0.30 },
+      { a: 12.5, b:  6.2, s: 2.1, ky: 0.78, shape: 1, yaw: 5.8, sink: 0.30 },
+      { a: 18.0, b: -5.2, s: 1.7, ky: 0.72, shape: 3, yaw: 2.6, sink: 0.32 },
+    ];
+    for (const r of SPRING_ROCKS) {
+      const x = spx + ux * r.a + vx * r.b;
+      const z = spz + uz * r.a + vz * r.b;
+      placed.push({ x, z, h: heightAt(x, z), slope: slopeAt(x, z), stack: false, spring: r });
+    }
+  }
+
   // Split the placements across the distinct shapes.
   const buckets = shapes.map(() => []);
   for (const p of placed) {
-    const idx = p.stack
-      ? (rngRock() < 0.5 ? 1 : 4)                       // the beefier silhouettes
-      : Math.floor(rngRock() * shapes.length) % shapes.length;
+    const idx = p.spring
+      ? p.spring.shape
+      : p.stack
+        ? (rngRock() < 0.5 ? 1 : 4)                     // the beefier silhouettes
+        : Math.floor(rngRock() * shapes.length) % shapes.length;
     buckets[idx].push(p);
   }
 
@@ -1027,23 +1059,28 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
 
-      let base = p.stack
-        ? 3.2 + rngRock() * 2.8
-        : mix(0.45, 2.5, Math.pow(rngRock(), 2.0));
-      if (!p.stack && rngRock() < 0.07) base *= 1.9; // the occasional hero rock
-
-      const sx = base * (0.86 + rngRock() * 0.30);
-      const sy = base * (p.stack ? 1.25 + rngRock() * 0.9 : 0.72 + rngRock() * 0.42);
-      const sz = base * (0.86 + rngRock() * 0.30);
+      let sx, sy, sz;
+      if (p.spring) {
+        sx = p.spring.s; sy = p.spring.s * p.spring.ky; sz = p.spring.s;
+      } else {
+        let base = p.stack
+          ? 3.2 + rngRock() * 2.8
+          : mix(0.45, 2.5, Math.pow(rngRock(), 2.0));
+        if (!p.stack && rngRock() < 0.07) base *= 1.9; // the occasional hero rock
+        sx = base * (0.86 + rngRock() * 0.30);
+        sy = base * (p.stack ? 1.25 + rngRock() * 0.9 : 0.72 + rngRock() * 0.42);
+        sz = base * (0.86 + rngRock() * 0.30);
+      }
 
       // Tilt partly with the ground so rocks bed in rather than stand to attention.
       normalAt(p.x, p.z, _nrm);
       _nrm.lerp(_up, 0.45).normalize();
       _q.setFromUnitVectors(_up, _nrm);
-      _qy.setFromAxisAngle(_up, rngRock() * TAU);
+      _qy.setFromAxisAngle(_up, p.spring ? p.spring.yaw : rngRock() * TAU);
       _q.multiply(_qy);
 
-      const sink = p.stack ? 0.18 + rngRock() * 0.12 : 0.26 + rngRock() * 0.30;
+      const sink = p.spring ? p.spring.sink
+        : p.stack ? 0.18 + rngRock() * 0.12 : 0.26 + rngRock() * 0.30;
       _p.set(p.x, p.h - sy * sink, p.z);
       _s.set(sx, sy, sz);
 
@@ -1051,7 +1088,8 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       im.setMatrixAt(i, _m);
 
       // Wet rock below the tideline is markedly darker; that contrast sells the surf.
-      _col.setHSL(0.085 + (rngRock() - 0.5) * 0.05, 0.05 + rngRock() * 0.08, 0.40 + rngRock() * 0.15);
+      if (p.spring) _col.setHSL(0.09, 0.09, 0.46);
+      else _col.setHSL(0.085 + (rngRock() - 0.5) * 0.05, 0.05 + rngRock() * 0.08, 0.40 + rngRock() * 0.15);
       if (p.h < 0.9) _col.multiplyScalar(mix(0.55, 1.0, clamp((p.h + 1.2) / 2.1, 0, 1)));
       im.setColorAt(i, _col);
 

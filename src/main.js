@@ -207,7 +207,7 @@ function updateFollowCamera(dt) {
 
   // Keep the lens out of the ground. Without this the camera spends every
   // downhill run buried in the terrain looking at the inside of the island.
-  const floor = world.heightAt(_camWant.x, _camWant.z) + 1.2;
+  const floor = (world.groundAt || world.heightAt)(_camWant.x, _camWant.z) + 1.2;
   if (_camWant.y < floor) _camWant.y = floor;
 
   camera.position.lerp(_camWant, Math.min(1, dt * 4.5));
@@ -290,6 +290,15 @@ async function boot() {
   // path's last segment onto the actual abutment NOW, before the grass is
   // placed — grass exclusion evaluates isOnPath at placement time.
   initPath(world.river.bridgeInfo);
+
+  // Composite ground for MOVERS only (dog, follow camera): the bridge deck
+  // overrides the terrain column it covers. Scatter/placement systems keep
+  // using world.heightAt — island.heightAt stays the single source of truth
+  // for everything rooted in the terrain.
+  world.groundAt = (x, z) => {
+    const d = world.river.bridgeDeckHeightAt(x, z);
+    return d !== null ? d : world.heightAt(x, z);
+  };
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });
@@ -395,6 +404,8 @@ async function boot() {
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     isInPond: world.inWater,
+    deckHeightAt: world.river.bridgeDeckHeightAt,
+    deckNormalAt: world.river.bridgeDeckNormalAt,
     wind: world.wind,
     seaLevel: world.island.seaLevel,
   });

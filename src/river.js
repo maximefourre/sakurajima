@@ -80,7 +80,9 @@ export { BRANCHES };
  * junction (the branch's second control point, t ≈ 0.2 of its own arc).
  */
 function widthKAt(b, t) {
-  if (b === 0) return 1;
+  // The trunk is born narrow — a spring, not a canal: 0.35 of full width at
+  // the source, its own width by t = 0.10 (~55 world units downstream).
+  if (b === 0) return 0.35 + 0.65 * smoothstep(0.0, 0.10, t);
   const k = BRANCHES[b].widthK;
   return 1 + (k - 1) * smoothstep(0.20, 0.55, t);
 }
@@ -343,11 +345,17 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false) {
     const wob = fbm2(p.x * 0.03, p.z * 0.03, 2) * 0.28 + 1;
     // The channel widens as it reaches the sea. An estuary that stays exactly as
     // wide as the upper reach reads as a canal.
-    const flare = faded ? 1 + 1.5 * (1 - fadeAtB(b, t)) : 1;
-    const w = W * wob * flare * widthKAt(b, t);
+    const flare = faded ? 1 + 0.6 * (1 - fadeAtB(b, t)) : 1;
+    // Cap the flare so the ribbon never leaves the carved corridor: past
+    // width/2 + 0.45*bankWidth the bowl has climbed back over the waterline.
+    const w = Math.min(W * wob * flare, W + RIVER.bankWidth * 0.45) * widthKAt(b, t);
     const y = waterYAtB(b, t);
     let f = faded ? fadeAtB(b, t) : 1;
-    if (b > 0) f *= Math.min(1, i / RAMP);
+    // Squared so that, combined with the concave alpha curve in the fragment
+    // shader (pow 0.55), the junction overlap stays as dim as before — two
+    // transparent surfaces over each other double-blend into a dark patch.
+    if (b > 0) f *= Math.pow(Math.min(1, i / RAMP), 2.0);
+    else f *= smoothstep(0.0, 0.06, t);   // the trunk seeps in from between the spring rocks
 
     pos.push(p.x + (nx / len) * w, y, p.z + (nz / len) * w);
     pos.push(p.x - (nx / len) * w, y, p.z - (nz / len) * w);
@@ -392,6 +400,7 @@ const RIVER_FRAG = /* glsl */ `
   uniform float uFlow;
   uniform vec3  uShallow;
   uniform vec3  uDeep;
+  uniform vec3  uMouthCol;
   uniform vec3  uSunDir;
   uniform vec3  uSunColor;
   uniform vec3  uSkyColor;
@@ -435,12 +444,22 @@ const RIVER_FRAG = /* glsl */ `
     float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
     col = mix(col, uSkyColor, fres * 0.38);
 
-    // Foam only where ripples peak against the shallow margins.
-    float foam = smoothstep(0.80, 0.97, ripple) * shallow;
-    col = mix(col, vec3(0.90, 0.94, 0.95), foam * 0.30);
+    // Mouth zone: as the banks fade the river is becoming SEA. Shift the body
+    // colour toward the lagoon turquoise, let foam bloom where the arms meet
+    // the surf, and thicken the alpha so the channels read as water, not gauze.
+    float mouth = smoothstep(0.55, 0.12, vFade);
+    col = mix(col, uMouthCol, mouth * 0.5);
+
+    // Foam where ripples peak against the shallow margins; looser and wider
+    // at the mouth so the arm edges fringe white against the sand.
+    float foam = smoothstep(0.80 - 0.22 * mouth, 0.97 - 0.12 * mouth, ripple)
+               * max(shallow, mouth * 0.65);
+    col = mix(col, vec3(0.90, 0.94, 0.95), foam * (0.30 + 0.25 * mouth));
 
     if (vFade < 0.004) discard;
-    gl_FragColor = vec4(col, 0.90 * vFade);
+    // Concave alpha curve: fade 0.25 (the sand flat) renders at 0.42 instead
+    // of 0.20, while full fade keeps its 0.90 and the tip still dissolves to 0.
+    gl_FragColor = vec4(col, 0.90 * pow(vFade, 0.55));
     #include <fog_fragment>
   }
 `;
@@ -630,6 +649,60 @@ export function createRiver({ wind } = {}) {
   const branchMeshes = [];
   let bridgeMesh = null;
 
+  // Captured by build() so the deck's approach aprons can blend onto the banks.
+  let _groundAt = null;
+
+  const DECK_APRON = 2.6;  // metres past each abutment the approach ramp blends
+  const DECK_TOP = 0.08;   // planks are 0.16 thick, centred on the arch curve
+
+  /**
+   * Walkable height of the bridge deck at (x, z), or null when the column is
+   * not on the deck (or the bridge is not built yet). Inside the span this is
+   * the plank top; over each abutment it blends down onto the bank over
+   * DECK_APRON so a walker is lifted smoothly instead of stepping up a ledge.
+   * O(1), allocation-free — safe to call several times per frame.
+   */
+  function bridgeDeckHeightAt(x, z) {
+    const info = api.bridgeInfo;
+    if (!info) return null;
+    const dx = x - info.center.x, dz = z - info.center.z;
+    const ax = info.axis.x, az = info.axis.z;
+    const s = dx * ax + dz * az;                 // along the deck's long axis
+    const halfS = info.span * 0.5;
+    const as = Math.abs(s);
+    if (as > halfS + DECK_APRON) return null;
+    const q = -dx * az + dz * ax;                // across the deck
+    if (Math.abs(q) > RIVER.bridgeWidth * 0.5) return null;
+    const u = clamp(s / halfS, -1, 1);
+    const deckY = info.baseY + RIVER.bridgeRise * (1 - u * u) + DECK_TOP;
+    if (as <= halfS) return deckY;
+    // Approach apron: past the abutment, ease the deck-end height onto the bank.
+    const k = smoothstep(0, 1, (as - halfS) / DECK_APRON);
+    const g = _groundAt ? _groundAt(x, z) : deckY;
+    return deckY + (g - deckY) * k;
+  }
+
+  /**
+   * Upward surface normal of the deck at (x, z) into `out` (a Vector3).
+   * Returns false (out untouched) off the strict span — callers fall back to
+   * the terrain normal there.
+   */
+  function bridgeDeckNormalAt(x, z, out) {
+    const info = api.bridgeInfo;
+    if (!info) return false;
+    const dx = x - info.center.x, dz = z - info.center.z;
+    const ax = info.axis.x, az = info.axis.z;
+    const s = dx * ax + dz * az;
+    const halfS = info.span * 0.5;
+    if (Math.abs(s) > halfS) return false;
+    const q = -dx * az + dz * ax;
+    if (Math.abs(q) > RIVER.bridgeWidth * 0.5) return false;
+    // Deck is y = baseY + rise*(1 - (s/halfS)^2), so dy/ds = -2*rise*s/halfS^2.
+    const dyds = -2 * RIVER.bridgeRise * s / (halfS * halfS);
+    out.set(-dyds * ax, 1, -dyds * az).normalize();
+    return true;
+  }
+
   /**
    * Called once the terrain exists. Samples the carved bed along the
    * centreline, forces the result to be monotonically descending (a river never
@@ -697,6 +770,29 @@ export function createRiver({ wind } = {}) {
         }
         src = Math.max(0, pinnedTo);
       }
+      // Clamp the surface under its OWN banks, station by station. The profile
+      // is bed + 0.72*depth, but the carve's pow(u, 1.7) bowl drops the ground
+      // at the ribbon's edge to roughly bed + 0.18*depth — so the ribbon edge
+      // hung in the air over its own bed. Sample the carved ground just outside
+      // the ribbon on both sides and keep the water at least 0.12 below the
+      // higher one, floored near sea level (an estuary arm is sea standing in).
+      // Only ever LOWERS a station, so the never-rise clamp below still holds;
+      // pinned junction stations are exempt — matching the trunk outranks it.
+      const clampStart = b === 0 ? 0 : pinnedTo + 1;
+      const _tanC = new THREE.Vector3();
+      const bankClampPass = () => {
+        for (let i = clampStart; i <= N; i++) {
+          br.curve.getTangentAt(i / N, _tanC);
+          const nx = -_tanC.z, nz = _tanC.x;
+          const l = Math.hypot(nx, nz) || 1;
+          const offC = RIVER.width * 0.5 * widthKAt(b, i / N) + 1.0;
+          const gL = heightAt(br.sx[i] + (nx / l) * offC, br.sz[i] + (nz / l) * offC);
+          const gR = heightAt(br.sx[i] - (nx / l) * offC, br.sz[i] - (nz / l) * offC);
+          const ceilY = Math.max(Math.max(gL, gR) - 0.12, WORLD.seaLevel + 0.03);
+          if (br.profile[i] > ceilY) br.profile[i] = ceilY;
+        }
+      };
+      bankClampPass();
       for (let i = src + 1; i <= N; i++) {
         if (br.profile[i] > br.profile[i - 1]) br.profile[i] = br.profile[i - 1];
       }
@@ -712,6 +808,7 @@ export function createRiver({ wind } = {}) {
           br.profile[i] = waterYAt(nt.t);
         }
       }
+      bankClampPass();   // smoothing can re-lift a station above its bank
       // The mouth must meet the sea.
       const M = b === 0 ? 24 : 14;
       for (let i = N - M; i <= N; i++) {
@@ -727,7 +824,17 @@ export function createRiver({ wind } = {}) {
       // BELOW seaLevel+0.05, which reads as the sea standing into the mouth.
       // Pinned junction stations are exempt: matching the trunk exactly
       // outranks local monotonicity, and the trunk itself is monotone.
-      const clampFrom = Math.max(1, (b === 0 ? src : Math.max(0, pinnedTo)) + 1);
+      // The bank clamp above may have LOWERED stations upstream of the original
+      // argmax, so the highest station can have moved — recompute it, or the
+      // final clamp leaves a millimetric rise upstream of the old seed.
+      let clampSeed;
+      if (b === 0) {
+        clampSeed = 0;
+        for (let i = 1; i <= N; i++) if (br.profile[i] > br.profile[clampSeed]) clampSeed = i;
+      } else {
+        clampSeed = Math.max(0, pinnedTo);
+      }
+      const clampFrom = Math.max(1, clampSeed + 1);
       for (let i = clampFrom; i <= N; i++) {
         if (br.profile[i] > br.profile[i - 1]) br.profile[i] = br.profile[i - 1];
       }
@@ -807,6 +914,7 @@ export function createRiver({ wind } = {}) {
     const built = buildBridge(group, heightAt);
     bridgeMesh = built.bridge;
     api.bridgeInfo = built.info;
+    _groundAt = heightAt;
   }
 
   const uniforms = {
@@ -814,6 +922,7 @@ export function createRiver({ wind } = {}) {
     uFlow:     { value: RIVER.flowSpeed },
     uShallow:  { value: new THREE.Color(0x4d7f7c) },
     uDeep:     { value: new THREE.Color(0x14343c) },
+    uMouthCol: { value: new THREE.Color(0x2f9aa0) },
     uSunDir:   { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color(1, 1, 1) },
     uSkyColor: { value: new THREE.Color(0.4, 0.5, 0.62) },
@@ -866,6 +975,7 @@ export function createRiver({ wind } = {}) {
 
   const api = {
     group, update, build, dispose, water, carveRiver, isInRiver, curve, waterYAt,
+    bridgeDeckHeightAt, bridgeDeckNormalAt,
     // Set by build(): the bridge's FINAL placement (shift included) — the
     // single source of truth for the path's last segment and the abutment
     // lanterns. Null until the terrain exists.

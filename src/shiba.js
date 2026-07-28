@@ -311,9 +311,14 @@ function buildBody(material) {
   nose.scale.set(1.15, 0.85, 0.9);
 
   for (const side of [-1, 1]) {
-    const eye = mesh(paintSolid(new THREE.SphereGeometry(0.034, 8, 6), COAT.dark), head, 'eye');
-    eye.position.set(side * 0.108, 0.055, 0.115);
-    eye.scale.set(0.80, 1.0, 0.7);
+    // The skull sweep's surface at eye height sits at |x| ≈ 0.114 — anything
+    // inboard of that is buried inside the head. Proud by ~half the sphere.
+    const eye = mesh(paintSolid(new THREE.SphereGeometry(0.038, 10, 8), COAT.dark), head, 'eye');
+    eye.position.set(side * 0.120, 0.058, 0.148);
+    eye.scale.set(0.72, 1.0, 0.62);
+    // A pin of light: without it a dark eye on a dark mask reads as fur.
+    const glint = mesh(paintSolid(new THREE.SphereGeometry(0.010, 6, 5), new THREE.Color(0xf6f2ea)), head, 'eye-glint');
+    glint.position.set(side * 0.127, 0.070, 0.162);
   }
 
   /* — ears —
@@ -514,6 +519,8 @@ function createFootprints(count, life) {
  * @param {Function} [opts.slopeAt]  (x, z) => 0..1
  * @param {Function} [opts.normalAt] (x, z, out) => Vector3
  * @param {Function} [opts.isInPond] (x, z) => bool — ponds and river both count
+ * @param {Function} [opts.deckHeightAt] (x, z) => y|null — bridge deck walkable height
+ * @param {Function} [opts.deckNormalAt] (x, z, out) => bool — deck normal into out
  * @param {object}   [opts.wind]     from createWind(); read for ear and tail flutter
  * @param {number}   [opts.seaLevel]
  */
@@ -523,6 +530,8 @@ export function createShiba({
   slopeAt = null,
   normalAt = null,
   isInPond = null,
+  deckHeightAt = null,
+  deckNormalAt = null,
   wind = null,
   seaLevel = WORLD.seaLevel,
 } = {}) {
@@ -560,6 +569,7 @@ export function createShiba({
     wading: false,
     sitting: 0,        // 0..1 blend, not a boolean — he folds down over ~0.8 s
     excitement: 0,     // decays after a run; drives the tail
+    tailPhase: 0,      // integrated wag phase — sin(t*rate) with a moving rate whips
     idleTime: 0,
     gait: 0,           // accumulated stride phase in radians
   };
@@ -608,8 +618,26 @@ export function createShiba({
 
   /* ── terrain queries ───────────────────────────────────────── */
 
-  /** Can he stand here? Deep water and cliffs say no. */
+  /** Can he stand here? Deep water and cliffs say no; the bridge deck says yes. */
   function passable(x, z) {
+    if (deckHeightAt) {
+      const d = deckHeightAt(x, z);
+      if (d !== null && position.y > d - 2.0) {
+        // At deck level the planks are always standable. This must short-circuit
+        // the water and slope tests: the river below the deck and the carved
+        // channel's bank slopes would otherwise both refuse the crossing.
+        // The y-gate keeps a dog WADING UNDER the bridge on the terrain rules.
+        return true;
+      }
+      if (d === null) {
+        const dHere = deckHeightAt(position.x, position.z);
+        if (dHere !== null && position.y > dHere - 2.0 && heightAt(x, z) < dHere - 1.2) {
+          // Stepping sideways off the deck mid-span: the handrails contain him.
+          // tryMove's axis-slide turns this refusal into gliding along the rail.
+          return false;
+        }
+      }
+    }
     const h = heightAt(x, z);
     if (h < seaLevel - SHIBA.wadeDepth) return false;
     if (isInPond && isInPond(x, z) && h < seaLevel + 0.1) return false;
@@ -700,8 +728,12 @@ export function createShiba({
 
     // Tail. Wag rate tracks excitement, which spikes after a run and decays, so
     // he arrives somewhere still buzzing and settles down a few seconds later.
+    // Integrate the phase: sin(t * wag) with a time-varying wag sweeps the
+    // phase at wag + t * dwag/dt — at t in the hundreds of seconds the decay
+    // after a run whipped the tail dozens of times too fast.
     const wag = 2.0 + state.excitement * 9.0;
-    rig.tailBase.rotation.y = Math.sin(t * wag) * (0.10 + 0.28 * state.excitement);
+    state.tailPhase += wag * dt;
+    rig.tailBase.rotation.y = Math.sin(state.tailPhase) * (0.10 + 0.28 * state.excitement);
     rig.tailBase.rotation.x = -0.10 * speedN + 0.26 * sit; // the curl flattens onto the croup
 
     // Ears: laid back at speed, pricked at rest, and flicked by the gusts. The
@@ -720,6 +752,12 @@ export function createShiba({
 
   function stampPrint(leg) {
     leg.paw.getWorldPosition(_pawWorld);
+    // No paw prints in the bridge planks (and none stamped on the riverbed
+    // 4 units below the paw while he crosses).
+    if (deckHeightAt) {
+      const d = deckHeightAt(_pawWorld.x, _pawWorld.z);
+      if (d !== null && position.y > d - 2.0) return;
+    }
     const h = heightAt(_pawWorld.x, _pawWorld.z);
     // Sand only. Prints in grass are invisible and prints on rock are wrong.
     if (h > WORLD.beachTop || h < seaLevel - 0.05) return;
@@ -812,7 +850,9 @@ export function createShiba({
       }
     }
 
-    const ground = heightAt(position.x, position.z);
+    const dHere = deckHeightAt ? deckHeightAt(position.x, position.z) : null;
+    const onDeck = dHere !== null && position.y > dHere - 2.0;
+    const ground = onDeck ? dHere : heightAt(position.x, position.z);
     state.wading = ground < seaLevel + 0.06;
     // Settle onto the ground rather than snapping: a hard clamp to heightAt makes
     // him judder over the terrain's triangle edges at speed.
@@ -834,7 +874,9 @@ export function createShiba({
     rig.root.position.copy(position);
     rig.root.position.y -= 0.04 * state.sitting;
 
-    if (normalAt) normalAt(position.x, position.z, _n); else _n.copy(UP);
+    if (!(onDeck && deckNormalAt && deckNormalAt(position.x, position.z, _n))) {
+      if (normalAt) normalAt(position.x, position.z, _n); else _n.copy(UP);
+    }
     // Only partly conform to the slope. A quadruped standing on a hillside keeps
     // its body far closer to level than the ground under it; aligning fully makes
     // him look magnetised to the terrain.
