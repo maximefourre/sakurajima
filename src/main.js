@@ -108,6 +108,35 @@ function applyDPR() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, cap));
 }
 
+/**
+ * The forest's wind uniforms.
+ *
+ * sakura.js models wind direction as a Vector3 and names its uniforms its own
+ * way; wind.js uses a Vector2 and a different set again. Handing the shared
+ * object straight over compiles and then does nothing, because the tree shader
+ * reads uWindDir as a vec3 and gets a vec2. Rather than fork either module,
+ * OWN a small adapter here and refresh it from the shared gust train each frame:
+ * sakura keeps this object by reference, so the trees end up leaning the same way
+ * as the grass, going slack in the same lulls.
+ */
+const forestWind = {
+  uWindDir: { value: new THREE.Vector3(1, 0, 0.38) },
+  uWindStrength: { value: 1.0 },
+};
+
+/**
+ * Spread a budget of unique tree meshes over the five archetypes. Weighted the
+ * way the placement weights are, so the common Yoshino gets the most variants —
+ * spending the budget evenly means every third tree on the island is visibly the
+ * same tree.
+ */
+function sakuraPrototypes(total) {
+  const w = { somei: 0.34, shidare: 0.18, windswept: 0.16, ancient: 0.14, young: 0.18 };
+  const out = {};
+  for (const k in w) out[k] = Math.max(2, Math.round(total * w[k]));
+  return out;
+}
+
 /* ── third-person camera rig ─────────────────────────────────────
  * Deliberately NOT OrbitControls re-targeted at the dog. A follow camera wants
  * lag, a ground clearance test and a heading that drifts back behind the subject
@@ -244,13 +273,28 @@ async function boot() {
   scene.add(world.ponds.group);
   scene.add(world.river.group);
 
+  /** Standing or running water. Every scatter system has to reject it. */
+  world.inWater = (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z);
+
   await step('cerisiers');
   world.forest = createSakuraForest({
-    seed: SEED, quality: q,
+    seed: SEED,
+    // sakura.js was written against its own option names and silently falls back
+    // to defaults for anything it does not recognise — 180 trees over a 120-unit
+    // radius, no water rejection, and its own private wind. Feeding it `quality`
+    // and `isInPond` looked right and did nothing at all.
+    count: q.trees,
+    radius: 104,                     // the land reaches about x ±102, z −110..94
+    quality: q.label === 'ultra' ? 1.15 : q.label === 'high' ? 0.9 : 0.6,
+    // Once the branch structure actually built, the default blossom load left
+    // the island looking like an orchard in March. The blossom is the subject —
+    // it should hide most of the branch it grows on.
+    blossomDensity: q.label === 'ultra' ? 2.2 : q.label === 'high' ? 1.8 : 1.3,
+    prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
-    wind: world.wind,
+    isLand: (x, z) => !world.inWater(x, z),
+    windUniforms: forestWind,
   });
   scene.add(world.forest.group);
 
@@ -269,7 +313,11 @@ async function boot() {
     bounds: { size: 230 },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
+    // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
+    // river are carved into the heightfield, so their beds pass every test grass
+    // does apply — gentle slope, right altitude — and the pools fill with
+    // submerged blades.
+    exclude: world.inWater,
     wind: world.wind,
   });
   scene.add(world.grass.mesh);
@@ -311,7 +359,7 @@ async function boot() {
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
-    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
+    isInPond: world.inWater,
     wind: world.wind,
     seaLevel: world.island.seaLevel,
   });
@@ -369,9 +417,18 @@ function frame() {
   world.ponds.update(t, dt, phase);
   world.river.update(t, shaderPhase);
 
-  // Trees take the wind uniforms as their second argument, not the phase; the
-  // lighting arrives separately through setEnvironment().
-  world.forest.update(t, world.wind.uniforms);
+  // Trees take wind as their second argument, not the phase; the lighting
+  // arrives separately through setEnvironment(). See forestWind for why this
+  // goes through an adapter rather than the shared uniforms directly.
+  const wu = world.wind.uniforms;
+  forestWind.uWindDir.value.set(wu.uWindDir.value.x, 0, wu.uWindDir.value.y);
+  // The shared envelope runs 0..gustPeak (~2.6); the tree shader expects roughly
+  // 0..1.4 and looks broken at either extreme — dead still in a lull, thrashing
+  // in a squall. Keep a floor so the canopies always breathe.
+  forestWind.uWindStrength.value = Math.min(
+    1.4, 0.28 + 0.62 * wu.uWindStrength.value * wu.uWindMaster.value
+  );
+  world.forest.update(t, forestWind);
   world.forest.setEnvironment?.({
     sunDirection: phase.keyDir,
     sunColor: phase.keyColor,
@@ -493,7 +550,11 @@ async function rebuildForQuality() {
     bounds: { size: 230 },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
+    // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
+    // river are carved into the heightfield, so their beds pass every test grass
+    // does apply — gentle slope, right altitude — and the pools fill with
+    // submerged blades.
+    exclude: world.inWater,
     wind: world.wind,
   });
   scene.add(world.grass.mesh);

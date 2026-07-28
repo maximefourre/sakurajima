@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — oiseaux</title>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+} }
+</script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#8ea9c8;
+    font:12px ui-monospace,Menlo,monospace;color:#101}
+  #log{position:fixed;top:0;left:0;padding:10px 14px;line-height:1.7;z-index:5}
+  .ok{color:#0a5} .bad{color:#a00;font-weight:bold}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+const log = document.getElementById('log');
+const say = (s, cls='') => { log.innerHTML += `<div class="${cls}">${s}</div>`; console.log(s); };
+window.onerror = (m,_s,_l,_c,e) => say('ERR ' + (e?.stack || m), 'bad');
+window.addEventListener('unhandledrejection', e => say('ERR ' + (e.reason?.stack || e.reason), 'bad'));
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { seedNoise } from '../src/noise.js';
+import { createWind } from '../src/wind.js';
+import { createBirds } from '../src/birds.js';
+
+seedNoise(20260727);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+renderer.debug.onShaderError = (gl, prog, vs, fs) => {
+  say('SHADER ERROR', 'bad');
+  say('VS: ' + gl.getShaderInfoLog(vs), 'bad');
+  say('FS: ' + gl.getShaderInfoLog(fs), 'bad');
+  window.__shaderError = (gl.getShaderInfoLog(vs)||'') + ' | ' + (gl.getShaderInfoLog(fs)||'');
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#8ea9c8');
+scene.fog = new THREE.Fog('#8ea9c8', 120, 900);
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.5, 3200);
+camera.position.set(90, 46, 110); camera.lookAt(0, 22, 0);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 22, 0);
+
+const heightAt = (x,z) => { const r = Math.hypot(x+4,z+8)/104; return Math.max(-2, 16*(1-r*r)); };
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(240,240,80,80),
+  new THREE.MeshBasicMaterial({ color:'#4a5a3a', wireframe:true }));
+ground.rotation.x = -Math.PI/2;
+{ const p = ground.geometry.attributes.position;
+  for (let i=0;i<p.count;i++) p.setZ(i, heightAt(p.getX(i), -p.getY(i))); p.needsUpdate = true; }
+scene.add(ground);
+
+const wind = createWind();
+const PONDS = [{x:16,z:-42,radius:7.2,waterY:0}];
+const birds = createBirds({ seed:1337, quality:{label:'ultra'}, heightAt, wind, ponds:PONDS });
+scene.add(birds.group);
+say('createBirds ok — instances ' + birds.count, 'ok');
+let evs = 0; birds.onEvent = () => evs++;
+
+const V3 = THREE.Vector3, C = THREE.Color;
+const phase = { day:1, night:0, twilight:0, golden:0.6,
+  keyDir:new V3(0.3,0.55,0.78).normalize(), keyColor:new C(1,0.93,0.86), keyIntensity:4.3,
+  sunDirection:new V3(0.3,0.55,0.78).normalize(), sunColor:new C(1,1,1),
+  skyColor:new C(0.42,0.56,0.78), groundColor:new C(0.20,0.22,0.15), ambient:0.62 };
+const sm=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
+
+const dogGeo = new THREE.SphereGeometry(1.6, 12, 8);
+const dog = new THREE.Mesh(dogGeo, new THREE.MeshBasicMaterial({color:'#c8842a'}));
+scene.add(dog);
+
+let t = 0, last = performance.now(), frames = 0;
+const DAY = 90;                          // seconds per simulated day
+function tick(now) {
+  const dt = Math.min(0.05, (now - last)/1000); last = now; t += dt; frames++;
+  const dayT = (0.30 + t/DAY) % 1;
+  const sunY = Math.sin((dayT-0.25)*Math.PI*2);
+  phase.day = sm(-0.02,0.25,sunY);
+  phase.night = 1 - sm(-0.10,0.06,sunY);
+  phase.twilight = sm(-0.18,0,sunY)*(1-sm(0,0.12,sunY));
+  phase.golden = sm(0,0.06,sunY)*(1-sm(0.06,0.22,sunY));
+  phase.keyDir.set(0.4, Math.max(0.06, sunY), 0.7).normalize();
+  phase.keyIntensity = 0.4 + 4.0*Math.max(0, sunY);
+
+  wind.update(t, dt);
+  const a = t*0.35;
+  dog.position.set(Math.cos(a)*40 - 4, 0, Math.sin(a)*40 - 8);
+  dog.position.y = Math.max(heightAt(dog.position.x, dog.position.z), 0) + 1.4;
+  birds.update(t, dt, phase);
+  birds.setRepeller(dog.position);
+  controls.update();
+  renderer.render(scene, camera);
+  if (frames === 90) {
+    const info = renderer.info;
+    window.__report = {
+      draws: info.render.calls, tris: info.render.triangles,
+      shaderError: window.__shaderError || null,
+      programs: renderer.info.programs.length,
+    };
+    say('draw calls ' + info.render.calls + ' · triangles ' + info.render.triangles, 'ok');
+    say(window.__shaderError ? 'SHADER FAILED' : 'shaders compiled clean', window.__shaderError ? 'bad' : 'ok');
+  }
+  window.__t = t; window.__night = phase.night; window.__evs = evs;
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+window.__birds = birds; window.__THREE = THREE;
+</script>
+</body>
+</html>

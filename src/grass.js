@@ -158,6 +158,7 @@ const DEFAULTS = {
 	heightAt: null,        // required: (x, z) -> y
 	slopeAt: null,         // optional: (x, z) -> 1 - normal.y   (see slopeMode)
 	slopeMode: 'normal',   // 'normal' (1 - n.y) | 'radians'
+	exclude: null,         // optional: (x, z) -> bool, true = no grass here
 
 	// --- blade shape -------------------------------------------------------------
 	bladeHeight: 0.55,     // world units at heightScale = 1
@@ -657,7 +658,13 @@ export function createGrass( options = {} ) {
 		if ( bare > CFG.bareThreshold ) p *= CFG.bareFloor;
 		if ( rand() > p ) continue;
 
-		// (2) height band: above the beach, below the rocky upland
+		// (2) standing water. Ponds and the river are carved into the heightfield
+		// itself, so their beds pass the height and slope tests perfectly happily
+		// and fill up with submerged grass. Nothing else here can catch that: the
+		// bed of a pond is, geometrically, a gentle hollow in the meadow.
+		if ( CFG.exclude && CFG.exclude( x, z ) ) continue;
+
+		// (3) height band: above the beach, below the rocky upland
 		const h = heightAt( x, z );
 		const shore = CFG.beachY + ( valueNoise2D( x * 0.05, z * 0.05, ( nSeed ^ 0x51ed ) >>> 0 ) - 0.5 ) * 2 * CFG.shoreWobble;
 		const fBeach = smooth01( h, shore, shore + CFG.beachBlend );
@@ -665,7 +672,7 @@ export function createGrass( options = {} ) {
 		const fUp = 1 - smooth01( h, CFG.uplandY - CFG.uplandBlend, CFG.uplandY );
 		if ( fUp <= 0.001 ) continue;
 
-		// (3) slope (2 extra heightAt calls, shared with the terrain normal)
+		// (4) slope (2 extra heightAt calls, shared with the terrain normal)
 		const hdx = ( heightAt( x + EPSD, z ) - h ) / EPSD;
 		const hdz = ( heightAt( x, z + EPSD ) - h ) / EPSD;
 		const invLen = 1 / Math.sqrt( hdx * hdx + hdz * hdz + 1 );
