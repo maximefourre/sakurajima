@@ -588,6 +588,128 @@ function makeReedTuftGeometry(rng) {
   return g;
 }
 
+/**
+ * A lotus plant: a standing flower on a stalk, plus its own big upturned
+ * leaves — deliberately distinct from the flat lily pads. One geometry,
+ * painted per-vertex (same doctrine as the lantern/torii merges in
+ * details.js, hand-rolled here because pointed petals are not primitives).
+ * Local origin is the WATERLINE; everything below y=0 is submerged stalk.
+ * aKind: 0 = leaf, 1 = flower stack (drives translucency in the shader).
+ * Winding is forgiven by the DoubleSide material plus the gl_FrontFacing
+ * flip in the fragment shader; the authored normals carry the shading.
+ */
+function makeLotusGeometry(rng) {
+  const pos = [], nrm = [], col = [], kind = [], idx = [];
+  const cA = new THREE.Color(), cB = new THREE.Color(), cM = new THREE.Color();
+
+  const push = (x, y, z, nx, ny, nz, c, k) => {
+    const inv = 1 / (Math.hypot(nx, ny, nz) || 1);
+    pos.push(x, y, z); nrm.push(nx * inv, ny * inv, nz * inv);
+    col.push(c.r, c.g, c.b); kind.push(k);
+    return pos.length / 3 - 1;
+  };
+
+  // Thin open 4-sided tube for the stalks.
+  const tube = (ox, oz, y0, y1, r0, r1, c, k) => {
+    const S = 4, base = pos.length / 3;
+    for (const [y, r] of [[y0, r0], [y1, r1]]) {
+      for (let j = 0; j <= S; j++) {
+        const a = (j / S) * TAU;
+        push(ox + Math.cos(a) * r, y, oz + Math.sin(a) * r, Math.cos(a), 0.15, Math.sin(a), c, k);
+      }
+    }
+    for (let j = 0; j < S; j++) {
+      const a0 = base + j, b0 = a0 + S + 1;
+      idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1);
+    }
+  };
+
+  const HEAD = 0.72;                        // flower base height above the waterline
+
+  // — flower stalk —
+  cM.setHex(0x476b33);
+  tube(0, 0, -0.35, HEAD, 0.034, 0.024, cM, 1);
+
+  // — petals: three whorls, pointed, cupping tighter toward the middle.
+  //   Rose at the base fading to near-white at the tips.
+  cA.setHex(0xd96a9c);
+  cB.setHex(0xfdf3f6);
+  const WHORLS = [
+    { n: 7, len: 0.34, tilt: 1.10, r0: 0.085, w: 0.100, a0: 0.00 },
+    { n: 6, len: 0.30, tilt: 0.72, r0: 0.070, w: 0.088, a0: 0.45 },
+    { n: 5, len: 0.24, tilt: 0.34, r0: 0.055, w: 0.072, a0: 0.90 },
+  ];
+  for (const wh of WHORLS) {
+    for (let i = 0; i < wh.n; i++) {
+      const a = wh.a0 + (i / wh.n) * TAU + R.range(rng, -0.06, 0.06);
+      const dx = Math.cos(a), dz = Math.sin(a);
+      const tx = -dz, tz = dx;              // petal width direction
+      const st = Math.sin(wh.tilt), ct = Math.cos(wh.tilt);
+      // Normal leans up and inward: upright petals face the pod, splayed ones the sky.
+      const nx = -dx * ct, ny = st + 0.35, nz = -dz * ct;
+      // Centreline stations: base, widest point, tip (the tip curls up and out).
+      const mR = wh.r0 + wh.len * 0.62 * st, mY = HEAD + wh.len * 0.62 * ct;
+      const tR = wh.r0 + wh.len * 0.92 * st, tY = HEAD + wh.len * 1.02 * ct + 0.02;
+      cM.copy(cA).lerp(cB, 0.55);
+      const bL = push(dx * wh.r0 - tx * wh.w * 0.35, HEAD, dz * wh.r0 - tz * wh.w * 0.35, nx, ny, nz, cA, 1);
+      const bR = push(dx * wh.r0 + tx * wh.w * 0.35, HEAD, dz * wh.r0 + tz * wh.w * 0.35, nx, ny, nz, cA, 1);
+      const mL = push(dx * mR - tx * wh.w * 0.5, mY, dz * mR - tz * wh.w * 0.5, nx, ny, nz, cM, 1);
+      const mRi = push(dx * mR + tx * wh.w * 0.5, mY, dz * mR + tz * wh.w * 0.5, nx, ny, nz, cM, 1);
+      const tp = push(dx * tR, tY, dz * tR, nx, ny + 0.2, nz, cB, 1);
+      idx.push(bL, bR, mRi, bL, mRi, mL, mL, mRi, tp);
+    }
+  }
+
+  // — seed pod: the obconical yellow centre, wider at the top —
+  cA.setHex(0xcfa22a); cB.setHex(0xe9cf52);
+  const podB = HEAD + 0.03, podT = HEAD + 0.15, S = 8;
+  const ring0 = pos.length / 3;
+  for (const [y, r] of [[podB, 0.045], [podT, 0.085]]) {
+    for (let j = 0; j <= S; j++) {
+      const a = (j / S) * TAU;
+      push(Math.cos(a) * r, y, Math.sin(a) * r, Math.cos(a), -0.35, Math.sin(a), cA, 1);
+    }
+  }
+  for (let j = 0; j < S; j++) {
+    const a0 = ring0 + j, b0 = a0 + S + 1;
+    idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1);
+  }
+  // Top fan, wound the same way as the lily pad fan (centre, i+1, i) so the
+  // geometric front face agrees with the up normal.
+  const podC = push(0, podT + 0.012, 0, 0, 1, 0, cB, 1);
+  const top0 = ring0 + S + 1;
+  for (let j = 0; j < S; j++) idx.push(podC, top0 + j + 1, top0 + j);
+
+  // — leaves: two big upturned funnels on their own stalks, offset from the
+  //   flower. The raised rim is what separates them from the flat pads.
+  cA.setHex(0x2c5527); cB.setHex(0x557f36);
+  const LEAVES = [
+    { ang: R.range(rng, 0, TAU), dist: 0.42, h: 0.26, r: 0.46 },
+    { ang: R.range(rng, 0, TAU), dist: 0.34, h: 0.15, r: 0.36 },
+  ];
+  for (const lf of LEAVES) {
+    const ox = Math.cos(lf.ang) * lf.dist, oz = Math.sin(lf.ang) * lf.dist;
+    cM.copy(cA).lerp(cB, 0.15);
+    tube(ox, oz, -0.35, lf.h, 0.026, 0.020, cM, 0);
+    const SEG = 10, fan = pos.length / 3;
+    push(ox, lf.h, oz, 0, 1, 0, cA, 0);
+    for (let i = 0; i <= SEG; i++) {
+      const a = (i / SEG) * TAU;
+      push(ox + Math.cos(a) * lf.r, lf.h + lf.r * 0.34, oz + Math.sin(a) * lf.r,
+        -Math.cos(a) * 0.30, 1, -Math.sin(a) * 0.30, cB, 0);
+    }
+    for (let i = 1; i <= SEG; i++) idx.push(fan, fan + i + 1, fan + i);
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('aKind', new THREE.Float32BufferAttribute(kind, 1));
+  g.setIndex(idx);
+  return g;
+}
+
 const MARGIN_FRAG = /* glsl */ `
   uniform vec3 uKeyDir;
   uniform vec3 uKeyColor;
@@ -787,10 +909,85 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
     `,
     fragmentShader: MARGIN_FRAG,
   });
+  /**
+   * Lotus material. Shares marginUniforms BY REFERENCE, so key light, ambient,
+   * wind and fog updates in update() reach it with zero extra wiring.
+   * vertexColors: true makes three declare the color attribute in the prefix —
+   * do not redeclare it in the shader body.
+   */
+  const lotusMat = new THREE.ShaderMaterial({
+    uniforms: marginUniforms,
+    fog: true,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+    vertexShader: /* glsl */ `
+      attribute float aKind;
+      attribute vec4  aInst;    // world x, y, z, scale
+      attribute vec4  aTrim;    // yaw, phase, unused, sway scale
+
+      varying vec3  vNormalW;
+      varying vec3  vCol;
+      varying float vKind;
+
+      ${wind.WIND_GLSL}
+
+      #include <fog_pars_vertex>
+
+      void main() {
+        vCol = color; vKind = aKind;
+
+        float c = cos(aTrim.x), s = sin(aTrim.x);
+        vec3 p = position * aInst.w;
+        p.xz = vec2(p.x * c - p.z * s, p.x * s + p.z * c);
+        vec3 base = aInst.xyz;
+        vec3 world = base + p;
+
+        // Rooted in the bed: the plant pivots about its foot instead of
+        // drifting like the pads. Quadratic in height and far stiffer than
+        // the reeds (0.085 vs 0.42) — a lotus stalk is a cantilever, not a
+        // blade of grass.
+        float h = max(p.y, 0.0);
+        vec3 w = windForce(base, uTime);
+        world.xz += (w.xz * 0.085
+          + vec2(sin(uTime * 0.9 + aTrim.y), cos(uTime * 0.7 + aTrim.y)) * 0.006)
+          * h * h * aTrim.w;
+
+        vec3 n = normalize(vec3(normal.x * c - normal.z * s, normal.y, normal.x * s + normal.z * c));
+        vNormalW = normalize(mat3(modelMatrix) * n);
+
+        vec4 mvPosition = viewMatrix * modelMatrix * vec4(world, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uKeyDir;
+      uniform vec3 uKeyColor;
+      uniform vec3 uAmbient;
+
+      varying vec3  vNormalW;
+      varying vec3  vCol;
+      varying float vKind;
+
+      #include <fog_pars_fragment>
+
+      void main() {
+        vec3 n = normalize(vNormalW);
+        if (!gl_FrontFacing) n = -n;
+        float wrap = dot(n, uKeyDir) * 0.5 + 0.5;
+        // Petals and leaves are thin tissue: light passes through, and the
+        // pass-through is what makes a backlit lotus glow instead of going grey.
+        float trans = pow(max(dot(-n, uKeyDir), 0.0), 2.0) * mix(0.50, 0.30, vKind);
+        vec3 lit = vCol * (uAmbient + uKeyColor * (wrap * 0.85 + trans));
+        gl_FragColor = vec4(lit, 1.0);
+        #include <fog_fragment>
+      }
+    `,
+  });
 
   /* ── meshes, created by attach() ──────────────────────────── */
-  let waterMesh = null, koiMesh = null, padMesh = null, reedMesh = null;
-  let koiGeo = null, padGeo = null, reedGeo = null;
+  let waterMesh = null, koiMesh = null, padMesh = null, reedMesh = null, lotusMesh = null;
+  let koiGeo = null, padGeo = null, reedGeo = null, lotusGeo = null;
 
   /** @type {{pond:number,ox:number,oz:number,a:number,b:number,h1:number,h2:number,
    *          f1:number,f2:number,f3:number,f4:number,rot:number,rate:number,
@@ -1018,7 +1215,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
     const padInst = [], padTrim = [], reedInst = [], reedTrim = [];
 
     for (const b of basins) {
-      const padCount = Math.round(propBudget * 0.10 * (b.meanR / 6));
+      const padCount = Math.round(propBudget * 0.065 * (b.meanR / 6));
       const reedCount = Math.round(propBudget * 0.16);
 
       for (let i = 0; i < padCount; i++) {
@@ -1084,6 +1281,45 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
     }
   }
 
+  function buildLotus() {
+    const inst = [], trim = [];
+    const perPond = label === 'low' ? 4 : label === 'high' ? 6 : 8;
+
+    for (const b of basins) {
+      let placed = 0, tries = 0;
+      while (placed < perPond && tries < perPond * 6) {
+        tries++;
+        const ang = R.range(rng, 0, TAU);
+        const r = shoreAt(b, ang) * R.range(rng, 0.70, 0.90);
+        const x = b.x + Math.cos(ang) * r;
+        const z = b.z + Math.sin(ang) * r;
+        const wet = b.waterY - sampleHeight(x, z);
+        // Lotus roots in the shallow rim, not the open middle — which also
+        // keeps every stand outside the koi paths (their excursion is capped
+        // at 0.66 * shoreMin in buildKoi).
+        if (wet < 0.30 || wet > 1.8) continue;
+        inst.push(x, b.waterY, z, R.range(rng, 0.80, 1.18));
+        trim.push(R.range(rng, 0, TAU), R.range(rng, 0, TAU), rng(), R.range(rng, 0.6, 1.0));
+        placed++;
+      }
+    }
+    if (!inst.length) return;
+
+    lotusGeo = makeLotusGeometry(rng);
+    lotusGeo.setAttribute('aInst', new THREE.InstancedBufferAttribute(new Float32Array(inst), 4));
+    lotusGeo.setAttribute('aTrim', new THREE.InstancedBufferAttribute(new Float32Array(trim), 4));
+    lotusMesh = new THREE.InstancedMesh(lotusGeo, lotusMat, inst.length / 4);
+    lotusMesh.frustumCulled = false;   // aInst does the placing; the origin-space bounds lie
+    lotusMesh.name = 'lotus';
+    group.add(lotusMesh);
+
+    // Every instance sits at the origin; aInst does the placing (same trick
+    // as the pads and reeds).
+    const identity = new THREE.Matrix4();
+    for (let i = 0; i < lotusMesh.count; i++) lotusMesh.setMatrixAt(i, identity);
+    lotusMesh.instanceMatrix.needsUpdate = true;
+  }
+
   function shoreAt(b, ang) {
     const f = ((ang + Math.PI) / TAU) * SHORE_N;
     const i0 = ((f | 0) % SHORE_N + SHORE_N) % SHORE_N;
@@ -1111,6 +1347,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
 
     buildKoi();
     buildMargins();
+    buildLotus();
   }
 
   /* ── per-frame ───────────────────────────────────────────── */
@@ -1222,12 +1459,13 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
   }
 
   function dispose() {
-    for (const g of [koiGeo, padGeo, reedGeo]) g?.dispose();
+    for (const g of [koiGeo, padGeo, reedGeo, lotusGeo]) g?.dispose();
     waterMesh?.geometry.dispose();
     waterMat.dispose();
     koiMat.dispose();
     marginMat.dispose();
-    for (const m of [koiMesh, padMesh, reedMesh]) m?.dispose();
+    lotusMat.dispose();
+    for (const m of [koiMesh, padMesh, reedMesh, lotusMesh]) m?.dispose();
     group.clear();
   }
 
