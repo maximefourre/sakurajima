@@ -274,11 +274,16 @@ const K_FOG_COLOR = colorKeys([
   [0.620, 0xcfdcef], [0.700, 0xe8bb8b], [0.750, 0xe26f42], [0.775, 0xa05a58],
   [0.800, 0x4f5c8c], [0.860, 0x1a2648], [1.000, 0x070c1c],
 ]);
+// These were calibrated against a 240-unit island. On the current 460-unit
+// one the camera sits ~260 units out, and exponential fog at the old densities
+// buries the whole scene in white haze at noon. Scaled down accordingly —
+// enough atmosphere to give the horizon depth, not enough to eat the island.
+const FOG_SCALE = 0.16;
 const K_FOG_DENSITY = [
   [0.000, 0.00105], [0.210, 0.00165], [0.250, 0.00230], [0.300, 0.00185],
   [0.450, 0.00110], [0.500, 0.00095], [0.700, 0.00120], [0.750, 0.00190],
   [0.800, 0.00165], [0.900, 0.00120], [1.000, 0.00105],
-];
+].map(([t, d]) => [t, d * FOG_SCALE]);
 
 /* ── camera response ──────────────────────────────────────────────────────────
  * Exposure is pulled DOWN at noon (0.72) and pushed UP at the crossings (~1.0).

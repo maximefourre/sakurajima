@@ -130,8 +130,10 @@ export const CAMERA = {
   fov: 42,
   near: 0.5,
   far: 3200,
-  start: { x: 165, y: 74, z: 190 },
-  target: { x: -10, y: 6, z: -10 },
+  // Framed to read as an island: far enough out that the coastline and the
+  // surrounding sea are both in shot, high enough to see the river's whole run.
+  start: { x: 215, y: 112, z: 250 },
+  target: { x: 0, y: 4, z: 10 },
   minDistance: 14,
   maxDistance: 620,
   maxPolar: Math.PI * 0.495, // stop just above the horizon so you can't go under the island
@@ -152,18 +154,25 @@ export const RIVER = {
   // south-east coast — roughly 19 → 17 → 13 → 8 → 0.6 → sea. An authored path
   // that climbs anywhere makes the water surface either flow uphill or, once
   // the descent constraint kicks in, flatten out entirely.
+  // Sinuous rather than a straight diagonal: a river drawn as a smooth line
+  // between two points reads unmistakably as a road. The lateral wander is what
+  // makes it look like water found this route rather than an engineer choosing it.
   path: [
     [-48,  -4],
-    [-30,  14],
-    [-10,  32],
-    [ 10,  50],
-    [ 30,  70],
-    [ 48,  88],
-    [ 64, 104],
+    [-42,  10],
+    [-28,  18],
+    [-22,  32],
+    [ -6,  38],
+    [  2,  52],
+    [ 16,  58],
+    [ 24,  72],
+    [ 40,  80],
+    [ 50,  94],
+    [ 64, 106],
   ],
-  width: 8.5,         // water channel width
-  bankWidth: 15.0,    // how far the carved banks extend beyond the water
-  depth: 2.6,         // how deep the channel cuts below the surrounding ground
+  width: 6.0,         // water channel width
+  bankWidth: 6.5,     // carved banks beyond the water — tight, so the cut reads
+  depth: 3.4,         // how deep the channel cuts below the surrounding ground
   flowSpeed: 0.55,    // surface scroll rate
 
   // Where along the path (0..1) the bridge sits. 0.46 puts it on the middle

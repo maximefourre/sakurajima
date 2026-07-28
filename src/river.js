@@ -301,19 +301,25 @@ const RIVER_FRAG = /* glsl */ `
     float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
     float shallow = smoothstep(0.55, 0.0, edge);
 
-    vec3 col = mix(uDeep, uShallow, shallow * 0.85 + ripple * 0.25);
+    vec3 col = mix(uDeep, uShallow, shallow * 0.55 + ripple * 0.18);
 
     // Cheap specular: perturb a flat-up normal by the ripple gradient.
     vec3 n = normalize(vec3((r2 - r1) * 0.9, 1.0, (r1 - r2) * 0.9));
     float spec = pow(max(dot(reflect(-uSunDir, n), normalize(cameraPosition - vWorld)), 0.0), 48.0);
-    col += uSunColor * spec * 0.9;
-    col += uSkyColor * 0.22;
+    col += uSunColor * spec * 0.55;
 
-    // Foam where the ripple peaks meet the shallow margins.
-    float foam = smoothstep(0.72, 0.95, ripple) * shallow;
-    col = mix(col, vec3(0.94, 0.96, 0.97), foam * 0.55);
+    // Sky reflection, but only at grazing angles — a fresnel term. Adding a flat
+    // fraction of the sky colour everywhere is what turned this into a pale
+    // ribbon that read as a paved road rather than as water.
+    vec3 viewDir = normalize(cameraPosition - vWorld);
+    float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+    col = mix(col, uSkyColor, fres * 0.38);
 
-    gl_FragColor = vec4(col, 0.86);
+    // Foam only where ripples peak against the shallow margins.
+    float foam = smoothstep(0.80, 0.97, ripple) * shallow;
+    col = mix(col, vec3(0.90, 0.94, 0.95), foam * 0.30);
+
+    gl_FragColor = vec4(col, 0.90);
     #include <fog_fragment>
   }
 `;
@@ -493,8 +499,8 @@ export function createRiver({ wind } = {}) {
   const uniforms = {
     uTime:     { value: 0 },
     uFlow:     { value: RIVER.flowSpeed },
-    uShallow:  { value: new THREE.Color(0x6fa9a6) },
-    uDeep:     { value: new THREE.Color(0x1f4d55) },
+    uShallow:  { value: new THREE.Color(0x4d7f7c) },
+    uDeep:     { value: new THREE.Color(0x14343c) },
     uSunDir:   { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color(1, 1, 1) },
     uSkyColor: { value: new THREE.Color(0.4, 0.5, 0.62) },

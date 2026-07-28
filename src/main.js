@@ -131,6 +131,17 @@ async function boot() {
   world.heightAt = world.island.heightAt;
   world.slopeAt = world.island.slopeAt;
 
+  // The ocean shipped almost fully transparent (opacityMin 0.14) with a strong
+  // mirror term. Around a small island that reads as wet sand stretching to the
+  // horizon rather than as sea — you could see straight through to the seabed
+  // and the horizon tint dominated. Give deep water some body.
+  const ocean = world.island.waterUniforms;
+  if (ocean) {
+    ocean.uOpacityMin.value = 0.9;
+    ocean.uReflect.value = 0.5;
+    ocean.uFoamAmt.value = 0.85;
+  }
+
   // The river needs the finished terrain to know where its own bed ended up,
   // so the water surface and bridge are built here rather than at construction.
   world.river.build(world.heightAt);
@@ -214,6 +225,9 @@ async function boot() {
 const clock = new THREE.Clock();
 let fpsAcc = 0, fpsFrames = 0, hudAcc = 0;
 
+/** Converts a physical light intensity into a shader multiplier. See frame(). */
+const SHADER_LIGHT_SCALE = 0.26;
+
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05); // clamp so an alt-tab doesn't teleport the sun
   const t = clock.elapsedTime;
@@ -233,9 +247,18 @@ function frame() {
   // `keyDir`/`keyColor`/`keyIntensity` are used in preference to the sun fields:
   // they resolve to whichever of sun or moon currently dominates, so vegetation
   // is lit by moonlight at night instead of by a sun that has set.
+  // `keyIntensity` is a THREE.DirectionalLight intensity — physically scaled,
+  // around 4.3 at noon. The hand-written shaders (blossom, grass, petals, water)
+  // use it as a plain multiplier on an already-lit colour, so feeding them the
+  // raw value overexposes everything to pure white. Normalise it once, here,
+  // rather than letting each shader invent its own fudge factor.
+  const shaderPhase = Object.create(phase);
+  shaderPhase.keyIntensity = phase.keyIntensity * SHADER_LIGHT_SCALE;
+  shaderPhase.sunIntensity = phase.sunIntensity * SHADER_LIGHT_SCALE;
+
   world.island.update(t, phase);
   world.ponds.update(t, dt, phase);
-  world.river.update(t, phase);
+  world.river.update(t, shaderPhase);
 
   // Trees take the wind uniforms as their second argument, not the phase; the
   // lighting arrives separately through setEnvironment().
@@ -243,7 +266,7 @@ function frame() {
   world.forest.setEnvironment?.({
     sunDirection: phase.keyDir,
     sunColor: phase.keyColor,
-    sunIntensity: phase.keyIntensity,
+    sunIntensity: shaderPhase.keyIntensity,
     ambientSky: phase.skyColor,
     ambientGround: phase.groundColor,
     ambientIntensity: phase.ambient,
@@ -251,9 +274,9 @@ function frame() {
 
   // grass.update's second argument is the CAMERA (it drives LOD ring selection).
   world.grass.update(t, camera);
-  world.grass.setSun?.(phase.keyDir, phase.keyColor, phase.keyIntensity);
+  world.grass.setSun?.(phase.keyDir, phase.keyColor, shaderPhase.keyIntensity);
 
-  world.petals.update(t, phase);
+  world.petals.update(t, shaderPhase);
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);
 
