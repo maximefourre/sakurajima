@@ -54,6 +54,80 @@ python3 serve.py 5173
 
 ---
 
+## Session « île ×5 » du 28/07 (après-midi) — ce qui a changé et pourquoi
+
+**Le knob** : `LAND_SCALE = 1.42·√5` (aire exactement ×5). Nouveau knob frère :
+`HEIGHT_SCALE = 1.4` — relief relevé partiellement (appliqué UNE fois sur
+l'accumulateur `land` dans `analyticHeight`), sinon la crête de 17 u sur une
+île de 1120 u lisait comme une crêpe. Les budgets coûteux (herbe, arbres,
+pétales, rochers) scalent désormais en `AREA_SOFT = AREA^0.75` — l'aire pleine
+donnait 3 M de brins et 3125 arbres, intenable ; la densité perçue est
+compensée par des instances plus grosses (fleurs +35 %, brins plus larges).
+
+| Correctif d'échelle | Où |
+|---|---|
+| **Near-plane d'ombre négatif** (`D_SUN` fixe 320 < islandRadius+80) → toutes les ombres mortes. `sunDistance` désormais dérivé de `LAND_SCALE` | `sky.js:62` |
+| Disque océan : rayons dérivés (`ISLAND_R·1.5`, `SIZE·3.37`), 320 anneaux | `island.js` |
+| Fade de houle GLSL ×2.24 (1450→4250) | `island.js` |
+| `FOG_SCALE 0.56 → 0.25` (même profondeur optique au nouvel horizon) | `sky.js` |
+| Champ de nuages : `FIELD_HALF/FADE_*` dérivés de LAND_SCALE, decks +30 % | `clouds.js` |
+| Fleurs/galets : comptes ×AREA (`2500·budget·AREA`, `120·budget·AREA`) | `details.js` |
+| Profondeur d'étang ×min(HEIGHT_SCALE, 1.3) | `ponds.js:73` |
+| `CEILING 98 → 140` (oiseaux au-dessus du relief relevé) | `birds.js` |
+| Caméra `far = 1750·L` ; segments terrain 768 (ultra) / 512 / 320 | `config.js`, `island.js` |
+
+**Le delta.** `river.js` généralisé en `BRANCHES[]` (tronc + 2 distributaires,
+`RIVER.branches` dans config). Index spatial et champ de distance baké
+min-combinés sur toutes les branches (`_fieldB` en plus de `_fieldT`) ;
+`carveRiver`/`isInRiver` inchangés d'API. Leçons chèrement payées :
+- **La jonction doit être là où l'eau du tronc est déjà ≈ niveau de la mer**
+  ([40,80], eau ≈ 0.9). Plus haut, les bras épinglés au niveau du tronc
+  flottent au-dessus du platier qu'ils traversent.
+- **Tout le quadrant SE est un platier à peine émergé.** Deux fades devaient
+  s'adoucir pour que trois bras y restent lisibles : le fade de rive du ruban
+  (2.4 → 1.4 de plafond) et le fade d'estuaire du carve (il descend maintenant
+  à −0.5 sous la mer, sinon les bras n'avaient pas de lit dans le platier et
+  l'eau passait sous le sable).
+- Les embouchures sont écartées de 135–165 u (est (311,254)·unit, SO (51,400),
+  tronc (203,337)) — plus près, tout fusionnait en une lagune unique.
+- Continuité à la jonction : les stations d'un distributaire encore dans le
+  chenal du tronc sont épinglées sur `waterYAt(tronc)`, ré-épinglées après
+  chaque passe de lissage ; son ruban ne démarre qu'à >0.55·width de l'axe du
+  tronc (sinon double-blend sombre des deux surfaces transparentes).
+
+**Le pont.** Travée raccourcie (`16·(1+(L−1)·0.6)` ≈ 37) : la rivière longe le
+flanc de crête, la berge ouest monte sans fin, une travée de 60 u enterrait un
+bout et perchait l'autre sur une tour. `buildBridge` glisse maintenant le
+tablier le long de son axe (recherche ±12 u) vers la paire de culées la plus
+horizontale, se pose sur la plus haute, et comble sous chaque bout avec une
+semelle de pierre (plafonnée à 4 u). Lanternes de pierre appariées aux deux
+extrémités (spots calculés depuis la courbe dans `details.js` — le glow
+nocturne est gratuit, même InstancedMesh que les autres).
+
+**Falaise + chemin + torii.**
+- Falaise : secteur angulaire plein-ouest dans `analyticHeight` — la côte
+  gonfle vers un rebord (`rim ≈ 8·HEIGHT_SCALE`) puis tombe (`sstep(0.545,
+  0.585, d)`) dans une eau profonde (−15). Tout suit (couleur roche via la
+  pente, pas d'herbe sur la face, pierriers au pied).
+- Chemin : `PATH` dans config (falaise → pont, au sud de la rivière), ruban de
+  terre battue à 3 colonnes drapé sur `heightAt` dans `details.js`, herbe
+  exclue via `isOnPath` (grille de buckets, export module) branché dans les
+  DEUX sites d'appel de `createGrass` de `main.js`.
+- Torii : géométrie fusionnée peinte par sommet (même recette que la
+  lanterne), 3 instances aux fractions `PATH.toriiAt`.
+
+**Luxuriance.** Herbe : couverture élargie (patchLow 0.14, bareThreshold 0.86),
+brins 0.62×0.068, fondu caméra 160/230, ~2.66 M brins ultra
+(`470000·AREA_SOFT`). Cerisiers : fleurs +35 % de taille par archétype,
+densité +25 %, `blossomDensity` ultra 2.6, budget branches 1.25, massifs
+contrastés (`groveScale 0.018`, `groveContrast 0.85`), ~1400 arbres.
+
+**Mesuré en fin de session : ~41 fps ultra** (vue pont au sol). Replis dans
+l'ordre si besoin : grass `fadeEnd 230→190` ; trees 1400→1000 ;
+`blossomDensity 2.6→2.2` ; anneaux océan 320→280.
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont
@@ -85,8 +159,10 @@ python3 serve.py 5173
 4. `globalThis.__sk` expose `{ world, scene, camera, renderer, controls, THREE,
    frame, setCamMode, clock }`.
 5. **L'enroulement des triangles contre l'attribut `normal`.** Ce projet s'est
-   fait avoir trois fois : le disque d'océan, la corolle des fleurs, et les ailes
-   des oiseaux. Sur un matériau `DoubleSide`, three inverse la normale d'ombrage
+   fait avoir QUATRE fois : le disque d'océan, la corolle des fleurs, les ailes
+   des oiseaux, et le ruban du chemin (invisible en silence sur un matériau
+   `FrontSide` — diagnostiqué en le forçant en rouge puis en `DoubleSide`).
+   Sur un matériau `DoubleSide`, three inverse la normale d'ombrage
    pour la face arrière ; si l'enroulement géométrique regarde vers le bas alors
    que l'attribut dit vers le haut, la surface est éclairée par en dessous et
    sort noire — sans aucune erreur, avec tous les uniformes corrects.
