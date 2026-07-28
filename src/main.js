@@ -131,17 +131,6 @@ async function boot() {
   world.heightAt = world.island.heightAt;
   world.slopeAt = world.island.slopeAt;
 
-  // The ocean shipped almost fully transparent (opacityMin 0.14) with a strong
-  // mirror term. Around a small island that reads as wet sand stretching to the
-  // horizon rather than as sea — you could see straight through to the seabed
-  // and the horizon tint dominated. Give deep water some body.
-  const ocean = world.island.waterUniforms;
-  if (ocean) {
-    ocean.uOpacityMin.value = 0.9;
-    ocean.uReflect.value = 0.5;
-    ocean.uFoamAmt.value = 0.85;
-  }
-
   // The river needs the finished terrain to know where its own bed ended up,
   // so the water surface and bridge are built here rather than at construction.
   world.river.build(world.heightAt);

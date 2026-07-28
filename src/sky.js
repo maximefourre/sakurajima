@@ -185,6 +185,33 @@ const K_MIE_G = [
   [0.850, 0.710], [1.000, 0.680],
 ];
 
+/*  ── dome gain ──────────────────────────────────────────────────────────────
+ *
+ *  The Preetham addon has no brightness control, and its absolute output swings
+ *  by more than an order of magnitude across the day: bright enough at noon that
+ *  ACES clips the whole dome to flat white, dim enough after sunset that the same
+ *  setting crushes the afterglow to black. One constant cannot serve both — that
+ *  was the original bug, and a Reinhard curve alone only traded a white sky for a
+ *  grey one, because compressing hard enough to tame noon also flattens the
+ *  zenith-to-horizon gradient that makes a sky look like a sky.
+ *
+ *  So gain is keyframed like every other atmospheric parameter: low when the sun
+ *  is high, rising as it drops. These numbers are not eyeballed — each was solved
+ *  for in-browser by binary-searching the gain that puts a 70° sky-only frame,
+ *  aimed along the sun's azimuth, at an art-directed mean brightness. Retuning
+ *  means re-running that calibration, not nudging one value until noon looks nice
+ *  and discovering a week later that dusk went black.
+ *
+ *  Below the horizon the night dome carries the image, so the tail values only
+ *  need to keep a ghost of atmosphere alive under it rather than hit a target.
+ */
+const K_SKY_GAIN = [
+  [0.000, 0.300], [0.150, 0.320], [0.205, 0.340], [0.235, 0.300], [0.250, 0.181],
+  [0.272, 0.111], [0.310, 0.079], [0.380, 0.083], [0.500, 0.100], [0.620, 0.088],
+  [0.700, 0.092], [0.735, 0.143], [0.750, 0.197], [0.768, 0.420], [0.795, 0.400],
+  [0.850, 0.340], [1.000, 0.300],
+];
+
 /*  ── the Sky addon's built-in clouds (new in this version) ──────────────────
  *  Coverage and density climb at the horizon crossings so there is something for
  *  the low sun to set fire to — a clear sunrise is a boring sunrise. Clouds also
@@ -274,11 +301,15 @@ const K_FOG_COLOR = colorKeys([
   [0.620, 0xcfdcef], [0.700, 0xe8bb8b], [0.750, 0xe26f42], [0.775, 0xa05a58],
   [0.800, 0x4f5c8c], [0.860, 0x1a2648], [1.000, 0x070c1c],
 ]);
-// These were calibrated against a 240-unit island. On the current 460-unit
-// one the camera sits ~260 units out, and exponential fog at the old densities
-// buries the whole scene in white haze at noon. Scaled down accordingly —
-// enough atmosphere to give the horizon depth, not enough to eat the island.
-const FOG_SCALE = 0.16;
+// These were calibrated against a 240-unit island; the world is now 460 units
+// across, so the same look wants roughly half the density. It was briefly cut to
+// 0.16 to fight a "white haze at noon" that turned out not to be fog at all — the
+// sky dome was clipping to white and the ocean was being back-face culled, so the
+// haze had nowhere to sit against. With those fixed, 0.16 leaves the sea running
+// clear all the way to a razor-sharp line at the horizon, which is the one thing
+// that reliably breaks the illusion of distance. The sea reaches 2500 units out;
+// the density has to be enough to dissolve it there.
+const FOG_SCALE = 0.56;
 const K_FOG_DENSITY = [
   [0.000, 0.00105], [0.210, 0.00165], [0.250, 0.00230], [0.300, 0.00185],
   [0.450, 0.00110], [0.500, 0.00095], [0.700, 0.00120], [0.750, 0.00190],
@@ -425,23 +456,21 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
    * exposure far enough to recover a blue sky (~0.1) would take the island down
    * to a silhouette with it.
    *
-   * Nothing in the addon exposes a brightness control, so add one: a single
-   * gain applied to the final colour. This scales the dome without touching the
-   * scene's exposure, and leaves the shape of the atmospheric model — the
-   * gradient, the sunrise reds, the sun disc — completely intact.
+   * Nothing in the addon exposes a brightness control, so add one: a gain on the
+   * final colour, followed by a gentle Reinhard shoulder. The gain scales the
+   * dome without touching the scene's exposure; the shoulder keeps the sun disc
+   * and the hot band beside it from clipping. Between them the shape of the
+   * atmospheric model — the gradient, the sunrise reds, the disc — survives.
+   *
+   * The gain is NOT a constant. It is keyframed across the day; see K_SKY_GAIN
+   * for why, and for how the numbers were obtained.
    */
-  sky.material.uniforms.uSkyGain = { value: 0.55 };
-  sky.material.uniforms.uSkyCompress = { value: 0.42 };
+  sky.material.uniforms.uSkyGain = { value: K_SKY_GAIN[0][1] };
+  sky.material.uniforms.uSkyCompress = { value: 0.45 };
   // NOTE: a ShaderMaterial does not auto-declare its uniforms in GLSL the way
   // MeshStandardMaterial does — adding the entry to `uniforms` alone leaves the
   // identifier undeclared, the shader fails to compile, and the dome renders
   // black with no obvious clue as to why. The declaration has to go in too.
-  //
-  // A plain multiplier is not enough here. The dome's linear output spans
-  // roughly 40 at midday down to ~2 at dawn, so any single gain either clips
-  // noon to white or crushes dawn to black — both of which this scene did in
-  // turn. A Reinhard curve compresses the bright end hard while leaving the
-  // dim end almost untouched, which is exactly the asymmetry the day needs.
   sky.material.fragmentShader =
     'uniform float uSkyGain;\nuniform float uSkyCompress;\n' +
     sky.material.fragmentShader.replace(
@@ -1102,6 +1131,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
       _skySunDir.set((sunDirection.x / h0) * hz, yy, (sunDirection.z / h0) * hz);
       setU('sunPosition', _skySunDir);
 
+      skyU.uSkyGain.value = trackScalar(K_SKY_GAIN, u);
       skyU.turbidity && (skyU.turbidity.value = trackScalar(K_TURBIDITY, u));
       skyU.rayleigh && (skyU.rayleigh.value = trackScalar(K_RAYLEIGH, u));
       skyU.mieCoefficient && (skyU.mieCoefficient.value = trackScalar(K_MIE_COEF, u));

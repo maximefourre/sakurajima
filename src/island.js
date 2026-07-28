@@ -671,17 +671,24 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
         verts[o + 2] = Math.sin(a) * r;
       }
     }
+    // Winding matters here and is easy to get backwards. Spokes advance with
+    // increasing angle, i.e. +x towards +z, and for a surface whose normal must
+    // point at the sky that traversal has to be listed CLOCKWISE seen from above
+    // — the opposite of what reads naturally when you write the loop. Getting it
+    // wrong points every face at the seabed, and with `side: FrontSide` the whole
+    // ocean is back-face culled: the sea silently vanishes and you are left
+    // looking at the bare seabed wondering why the shader draws nothing.
     const idx = [];
     for (let s = 0; s < spokes; s++) {
-      idx.push(0, 1 + s, 1 + ((s + 1) % spokes));
+      idx.push(0, 1 + ((s + 1) % spokes), 1 + s);
     }
     for (let k = 0; k < rings - 1; k++) {
       const a0 = 1 + k * spokes;
       const b0 = 1 + (k + 1) * spokes;
       for (let s = 0; s < spokes; s++) {
         const s1 = (s + 1) % spokes;
-        idx.push(a0 + s, b0 + s, a0 + s1);
-        idx.push(a0 + s1, b0 + s, b0 + s1);
+        idx.push(a0 + s, a0 + s1, b0 + s);
+        idx.push(a0 + s1, b0 + s1, b0 + s);
       }
     }
     const g = new THREE.BufferGeometry();
@@ -703,7 +710,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     uWaveScale: { value: 1.0 },
     uRipple: { value: 1.05 },
     uFoamWidth: { value: 1.9 },
-    uFoamAmt: { value: 0.95 },
+    uFoamAmt: { value: 0.85 },
     uSunSpec: { value: 1.0 },
     uReflect: { value: 1.0 },
     uOpacityMin: { value: 0.14 },
@@ -978,7 +985,16 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     // At night the sea is a mirror; at noon you see into it.
     u.uReflect.value = mix(1.25, 0.92, day);
     u.uSunSpec.value = mix(0.35, 1.0, day);
-    u.uOpacityMin.value = mix(0.34, 0.14, day);
+
+    // `uOpacityMin` is the alpha at the very waterline, where the sheet is a
+    // centimetre deep; the shader ramps it to fully opaque by ~2.6 units down.
+    // It used to bottom out near 0.14, which around a small island reads as wet
+    // sand stretching to the horizon rather than as sea — you see the seabed
+    // through everything and the shallow tint never gets a chance to register.
+    // Keep just enough transparency at the edge for the surf to sit on damp
+    // sand. This curve is the ocean's only opacity control: anything set on the
+    // uniform from outside is overwritten here on the next frame.
+    u.uOpacityMin.value = mix(0.86, 0.68, day);
   }
 
   function dispose() {
