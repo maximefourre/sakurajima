@@ -323,6 +323,9 @@ async function boot() {
     // it should hide most of the branch it grows on.
     blossomDensity: q.label === 'ultra' ? 2.2 : q.label === 'high' ? 1.8 : 1.2,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
+    // Nothing calls getBlossomSamples (petals use forest.emitters) - keeping the
+    // sample cloud held ~330 MB of dead heap at 13.7M blossoms.
+    keepBlossomSamples: false,
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     isLand: (x, z) => !world.inWater(x, z),

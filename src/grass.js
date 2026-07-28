@@ -231,7 +231,7 @@ const DEFAULTS = {
 	chunkDivisions: 10,
 	lodDistance: 72,
 	lodHysteresis: 4,
-	lodKeep: 0.45,
+	lodKeep: 0.62,     // lo coverage ~= 0.62 x 1.45 ~= 90% of hi - the swap stops reading as a pop
 	fadeStart: 240,
 	fadeEnd: 330
 

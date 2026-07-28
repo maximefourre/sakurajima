@@ -268,3 +268,53 @@ Suggestion de matrice minimale :
 ## Conclusion directe
 
 Le travail est inventif et documenté, mais il est trop sûr de lui dans ses commentaires. Plusieurs « contrats » sont en réalité des conventions non vérifiées, et certaines conventions dupliquent précisément les données qui devraient avoir une source de vérité unique. Le prochain passage doit réduire ces écarts entre récit et comportement réel, pas ajouter une nouvelle couche de réglages.
+
+
+---
+
+# Revue ADV-2026-07-28-398087B — passe « immersion » (via skill codex:adversarial-review, gpt-5.6-sol high)
+
+## Suivi de traitement
+
+| Point | Statut | Résolution ou justification |
+|---|---|---|
+| P2 — relèvement hanami incohérent (accepte 0.45<lift≤1.0 avec pénétration résiduelle) | Traité | Seuil de rejet aligné sur le plafond réellement appliqué : cap ET rejet à 0.65 — plus aucun arbre accepté avec déficit. |
+| P2 — terrainH bilinéaire vs interpolation triangulaire de heightAt | Rejeté avec justification | Le filtrage bilinéaire est PLUS lisse que l'interpolation par triangles, la divergence est sous-texel (< l'erreur HalfFloat sur les berges douces, < ~0.3 u sur les plus raides) et tombe dans la bande d'écume de rive qui la masque par construction ; une profondeur négative donne rim=1 → écume à l'intersection réelle eau/berge, précisément l'effet voulu. Reproduire l'interpolation triangulaire coûterait 4 fetches + branches par fragment pour un artefact jamais observé (vérifs visuelles berges/pont/delta). Documenté ici comme limitation assumée. |
+| P2 — bascule hi/lo de l'herbe = chute de couverture instantanée ~35 % | Traité (mitigation) | lodKeep 0.45 → 0.62 : couverture lo ≈ 0.62×1.45 ≈ 90 % du hi — le saut passe sous ~10 %. La vraie transition croisée par chunk reste en dette (notée ci-dessous). |
+| P2 — keepBlossomSamples garde ~330 Mo de copies mortes (24 o × 13.7 M blossoms) | Traité | `keepBlossomSamples: false` passé par main.js (aucun appel à getBlossomSamples n'existe ; les pétales utilisent forest.emitters). |
+| P3 — smoothstep GLSL inversé (edge0>edge1, comportement indéfini) | Traité | `smoothstep(0.55, 0.12, vFade)` → `1.0 - smoothstep(0.12, 0.55, vFade)` ; grep des autres smoothstep GLSL inversés : 8+ occurrences PRÉ-existantes (sakura/grass/sky, antérieures à la passe auditée) laissées en l'état — dette de portabilité notée, à normaliser en lot dédié avec vérification visuelle shader par shader. |
+
+Dette notée : transition croisée temporelle hi/lo par chunk (remplacerait la mitigation lodKeep).
+
+## Rapport Codex (verbatim)
+
+# Codex Adversarial Review
+
+Target: working tree diff
+Verdict: needs-attention
+
+ADV-2026-07-28-398087B — No-ship : la passe ne défend pas plusieurs garanties qu’elle annonce. Priorité : collisions hanami, cohérence heightfield/eau, LOD herbe, puis mémoire et portabilité GLSL.
+
+Findings:
+- [medium] P2 — Le contrôle hanami accepte encore des branches qu’il sait enterrées (src/sakura.js:1393-1409)
+  Le calcul mesure le relèvement nécessaire, rejette seulement au-delà de 1,0 u, puis plafonne pourtant le relèvement appliqué à 0,45 u. Toute occurrence où 0,45 < lift <= 1,0 est donc acceptée avec une pénétration résiduelle de lift−0,45 dans le terrain. Le commentaire affirmant que le placement sauve ou rejette ces cas est faux.
+  Recommendation: Appliquer le relèvement complet autorisé, ou rejeter dès que lift dépasse le relèvement maximal réellement appliqué. Critère d’acceptation : après transformation finale, chaque secteur renseigné doit conserver au moins la marge de 0,12 u au-dessus de heightAt ; zéro arbre accepté avec un déficit positif.
+- [medium] P2 — La profondeur « réelle » de rivière viole l’interpolation triangulaire du heightfield (src/river.js:464-467)
+  terrainH() délègue au filtrage linéaire de la texture, donc effectue une interpolation bilinéaire des quatre texels HalfFloat. island.heightAt et le mesh utilisent au contraire l’un des deux triangles selon fx+fz. Sur les berges fortement creusées, les valeurs divergent précisément là où les seuils de profondeur de 0,03 à 0,42 u pilotent écume et transparence : le shader peut produire profondeur négative, liserés ou eau décalée malgré une géométrie correcte. Cela contredit le contrat de source de vérité unique.
+  Recommendation: Échantillonner manuellement les quatre texels puis reproduire la même interpolation par triangles que island.heightAt, ou fournir un champ de profondeur construit avec cette convention. Critère d’acceptation : sur une grille de fragments couvrant centre et deux rives, terrainH doit différer de heightAt de moins que la seule erreur HalfFloat, et la profondeur ne doit pas devenir négative à l’intérieur du ruban.
+- [medium] P2 — L’anti-popping herbe conserve un échange instantané de 55 % des brins (src/grass.js:944-969)
+  À chaque franchissement du seuil d’un chunk, le code masque intégralement le mesh hi et affiche immédiatement le mesh lo, qui ne contient que lodKeep=0,45 des instances. loWidthMul=1,45 ne compense que partiellement : la couverture linéaire tombe approximativement à 0,45×1,45=65 % de celle du mesh hi. Le changement final réduit l’écart de largeur individuel mais laisse, voire accentue, la chute de densité instantanée revendiquée comme corrigée.
+  Recommendation: Faire une transition croisée/dither temporelle ou spatiale entre les deux populations, ou calibrer une représentation lo dont la couverture est réellement équivalente. Critère d’acceptation : une traversée lente des deux seuils d’hystérésis ne doit produire ni saut de compteur rendu en une frame ni variation mesurée de couverture supérieure à 5 %.
+- [medium] P2 — Une copie complète et inutilisée de tous les blossoms reste en mémoire (src/sakura.js:1603-1627)
+  keepBlossomSamples vaut true par défaut et cette branche conserve deux Float32Array supplémentaires, soit 24 octets par blossom, après avoir déjà construit les attributs GPU. Aucun appel applicatif à getBlossomSamples n’existe : main utilise forest.emitters pour les pétales. Avec 1867 arbres et blossomDensity ultra à 2,2, ce coût croît avec la partie la plus lourde de la passe sans produire d’image ni de gameplay.
+  Recommendation: Passer keepBlossomSamples:false depuis main, ou ne construire ces tableaux qu’à la première demande. Critère d’acceptation : rendu et compteurs de pétales identiques, getBlossomSamples non utilisé, et heap de boot réduit d’au moins 24×stats.blossoms octets hors overhead.
+- [low] P3 — Le fondu d’embouchure repose sur un smoothstep GLSL indéfini (src/river.js:512-514)
+  smoothstep est appelé avec edge0=0,55 supérieur à edge1=0,12. La spécification GLSL laisse ce cas indéfini ; le fondu peut donc changer selon pilote ou backend alors qu’il contrôle la recoloration de l’embouchure.
+  Recommendation: Remplacer par 1.0 - smoothstep(0.12, 0.55, vFade). Critère d’acceptation : compilation et captures identiques sur au moins deux familles de GPU, avec mouth=1 sous 0,12, mouth=0 au-dessus de 0,55 et progression monotone entre les deux.
+
+Next steps:
+- 1. Corriger et tester le relèvement des arbres.
+- 2. Aligner terrainH sur l’interpolation triangulaire de l’île.
+- 3. Remplacer le basculement hi/lo de l’herbe par une vraie transition.
+- 4. Désactiver la copie sampleCloud inutilisée.
+- 5. Normaliser le smoothstep inversé, puis rejouer node --check, les 8 invariants et les parcours visuels pont/berges/LOD.

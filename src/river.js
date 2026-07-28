@@ -517,7 +517,7 @@ const RIVER_FRAG = /* glsl */ `
     col = mix(col, uSkyColor, fres * 0.22);
 
     // Mouth zone: as the banks fade the river is becoming SEA.
-    float mouth = smoothstep(0.55, 0.12, vFade);
+    float mouth = 1.0 - smoothstep(0.12, 0.55, vFade);
     col = mix(col, uMouthCol, mouth * 0.5);
 
     // Foam at the WATERLINE: the shallow rim where the surface meets the bed,

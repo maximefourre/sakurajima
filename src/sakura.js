@@ -1402,11 +1402,11 @@ export function createSakuraForest( options = {} ) {
 			const need = ( hg + 0.12 + Math.sin( leanAngle ) * sr * 0.5 )
 				- ( pos.y + sec.lowY[ s ] * scale );
 			if ( need > lift ) lift = need;
-			if ( lift > 1.0 ) { hopeless = true; break; }
+			if ( lift > 0.65 ) { hopeless = true; break; }
 
 		}
 		if ( hopeless ) continue;
-		pos.y += Math.min( lift, 0.45 );
+		pos.y += lift;   // cap and rejection threshold are the SAME number now - no tree is accepted with residual burial
 
 		addToGrid( x, z );
 

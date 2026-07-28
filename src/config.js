@@ -189,12 +189,17 @@ export const DEFAULT_QUALITY = 'ultra';
  * into the carved bank.
  */
 export const PATH = {
+  // Switchbacks on the climb (x -88..-60, where the ground rises to the cliff
+  // rim) then a meandering descent to the bridge. The route deliberately keeps
+  // >= ~16 units from the river centreline — closer and it falls into the
+  // carved bank.
   points: [
-    [-88, 0], [-80, 10], [-70, 18], [-60, 25], [-50, 33],
-    [-38, 42], [-26, 48], [-16, 52], [-9, 54],
+    [-88, 0], [-84, 7], [-77, 4], [-72, 12], [-79, 18], [-70, 23],
+    [-61, 19], [-54, 27], [-47, 35], [-41, 30], [-36, 43],
+    [-26, 48], [-17, 51], [-9, 54],
   ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]),
   width: 3.2,
-  toriiAt: [0.06, 0.5, 0.93],
+  toriiAt: [0.02, 0.5, 0.93],
 };
 
 /** Camera framing. Chosen so the opening shot reads as a postcard, not a debug view. */

@@ -52,6 +52,30 @@ function buildPathIndex(points) {
     points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
   );
   _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+
+  // Organic wander: push every sample sideways with low-frequency fbm, then
+  // REBUILD the curve from the perturbed samples and resample — so the ribbon,
+  // the grass exclusion and the torii all follow the same wandering line. The
+  // last stretch (t > 0.90) stays authored: initPath snaps it onto the real
+  // bridge abutment and the invariants assert on it.
+  {
+    const _tanP = new THREE.Vector3();
+    for (let i = 1; i < PATH_N; i++) {
+      const t = i / PATH_N;
+      const amp = 2.5 * (1 - smoothstep(0.90, 0.97, t)) * (i < 4 ? i / 4 : 1);
+      PATH_CURVE.getTangentAt(t, _tanP);
+      const nx = -_tanP.z, nz = _tanP.x;
+      const l = Math.hypot(nx, nz) || 1;
+      const off = fbm2(_pp[i].x * 0.02 + 7.7, _pp[i].z * 0.02 - 3.1, 3) * amp;
+      _pp[i].x += (nx / l) * off;
+      _pp[i].z += (nz / l) * off;
+    }
+    const ctrl = [];
+    for (let i = 0; i <= PATH_N; i += 4) ctrl.push(_pp[Math.min(i, PATH_N)].clone());
+    if ((PATH_N % 4) !== 0) ctrl.push(_pp[PATH_N].clone());
+    PATH_CURVE = new THREE.CatmullRomCurve3(ctrl, false, 'catmullrom', 0.5);
+    _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+  }
   _pathEnd = { x: _pp[PATH_N].x, z: _pp[PATH_N].z };
 
   const P_PAD = PATH.width * 0.5 + 1.4;
@@ -437,6 +461,7 @@ export function createDetails({
     const spots = [
       [-14, 26], [4, 40], [22, 54], [40, 66],   // the approach to the bridge
       [-79, 12.5], [-59, 27.5], [-37, 44],      // beside the pilgrim path, cliff to bridge
+      [-91, -2], [-86, 5],                      // flanking the overlook terrace at the rim
     ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]);
 
     // A pair of lanterns flanking each end of the bridge. The bridge slides
@@ -638,7 +663,7 @@ export function createDetails({
     // columns (left edge, crown, right edge) so the surface twists with a
     // cross-slope and crowns slightly instead of sagging between quads.
     const N = 260;
-    const pos = [], col = [], idx = [];
+    const pos = [], col = [], idx = [], edge = [];
     const p = new THREE.Vector3(), tn = new THREE.Vector3();
     const base = new THREE.Color(0xb59d76);   // dry packed earth, light enough to read against the grass
     for (let i = 0; i <= N; i++) {
@@ -647,14 +672,18 @@ export function createDetails({
       PATH_CURVE.getTangentAt(t, tn);
       const l = Math.hypot(tn.x, tn.z) || 1;
       const nx = -tn.z / l, nz = tn.x / l;
-      const w = PATH.width * 0.5 * (0.85 + 0.30 * fbm2(p.x * 0.07, p.z * 0.07, 2));
+      // INDEPENDENT widths per side - one symmetric width is what read as a
+      // ruled band with two straight edges.
+      const wL = PATH.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
+      const wR = PATH.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
       const cols = [
-        [p.x + nx * w, p.z + nz * w, 0.08],
-        [p.x, p.z, 0.16],                    // the crown rides a touch higher
-        [p.x - nx * w, p.z - nz * w, 0.08],
+        [p.x + nx * wL, p.z + nz * wL, 0.08, 1],
+        [p.x, p.z, 0.16, 0],                 // the crown rides a touch higher
+        [p.x - nx * wR, p.z - nz * wR, 0.08, 1],
       ];
       for (let c = 0; c < 3; c++) {
-        const [cx, cz, lift] = cols[c];
+        const [cx, cz, lift, edg] = cols[c];
+        edge.push(edg);
         pos.push(cx, heightAt(cx, cz) + lift, cz);
         // worn lighter along the crown, darker at the verges
         const v = (c === 1 ? 1.06 : 0.86) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
@@ -673,6 +702,7 @@ export function createDetails({
     const pathGeo = new THREE.BufferGeometry();
     pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     pathGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    pathGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(edge, 1));
     pathGeo.setIndex(idx);
     pathGeo.computeVertexNormals();
     const pathMat = new THREE.MeshStandardMaterial({
@@ -683,12 +713,13 @@ export function createDetails({
     // Gritty speckle so the packed earth reads as trodden grit, not paint.
     // World-position keyed — the ribbon has no UVs.
     pathMat.onBeforeCompile = (shader) => {
-      shader.vertexShader = 'varying vec3 vPathW;\n' + shader.vertexShader.replace(
+      shader.vertexShader = 'attribute float aPathEdge;\nvarying float vPathEdge;\nvarying vec3 vPathW;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\n\tvPathW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        '#include <begin_vertex>\n\tvPathW = (modelMatrix * vec4(transformed, 1.0)).xyz;\n\tvPathEdge = aPathEdge;'
       );
       shader.fragmentShader = /* glsl */ `
         varying vec3 vPathW;
+        varying float vPathEdge;
         float ph21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
         float pvn(vec2 p) {
           vec2 i = floor(p), f = fract(p);
@@ -703,15 +734,50 @@ export function createDetails({
           vec2 q = vPathW.xz;
           float grit = pvn(q * 6.5) * 0.55 + pvn(q * 21.0) * 0.45;
           diffuseColor.rgb *= 0.90 + 0.20 * grit;
+          // Ragged border: the outer rim is EATEN by world-position noise -
+          // opaque cutout, so depth still writes and nothing needs sorting.
+          float bite = pvn(q * 3.4) * 0.6 + pvn(q * 11.0) * 0.4;
+          if (vPathEdge > 0.55 + bite * 0.45) discard;
         }`
       );
     };
-    pathMat.customProgramCacheKey = () => 'sakurajima-path-v2';
+    pathMat.customProgramCacheKey = () => 'sakurajima-path-v3';
     disposables.push(pathGeo, pathMat);
     const path = new THREE.Mesh(pathGeo, pathMat);
     path.name = 'pilgrim-path';
     path.receiveShadow = true;
     group.add(path);
+
+    // — the overlook terrace at the cliff rim: the path has a destination —
+    {
+      const SEG2 = 28;
+      const tp = [], tc = [], ti = [];
+      const [cx0, cz0] = PATH.points[0];
+      const cy0 = heightAt(cx0, cz0);
+      tp.push(cx0, cy0 + 0.14, cz0);
+      tc.push(base.r * 1.05, base.g * 1.05, base.b * 1.05);
+      for (let s2 = 0; s2 <= SEG2; s2++) {
+        const a2 = (s2 / SEG2) * Math.PI * 2;
+        const rr = 3.6 * (0.80 + 0.35 * fbm2(Math.cos(a2) * 2.1 + 5.0, Math.sin(a2) * 2.1, 2));
+        const px2 = cx0 + Math.cos(a2) * rr, pz2 = cz0 + Math.sin(a2) * rr;
+        tp.push(px2, heightAt(px2, pz2) + 0.08, pz2);
+        const v2 = 0.86 * (0.92 + 0.16 * fbm2(px2 * 0.21, pz2 * 0.21, 2));
+        tc.push(base.r * v2, base.g * v2, base.b * v2);
+        // Winding matches the ocean disc's proven fan (centre, next, current):
+        // faces point UP. The winding trap has bitten this repo four times.
+        if (s2 < SEG2) ti.push(0, s2 + 2, s2 + 1);
+      }
+      const terrGeo = new THREE.BufferGeometry();
+      terrGeo.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
+      terrGeo.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3));
+      terrGeo.setIndex(ti);
+      terrGeo.computeVertexNormals();
+      disposables.push(terrGeo);
+      const terrace = new THREE.Mesh(terrGeo, pathMat);   // aPathEdge absent -> reads 0, no cutout
+      terrace.name = 'overlook-terrace';
+      terrace.receiveShadow = true;
+      group.add(terrace);
+    }
 
     // — the torii along the route —
     const toriiGeo = makeToriiGeometry();

@@ -239,6 +239,24 @@ Revue adversariale Codex de la passe : voir `ADVERSARIAL_REVIEW_CLAUDE.md`
 
 ---
 
+## Session « polish joueur » du 28/07 (fin de nuit)
+
+Cycle complet du pipeline : polish3 (pétales 0.22-0.85, lit sable/gravier/
+roche + galets immergés, micro-houle vertex sur l'eau, saut du chien Espace +
+vitesses x2, pause sur P), chemin organique (lacets authorés + perturbation
+fbm du tracé — index/ruban/torii RE-échantillonnés depuis la même courbe
+perturbée, largeurs par côté décorrélées, bord rongé par cutout aPathEdge,
+terrasse d'observation au rim avec lanternes, premier torii à t=0.02), et
+revue adversariale ADV-2026-07-28-398087B via le skill codex:adversarial-review
+(5 findings : 4 traités dont ~330 Mo de heap morts rendus par
+keepBlossomSamples:false et la cohérence cap/rejet du relèvement hanami à
+0.65 ; 1 rejeté avec justification — bilinéaire vs triangles du terrainH).
+Dette notée : cross-fade hi/lo par chunk d'herbe (mitigé par lodKeep 0.62),
+smoothstep GLSL inversés pré-existants (8+, lot dédié), cap de FPS pour les
+ventilateurs (non fait).
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont
