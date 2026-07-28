@@ -311,6 +311,33 @@ export function isInRiver(x, z) {
   return dist < RIVER.width * 0.5 * widthKAt(b, t) + 1.5;
 }
 
+/**
+ * How much of the carved riverbed lives at (x, z): 1 in the wetted channel,
+ * fading to 0 across the inner bank. island.js colours the bed with it -
+ * the water is transparent now, the bed is ON SCREEN.
+ */
+export function riverBedFactor(x, z) {
+  const { dist, t, b } = nearestOnRiver(x, z);
+  const wk = widthKAt(b, t);
+  const halfW = RIVER.width * 0.5 * wk;
+  return 1 - smoothstep(halfW * 0.9, halfW + RIVER.bankWidth * wk * 0.45, dist);
+}
+
+/**
+ * Water surface height over (x, z), or null outside the wetted channel (or
+ * where the estuary has dissolved into sea). The dog uses it to refuse
+ * walking UNDER the water sheet - the sea-level wade rule never fires for a
+ * river bed sitting 8 units up the hillside.
+ */
+export function waterSurfaceYAt(x, z) {
+  const { dist, t, b } = nearestOnRiver(x, z);
+  if (dist > RIVER.width * 0.5 * widthKAt(b, t) + 1.0) return null;
+  const br = BRANCHES[b];
+  if (!br.profile) return null;
+  if (fadeAtB(b, t) < 0.15) return null;
+  return waterYAtB(b, t);
+}
+
 /* ────────────────────────────────────────────────────────────────
    2. Water ribbon
    ──────────────────────────────────────────────────────────────── */
@@ -327,13 +354,28 @@ export function isInRiver(x, z) {
  * @param {number} startT  0..1 along the branch where the ribbon starts
  * @param {boolean} faded  whether mouth fade is available yet (post-build)
  */
-function buildWaterRibbon(b = 0, startT = 0, faded = false) {
+function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
   const br = BRANCHES[b];
   const N = b === 0 ? 240 : 90;
   const W = RIVER.width * 0.5;
   const RAMP = 8; // segments over which a distributary fades in at the junction
   const pos = [], uv = [], idx = [], fade = [];
   const p = new THREE.Vector3(), tan = new THREE.Vector3();
+
+  // Find the WATERLINE on one side of a station: march outward and stop where
+  // the carved ground breaks the surface. A fixed half-width plane on a reach
+  // that runs along a hillside must either bury its uphill edge or hang its
+  // downhill edge in the air — this is the downhill half of that bug.
+  const wettedHalfWidth = (x, z, dx, dz, wMax, waterY) => {
+    if (!heightAt) return wMax;
+    for (let k = 1; k <= 6; k++) {
+      if (heightAt(x + dx * wMax * (k / 6), z + dz * wMax * (k / 6)) > waterY - 0.04) {
+        // back off to just before the breach, then tuck a little into the bank
+        return Math.max(wMax * (k - 0.5) / 6, wMax * 0.18) + 0.35;
+      }
+    }
+    return wMax;
+  };
 
   for (let i = 0; i <= N; i++) {
     const t = startT + (i / N) * (1 - startT);
@@ -350,6 +392,9 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false) {
     // width/2 + 0.45*bankWidth the bowl has climbed back over the waterline.
     const w = Math.min(W * wob * flare, W + RIVER.bankWidth * 0.45) * widthKAt(b, t);
     const y = waterYAtB(b, t);
+    const ux = nx / len, uz = nz / len;
+    const wL = wettedHalfWidth(p.x, p.z, ux, uz, w, y);
+    const wR = wettedHalfWidth(p.x, p.z, -ux, -uz, w, y);
     let f = faded ? fadeAtB(b, t) : 1;
     // Squared so that, combined with the concave alpha curve in the fragment
     // shader (pow 0.55), the junction overlap stays as dim as before — two
@@ -357,8 +402,8 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false) {
     if (b > 0) f *= Math.pow(Math.min(1, i / RAMP), 2.0);
     else f *= smoothstep(0.0, 0.06, t);   // the trunk seeps in from between the spring rocks
 
-    pos.push(p.x + (nx / len) * w, y, p.z + (nz / len) * w);
-    pos.push(p.x - (nx / len) * w, y, p.z - (nz / len) * w);
+    pos.push(p.x + ux * wL, y, p.z + uz * wL);
+    pos.push(p.x - ux * wR, y, p.z - uz * wR);
     uv.push(0, t * 26);
     uv.push(1, t * 26);
     fade.push(f, f);
@@ -404,10 +449,23 @@ const RIVER_FRAG = /* glsl */ `
   uniform vec3  uSunDir;
   uniform vec3  uSunColor;
   uniform vec3  uSkyColor;
+  // Baked terrain heightfield - same contract as island.js WATER_COMMON,
+  // duplicated here on purpose: importing it from island.js would create an
+  // ESM cycle (island imports riverBedFactor from this module).
+  uniform sampler2D uHeightMap;
+  uniform vec2  uMapMin;
+  uniform float uMapStep;
+  uniform float uMapRes;
   varying vec2 vUv;
   varying vec3 vWorld;
   varying float vFade;
   #include <fog_pars_fragment>
+
+  float terrainH(vec2 p) {
+    vec2 gi = (p - uMapMin) / uMapStep;
+    vec2 uv2 = clamp((gi + 0.5) / uMapRes, vec2(0.0), vec2(1.0));
+    return texture2D(uHeightMap, uv2).r;
+  }
 
   float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.545); }
   float vnoise(vec2 p){
@@ -422,44 +480,61 @@ const RIVER_FRAG = /* glsl */ `
     // reads as motion along ONE axis; using symmetric noise makes it look like
     // a lake with a current, which is wrong.
     float s = vUv.y - uTime * uFlow;
-    float r1 = vnoise(vec2(vUv.x * 7.0, s * 3.0));
-    float r2 = vnoise(vec2(vUv.x * 15.0 + 4.7, s * 6.5));
+    float r1 = vnoise(vec2(vUv.x * 16.0, s * 10.0));
+    float r2 = vnoise(vec2(vUv.x * 34.0 + 4.7, s * 21.0));
     float ripple = r1 * 0.65 + r2 * 0.35;
 
-    // Faster, brighter water at the banks where it runs shallow over stones.
-    float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
-    float shallow = smoothstep(0.55, 0.0, edge);
+    // REAL depth: surface height minus the carved bed under this fragment,
+    // read from the same baked heightfield the ocean uses. This is what turns
+    // the ribbon from a painted sprite into water you look INTO - colour,
+    // transparency, foam and the waterline all key off it.
+    float depth = vWorld.y - terrainH(vWorld.xz);
+    float depthN = smoothstep(0.05, 2.6, depth);
 
-    vec3 col = mix(uDeep, uShallow, shallow * 0.55 + ripple * 0.18);
+    vec3 col = mix(uShallow, uDeep, depthN * (0.75 + 0.25 * ripple));
+
+    // Elongated pale filaments drifting downstream - the current made visible,
+    // strongest over the shallows.
+    float streak = vnoise(vec2(vUv.x * 6.0, s * 2.5));
+    col += vec3(0.05, 0.07, 0.07) * smoothstep(0.62, 0.90, streak) * (1.0 - depthN * 0.6);
 
     // Cheap specular: perturb a flat-up normal by the ripple gradient.
     vec3 n = normalize(vec3((r2 - r1) * 0.9, 1.0, (r1 - r2) * 0.9));
     float spec = pow(max(dot(reflect(-uSunDir, n), normalize(cameraPosition - vWorld)), 0.0), 48.0);
     col += uSunColor * spec * 0.55;
 
-    // Sky reflection, but only at grazing angles — a fresnel term. Adding a flat
-    // fraction of the sky colour everywhere is what turned this into a pale
-    // ribbon that read as a paved road rather than as water.
+    // Sky reflection at grazing angles only - a flat sky fraction everywhere
+    // is what reads as a paved road instead of water.
     vec3 viewDir = normalize(cameraPosition - vWorld);
     float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
-    col = mix(col, uSkyColor, fres * 0.38);
+    col = mix(col, uSkyColor, fres * 0.22);
 
-    // Mouth zone: as the banks fade the river is becoming SEA. Shift the body
-    // colour toward the lagoon turquoise, let foam bloom where the arms meet
-    // the surf, and thicken the alpha so the channels read as water, not gauze.
+    // Mouth zone: as the banks fade the river is becoming SEA.
     float mouth = smoothstep(0.55, 0.12, vFade);
     col = mix(col, uMouthCol, mouth * 0.5);
 
-    // Foam where ripples peak against the shallow margins; looser and wider
-    // at the mouth so the arm edges fringe white against the sand.
-    float foam = smoothstep(0.80 - 0.22 * mouth, 0.97 - 0.12 * mouth, ripple)
-               * max(shallow, mouth * 0.65);
-    col = mix(col, vec3(0.90, 0.94, 0.95), foam * (0.30 + 0.25 * mouth));
+    // Foam at the WATERLINE: the shallow rim where the surface meets the bed,
+    // plus cresting ripples at the mouth. The rim line is what anchors the
+    // surface to its banks instead of floating over them.
+    float rim = 1.0 - smoothstep(0.03, 0.42, depth);
+    float foam = max(smoothstep(0.72, 0.95, ripple) * rim,
+                     smoothstep(0.80 - 0.22 * mouth, 0.97 - 0.12 * mouth, ripple) * mouth * 0.65);
+    // Rapids: where the surface FALLS relative to its horizontal run the
+    // river is dropping down a bed step - churn it white instead of letting a
+    // smooth tilted slab of water read as a glass ramp. The derivative RATIO
+    // is view-invariant; raw fwidth would foam all distant water at grazing.
+    float cascade = fwidth(vWorld.y) / max(fwidth(vWorld.x) + fwidth(vWorld.z), 1e-4);
+    foam = max(foam, smoothstep(0.10, 0.30, cascade) * (0.55 + 0.35 * ripple));
+    col = mix(col, vec3(0.92, 0.95, 0.96), foam * 0.5);
 
     if (vFade < 0.004) discard;
-    // Concave alpha curve: fade 0.25 (the sand flat) renders at 0.42 instead
-    // of 0.20, while full fade keeps its 0.90 and the tip still dissolves to 0.
-    gl_FragColor = vec4(col, 0.90 * pow(vFade, 0.55));
+    // Transparency follows depth: thin water is glass over the sandy bed, the
+    // channel heart stays opaque enough to read as a river; vFade still
+    // dissolves the estuary tips. The dark-arms complaint at the delta dies
+    // here - centimetres of water over sand render nearly clear.
+    float alpha = mix(0.26, 0.78, depthN);
+    alpha = max(alpha, foam * 0.75);
+    gl_FragColor = vec4(col, alpha * pow(vFade, 0.55));
     #include <fog_fragment>
   }
 `;
@@ -725,7 +800,17 @@ export function createRiver({ wind } = {}) {
     return { dist: Math.sqrt(best), t: bt };
   }
 
-  function build(heightAt) {
+  function build(heightAt, terrainU = null) {
+    // Borrow the island's baked-heightfield uniform OBJECTS by reference, so
+    // the fragment's terrainH sees exactly the carved bed. Added after the
+    // material was created: fine - the program compiles at first render,
+    // long after boot wires this up.
+    if (terrainU) {
+      uniforms.uHeightMap = terrainU.uHeightMap;
+      uniforms.uMapMin = terrainU.uMapMin;
+      uniforms.uMapStep = terrainU.uMapStep;
+      uniforms.uMapRes = terrainU.uMapRes;
+    }
     // Trunk first: the distributaries seed their water level from its profile.
     for (let b = 0; b < BRANCHES.length; b++) {
       const br = BRANCHES[b];
@@ -785,10 +870,17 @@ export function createRiver({ wind } = {}) {
           br.curve.getTangentAt(i / N, _tanC);
           const nx = -_tanC.z, nz = _tanC.x;
           const l = Math.hypot(nx, nz) || 1;
-          const offC = RIVER.width * 0.5 * widthKAt(b, i / N) + 1.0;
+          // Sample 3 units past the ribbon edge — sampling at +1 landed INSIDE
+          // the carve bowl (ground ~= bed there), which pinned the whole
+          // surface onto its own bed: centimetres of depth everywhere, so the
+          // depth-keyed shader rendered one pale foam sheet, and clamp-then-
+          // flatten built literal walls of water at every bed dip. The clamp
+          // only needs to stop the sheet SPANNING over real banks; the
+          // depth-based transparency melts the thin edge overlap visually.
+          const offC = RIVER.width * 0.5 * widthKAt(b, i / N) + 3.0;
           const gL = heightAt(br.sx[i] + (nx / l) * offC, br.sz[i] + (nz / l) * offC);
           const gR = heightAt(br.sx[i] - (nx / l) * offC, br.sz[i] - (nz / l) * offC);
-          const ceilY = Math.max(Math.max(gL, gR) - 0.12, WORLD.seaLevel + 0.03);
+          const ceilY = Math.max(Math.max(gL, gR) + 0.10, WORLD.seaLevel + 0.03);
           if (br.profile[i] > ceilY) br.profile[i] = ceilY;
         }
       };
@@ -898,14 +990,14 @@ export function createRiver({ wind } = {}) {
     // distributary's ribbon starts only once its centreline has slid out from
     // under the trunk's, so the two transparent surfaces never double-blend.
     water.geometry.dispose();
-    water.geometry = buildWaterRibbon(0, 0, true);
+    water.geometry = buildWaterRibbon(0, 0, true, heightAt);
     for (let b = 1; b < BRANCHES.length; b++) {
       const br = BRANCHES[b];
       let i0 = 0;
       for (let i = 0; i <= br.N; i++) {
         if (nearestOnTrunk(br.sx[i], br.sz[i]).dist > RIVER.width * 0.55) { i0 = i; break; }
       }
-      const mesh = new THREE.Mesh(buildWaterRibbon(b, i0 / br.N, true), water.material);
+      const mesh = new THREE.Mesh(buildWaterRibbon(b, i0 / br.N, true, heightAt), water.material);
       mesh.name = `river-branch-${b}`;
       mesh.renderOrder = 2;
       group.add(mesh);
@@ -920,8 +1012,11 @@ export function createRiver({ wind } = {}) {
   const uniforms = {
     uTime:     { value: 0 },
     uFlow:     { value: RIVER.flowSpeed },
-    uShallow:  { value: new THREE.Color(0x4d7f7c) },
-    uDeep:     { value: new THREE.Color(0x14343c) },
+    // Saturated on purpose: at the grazing angles a walker sees the river
+    // from, the fresnel sky mix bleaches whatever it is given — a desaturated
+    // deep colour washed out to lifeless grey.
+    uShallow:  { value: new THREE.Color(0x43b0aa) },
+    uDeep:     { value: new THREE.Color(0x155a68) },
     uMouthCol: { value: new THREE.Color(0x2f9aa0) },
     uSunDir:   { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color(1, 1, 1) },
@@ -974,7 +1069,7 @@ export function createRiver({ wind } = {}) {
   }
 
   const api = {
-    group, update, build, dispose, water, carveRiver, isInRiver, curve, waterYAt,
+    group, update, build, dispose, water, carveRiver, isInRiver, waterSurfaceYAt, curve, waterYAt,
     bridgeDeckHeightAt, bridgeDeckNormalAt,
     // Set by build(): the bridge's FINAL placement (shift included) — the
     // single source of truth for the path's last segment and the abutment

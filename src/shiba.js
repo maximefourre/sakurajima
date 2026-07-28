@@ -532,6 +532,7 @@ export function createShiba({
   isInPond = null,
   deckHeightAt = null,
   deckNormalAt = null,
+  waterSurfaceAt = null,
   wind = null,
   seaLevel = WORLD.seaLevel,
 } = {}) {
@@ -637,6 +638,14 @@ export function createShiba({
           return false;
         }
       }
+    }
+    // A mid-island river bed sits far above sea level, so the sea-level wade
+    // rule never sees it: refuse any column where the ground lies under the
+    // river's own water sheet (the bridge short-circuit above already let a
+    // deck crossing through).
+    if (waterSurfaceAt) {
+      const w = waterSurfaceAt(x, z);
+      if (w !== null && heightAt(x, z) < w - 0.18) return false;
     }
     const h = heightAt(x, z);
     if (h < seaLevel - SHIBA.wadeDepth) return false;

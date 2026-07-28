@@ -285,7 +285,7 @@ async function boot() {
 
   // The river needs the finished terrain to know where its own bed ended up,
   // so the water surface and bridge are built here rather than at construction.
-  world.river.build(world.heightAt);
+  world.river.build(world.heightAt, world.island.waterUniforms);
   // The bridge slid to its real footing during build(); snap the pilgrim
   // path's last segment onto the actual abutment NOW, before the grass is
   // placed — grass exclusion evaluates isOnPath at placement time.
@@ -414,6 +414,7 @@ async function boot() {
     isInPond: world.inWater,
     deckHeightAt: world.river.bridgeDeckHeightAt,
     deckNormalAt: world.river.bridgeDeckNormalAt,
+    waterSurfaceAt: world.river.waterSurfaceYAt,
     wind: world.wind,
     seaLevel: world.island.seaLevel,
   });

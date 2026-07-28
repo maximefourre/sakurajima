@@ -165,7 +165,7 @@ const DEFAULTS = {
 	bladeWidth: 0.082,     // world units at widthJitter = 1 — widened with the height to keep the aspect
 	segmentsHi: 5,
 	segmentsLo: 2,
-	loWidthMul: 1.75,      // far blades are fatter so a sparser far field still covers
+	loWidthMul: 1.45,      // far blades only slightly fatter - a big gap here is what made the LOD swap pop
 	normalBow: 0.55,       // fake cross-section cupping baked into the normals
 
 	// --- placement ---------------------------------------------------------------
@@ -178,13 +178,13 @@ const DEFAULTS = {
 	uplandY: 24.0,         // follows HEIGHT_SCALE — the raised ridge flanks stay grassed
 	uplandBlend: 6.0,
 	slopeSoft: 0.13,       // 1 - n.y   (~30 deg) -> density starts dropping
-	slopeMax: 0.34,        // ~48 deg -> no grass
+	slopeMax: 0.38,        // ~50 deg -> no grass
 	patchScale: 0.030,     // low-freq clump mask
-	patchLow: 0.14,
-	patchHigh: 0.52,
+	patchLow: 0.05,
+	patchHigh: 0.40,
 	bareScale: 0.115,      // higher-freq bare-earth mask
-	bareThreshold: 0.86,
-	bareFloor: 0.12,
+	bareThreshold: 0.92,
+	bareFloor: 0.20,
 	tintScale: 0.021,      // low-freq colour patches
 	terrainTilt: 0.38,     // 0 = always vertical, 1 = fully aligned to the ground normal
 	rootSink: 0.035,
@@ -229,11 +229,11 @@ const DEFAULTS = {
 	// the meadow from the postcard camera. chunkDivisions raised so frustum
 	// culling stays fine-grained over the much larger bounds.
 	chunkDivisions: 10,
-	lodDistance: 58,
+	lodDistance: 72,
 	lodHysteresis: 4,
 	lodKeep: 0.45,
-	fadeStart: 160,
-	fadeEnd: 230
+	fadeStart: 240,
+	fadeEnd: 330
 
 };
 

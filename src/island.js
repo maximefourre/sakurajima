@@ -31,6 +31,7 @@
 import * as THREE from 'three';
 import { WORLD, LAND_SCALE, HEIGHT_SCALE, RIVER } from './config.js';
 import { makeGrainBump } from './detailtex.js';
+import { riverBedFactor } from './river.js';
 import {
   noise2, fbm2, ridged2,
   streamFor, smoothstep as sstep, clamp, mix,
@@ -589,6 +590,8 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   const cA = new THREE.Color();
   const cB = new THREE.Color();
   const cRock = new THREE.Color();
+  const cBed = new THREE.Color();
+  const C_BED = new THREE.Color(0xb3a88e);   // scoured wet pebble-sand
 
   const C_SEABED = new THREE.Color(PAL.seabed);
   const C_WET = new THREE.Color(PAL.sandWet);
@@ -636,6 +639,14 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     // Rock takes over on slopes, exactly where grass gives up.
     cRock.copy(C_ROCK).lerp(C_ROCKD, sstep(0.55, 0.92, slope + cn * 0.05));
     cA.lerp(cRock, sstep(WORLD.grassMaxSlope - 0.16, WORLD.grassMaxSlope + 0.12, slope + cn * 0.06));
+
+    // The carved riverbed reads as scoured sand and pebbles, not lawn - the
+    // water above it is genuinely transparent now, so the bed is on screen.
+    const bedK = riverBedFactor(x, z);
+    if (bedK > 0.02) {
+      cBed.copy(C_BED).lerp(C_WET, 0.35 + cn * 0.20);
+      cA.lerp(cBed, bedK * 0.85);
+    }
 
     // Curvature shading + grain.
     const ao = sstep(-2.6, 2.0, h - blurred[k]);
