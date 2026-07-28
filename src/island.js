@@ -328,7 +328,15 @@ const WATER_FRAG = /* glsl */ `
     float sunUp = smoothstep(-0.14, 0.10, L.y);
     float spec  = pow(ndh, 140.0) * 0.55 + pow(ndh, 900.0) * 2.2;
 
-    vec3 col = mix(body, sky, clamp(fres * uReflect, 0.0, 1.0));
+    // The body colour is a PIGMENT, not a radiance, so it has to be lit. Without
+    // this the sea keeps its tropical-noon turquoise straight through golden hour
+    // and into the night, glowing next to an island that has gone dark — the
+    // day/night lerp on uDeep/uShallow only changes the hue, never the exposure.
+    // Weighted so the product lands near 1.0 with a high sun, which leaves the
+    // midday sea exactly where it was.
+    vec3 lit = body * (uSkyColor * 0.55 + uSunColor * (0.12 + 0.55 * sunUp * max(L.y, 0.0)));
+
+    vec3 col = mix(lit, sky, clamp(fres * uReflect, 0.0, 1.0));
     col += uSunColor * spec * uSunSpec * sunUp;
 
     // Shallow-water forward scatter: the sea glows when you look toward the sun.

@@ -196,20 +196,22 @@ const K_MIE_G = [
  *  zenith-to-horizon gradient that makes a sky look like a sky.
  *
  *  So gain is keyframed like every other atmospheric parameter: low when the sun
- *  is high, rising as it drops. These numbers are not eyeballed — each was solved
- *  for in-browser by binary-searching the gain that puts a 70° sky-only frame,
- *  aimed along the sun's azimuth, at an art-directed mean brightness. Retuning
- *  means re-running that calibration, not nudging one value until noon looks nice
- *  and discovering a week later that dusk went black.
+ *  is high, rising as it drops. The noon anchor was solved for in-browser, by
+ *  binary-searching the gain that puts a 70° sky-only frame at an art-directed
+ *  mean brightness. The low-sun keys are then raised well ABOVE what that same
+ *  search returns, because the search aims the probe camera along the sun's
+ *  azimuth: at a low sun the dome is enormously brighter towards the sun than
+ *  away from it, so a gain that reads correctly facing the sunset leaves the
+ *  opposite half of the sky black. Tuning either half alone gets this wrong.
  *
  *  Below the horizon the night dome carries the image, so the tail values only
  *  need to keep a ghost of atmosphere alive under it rather than hit a target.
  */
 const K_SKY_GAIN = [
-  [0.000, 0.300], [0.150, 0.320], [0.205, 0.340], [0.235, 0.300], [0.250, 0.181],
-  [0.272, 0.111], [0.310, 0.079], [0.380, 0.083], [0.500, 0.100], [0.620, 0.088],
-  [0.700, 0.092], [0.735, 0.143], [0.750, 0.197], [0.768, 0.420], [0.795, 0.400],
-  [0.850, 0.340], [1.000, 0.300],
+  [0.000, 0.300], [0.150, 0.320], [0.205, 0.360], [0.235, 0.340], [0.250, 0.300],
+  [0.272, 0.210], [0.310, 0.135], [0.380, 0.105], [0.500, 0.100], [0.620, 0.115],
+  [0.700, 0.175], [0.735, 0.250], [0.750, 0.330], [0.768, 0.430], [0.795, 0.420],
+  [0.850, 0.360], [1.000, 0.300],
 ];
 
 /*  ── the Sky addon's built-in clouds (new in this version) ──────────────────

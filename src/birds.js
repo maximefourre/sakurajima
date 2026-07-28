@@ -82,7 +82,16 @@ function makeBirdGeometry() {
   const spn = [];
 
   const v = (x, y, z, s) => { pos.push(x, y, z); nrm.push(0, 1, 0); spn.push(s); };
-  const quad = (a, b, c, d) => { v(...a); v(...b); v(...c); v(...a); v(...c); v(...d); };
+
+  /* `flip` reverses the vertex order. Mirroring a quad across x reverses its
+   * winding, and the fragment stage flips the normal for back faces (the plates
+   * are drawn DoubleSide) — so without this the left wing presents its back face
+   * to a camera above the bird and shades as a belly while the right wing shades
+   * as a back. The flock ends up with one bright wing and one dark one. */
+  const quad = (a, b, c, d, flip) => {
+    if (flip) { const t = a; a = d; d = t; const u = b; b = c; c = u; }
+    v(...a); v(...b); v(...c); v(...a); v(...c); v(...d);
+  };
 
   // Body: a slim lozenge from beak to tail root.
   quad([0, 0, 0.34, 0], [0.055, 0, 0.02, 0], [0, 0, -0.16, 0], [-0.055, 0, 0.02, 0]);
@@ -96,11 +105,11 @@ function makeBirdGeometry() {
   for (const s of [1, -1]) {
     quad(
       [0.05 * s, 0, 0.13, 0.0], [0.27 * s, 0, 0.10, 0.5],
-      [0.27 * s, 0, -0.045, 0.5], [0.05 * s, 0, -0.05, 0.0]
+      [0.27 * s, 0, -0.045, 0.5], [0.05 * s, 0, -0.05, 0.0], s < 0
     );
     quad(
       [0.27 * s, 0, 0.10, 0.5], [0.50 * s, 0, 0.005, 1.0],
-      [0.46 * s, 0, -0.075, 1.0], [0.27 * s, 0, -0.045, 0.5]
+      [0.46 * s, 0, -0.075, 1.0], [0.27 * s, 0, -0.045, 0.5], s < 0
     );
   }
 
@@ -458,6 +467,15 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
 
         gl_FragColor = vec4(col, 1.0);
 
+        // main.js renders through sky.js's composer once it has loaded, and the
+        // OutputPass tone-maps there — but the composer arrives asynchronously
+        // and never at all when the preset disables bloom, so on those frames
+        // this material writes straight to the canvas. Both chunks are no-ops
+        // when the target is the composer's linear buffer, so including them is
+        // free; omitting them leaves the flock un-encoded and crushed to black
+        // exactly when the backlit wing is supposed to glow.
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
         #include <fog_fragment>
       }
     `,
@@ -831,7 +849,11 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
         ay += (want - b.py) * 1.1 - b.vy * 0.9;
 
         if (b.py < floorY) ay += (floorY - b.py) * 16;
-        if (b.py > CEILING + (b.kite ? 30 : 0)) ay -= (b.py - CEILING) * 2.0;
+        // The kite's ceiling has to be the reference for its own restoring
+        // force too: testing the raised threshold and then pushing back toward
+        // the flock's puts a 60-unit step in the acceleration at the crossing.
+        const roof = CEILING + (b.kite ? 30 : 0);
+        if (b.py > roof) ay -= (b.py - roof) * 2.0;
 
         b.vx += ax * dt; b.vy += ay * dt; b.vz += az * dt;
 
