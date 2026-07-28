@@ -414,6 +414,44 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
   sky.renderOrder = -20;
   celestial.add(sky);
 
+  /*
+   * Tame the Preetham dome.
+   *
+   * The addon's shader ends with `texColor = ( Lin + L0 ) * 0.04`, where Lin is
+   * driven by a solar irradiance constant of 1000. Near the horizon that lands
+   * around 30-40 in linear HDR, so ACES clips it to flat white — and because
+   * this scene's camera sits above the island looking slightly down, the ONLY
+   * sky it ever shows is that bright grazing band. Dropping the renderer
+   * exposure far enough to recover a blue sky (~0.1) would take the island down
+   * to a silhouette with it.
+   *
+   * Nothing in the addon exposes a brightness control, so add one: a single
+   * gain applied to the final colour. This scales the dome without touching the
+   * scene's exposure, and leaves the shape of the atmospheric model — the
+   * gradient, the sunrise reds, the sun disc — completely intact.
+   */
+  sky.material.uniforms.uSkyGain = { value: 0.55 };
+  sky.material.uniforms.uSkyCompress = { value: 0.42 };
+  // NOTE: a ShaderMaterial does not auto-declare its uniforms in GLSL the way
+  // MeshStandardMaterial does — adding the entry to `uniforms` alone leaves the
+  // identifier undeclared, the shader fails to compile, and the dome renders
+  // black with no obvious clue as to why. The declaration has to go in too.
+  //
+  // A plain multiplier is not enough here. The dome's linear output spans
+  // roughly 40 at midday down to ~2 at dawn, so any single gain either clips
+  // noon to white or crushes dawn to black — both of which this scene did in
+  // turn. A Reinhard curve compresses the bright end hard while leaving the
+  // dim end almost untouched, which is exactly the asymmetry the day needs.
+  sky.material.fragmentShader =
+    'uniform float uSkyGain;\nuniform float uSkyCompress;\n' +
+    sky.material.fragmentShader.replace(
+      'gl_FragColor = vec4( texColor, 1.0 );',
+      `vec3 skyLin = texColor * uSkyGain;
+       skyLin = skyLin / ( 1.0 + skyLin * uSkyCompress );
+       gl_FragColor = vec4( skyLin, 1.0 );`
+    );
+  sky.material.needsUpdate = true;
+
   const skyU = sky.material.uniforms;
   /** Guarded uniform write — the addon's uniform set has grown over versions. */
   function setU(name, value) {
