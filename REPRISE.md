@@ -128,6 +128,64 @@ l'ordre si besoin : grass `fadeEnd 230→190` ; trees 1400→1000 ;
 
 ---
 
+## Session « nuit + review ADV + textures » du 28/07 (soir)
+
+Trois chantiers : la nuit féérique, la résolution de la review adversariale
+`ADV-2026-07-28-DD673B6` (statuts dans `ADVERSARIAL_REVIEW_CLAUDE.md`), et le
+détail procédural des surfaces.
+
+**La nuit.** Le diagnostic n'était pas « réglages trop sombres » mais
+géométrique : la lune (dec −7) culminait à 50° alors que l'orbite ne cadre
+jamais au-dessus de ~20°, et l'extinction d'horizon des étoiles
+(smoothstep −0.015→0.17) tuait précisément la bande 0–10° — la seule visible.
+Correctifs : `moonDeclination −34` (culmination 24°, lune basse cadrable, le
+commentaire d'origine croyait −7 « plus bas » que l'anti-soleil : c'est
+l'inverse), disque ×1.7 (angularRadius 0.030) et éclat 2.4 ; étoiles pleine
+force dès 3.4° (smoothstep −0.04→0.06), alpha plancher 0.50, taille ×~1.7,
+4800 étoiles ; terre nocturne ×~3 (lune 1.0 vs soleil 4.3, hemi 0.50 et bleu
+saturé 0x1d3a78 qui SURVIT au toe ACES, exposition nuit 0.80) ; dôme/Voie
+lactée éclaircis ; clés de brouillard NOCTURNES ×1.4 (le FOG_SCALE global
+reste 0.25 — le jour est calé) avec bleu 0x101c40 ; bloom nuit seuil 0.42
+(0.30 noyait le disque dans son propre halo) ; decks nuages +20-30 %.
+
+**Review — tout accepté, tout traité** (contre-vérification indépendante : les
+8 claims étaient vrais ; P2.7 pire qu'annoncé, le vrai bord du disque océan
+était nearR+farR = 5768). Résolutions notables :
+- Tier de qualité résolu AVANT boot (`?q=` → localStorage → défaut) ; bouton
+  = persist + reload ; `rebuildForQuality()` SUPPRIMÉ avec sa duplication.
+- `river.bridgeInfo` (placement final, shift compris) = source de vérité du
+  chemin (`initPath`, appelé avant l'herbe) et des lanternes de culées.
+- Boucle morte du profil supprimée, warn si source mal placée, clamp
+  jamais-remonter FINAL (politique tidale documentée dans river.js).
+- Champs de distance PAR BRANCHE, min à la requête → triplet (dist,t,b)
+  cohérent, plus de saut de largeur aux frontières de Voronoï.
+- `build()` idempotent + `dispose()` complet.
+- `makeOceanDisc` : farR est désormais VRAIMENT le rayon extérieur (l'ancien
+  `nearR·t + farR·t⁵` débordait de 844 u) ; `CAMERA.far` dérivé du pire cas
+  caméra (maxDistance + bord océan) ≈ 7091.
+- Enveloppe nuages dérivée de `CAMERA.maxDistance` (×1.18/×0.82/×1.08),
+  tiers +1 rangée/colonne pour tenir la densité.
+- **`test/invariants.html`** : 8 assertions numériques, console
+  `INVARIANTS: 8 pass, 0 fail`. Leçon de test : un transect à la jonction
+  traverse LÉGITIMEMENT jusqu'à 3 chenaux — compter les bandes (> 3 = trou),
+  pas les ré-entrées.
+
+**Textures.** Doctrine préservée (zéro image) : `detailtex.js` génère des
+bump maps en bruit de valeur PÉRIODIQUE seedé (le bruit lib ne tile pas — un
+lattice enveloppant si). Terrain : bumpMap grain (repeat 96) + octave fine +
+STRATES sur pente forte (falaise ouest) ; rochers : grain minéral + veines en
+position-monde (par fragment, instance-safe) ; bois pont/torii : veinage
+anisotrope (UV conservés dans makeToriiGeometry — les primitives en ont
+toutes) ; chemin : speckle position-monde (le ruban n'a pas d'UV).
+
+**Perf (indicatif, M4 Max, ultra)** : 41–64 fps selon la vue (64 aérien midi,
+~41 au sol près du pont) avant Phase C ; cold start ultra ~20 s, low < 8 s
+(terrain 320²). Matrice complète par tier : à faire proprement (les mesures
+rAF sous CDP sont faussées par l'étranglement d'onglet en arrière-plan —
+piège n°8).
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

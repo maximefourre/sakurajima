@@ -30,6 +30,7 @@
 import * as THREE from 'three';
 import { RIVER, WORLD } from './config.js';
 import { fbm2, smoothstep, clamp } from './noise.js';
+import { makeWoodBump } from './detailtex.js';
 
 /* ────────────────────────────────────────────────────────────────
    Curve + spatial index
@@ -67,6 +68,10 @@ const BRANCHES = [
 
 const TRUNK = BRANCHES[0];
 const curve = TRUNK.curve;   // the bridge and the exported waterYAt keep their trunk meaning
+
+// Read-only test surface: test/invariants.html asserts profile monotonicity
+// and mouth separation directly against the branch tables. Not for scene code.
+export { BRANCHES };
 
 /**
  * Effective width multiplier at (branch, t). A distributary is trunk-width
@@ -106,63 +111,74 @@ for (let b = 0; b < BRANCHES.length; b++) {
   }
 }
 
-/**
- * Distance from (x, z) to the river centreline, plus how far along it we are.
- *
- * This is the SLOW path — roughly 135 distance tests per call. It is used once
- * per cell to bake the field below, and never in a hot loop. Prop placement
- * uses rejection sampling and would otherwise call this millions of times,
- * which is exactly the mistake that made the load time balloon.
- */
-function nearestOnRiverExact(x, z) {
-  const cx = clamp(Math.floor((x + HALF) / CELL), 0, GRID_N - 1);
-  const cz = clamp(Math.floor((z + HALF) / CELL), 0, GRID_N - 1);
-
-  let best = Infinity, bestT = 0, bestB = 0;
-  for (let dz = -1; dz <= 1; dz++) {
-    const rz = cz + dz;
-    if (rz < 0 || rz >= GRID_N) continue;
-    for (let dx = -1; dx <= 1; dx++) {
-      const rx = cx + dx;
-      if (rx < 0 || rx >= GRID_N) continue;
-      const bucket = grid[rz * GRID_N + rx];
-      if (!bucket) continue;
-      for (let k = 0; k < bucket.length; k++) {
-        const packed = bucket[k];
-        const b = packed >> 12, i = packed & 0xfff;
-        const br = BRANCHES[b];
-        const ddx = x - br.sx[i], ddz = z - br.sz[i];
-        const d2 = ddx * ddx + ddz * ddz;
-        if (d2 < best) { best = d2; bestT = br.st[i]; bestB = b; }
-      }
-    }
-  }
-  return { dist: best === Infinity ? Infinity : Math.sqrt(best), t: bestT, b: bestB };
-}
-
 /* ── baked distance field ─────────────────────────────────────────
- * The exact query above, evaluated once onto a grid. Every hot-path caller
- * (terrain vertices, tree placement, grass rejection sampling) reads this
- * instead. Distance is bilinearly interpolated so the banks stay smooth;
- * `t` is nearest-neighbour, which is fine because it only selects a station
- * along the river and never appears in a continuous quantity.
+ * The exact bucket-walk query (roughly 135 distance tests), evaluated once
+ * per cell at module load. Every hot-path caller (terrain vertices, tree
+ * placement, grass rejection sampling) reads the baked field instead — prop
+ * placement uses rejection sampling and would otherwise pay the exact query
+ * millions of times, which is exactly the mistake that made the load time
+ * balloon once already.
  */
 const FIELD_CELL = 2.5;
 const FIELD_N = Math.ceil((HALF * 2) / FIELD_CELL) + 1;
-const _fieldDist = new Float32Array(FIELD_N * FIELD_N);
-const _fieldT = new Float32Array(FIELD_N * FIELD_N);
-const _fieldB = new Uint8Array(FIELD_N * FIELD_N);   // which branch is nearest
 
-for (let j = 0; j < FIELD_N; j++) {
-  const z = -HALF + j * FIELD_CELL;
-  for (let i = 0; i < FIELD_N; i++) {
-    const x = -HALF + i * FIELD_CELL;
-    const r = nearestOnRiverExact(x, z);
-    const k = j * FIELD_N + i;
-    // Clamp rather than store Infinity: NaNs propagate horribly through lerps.
-    _fieldDist[k] = r.dist === Infinity ? REACH * 4 : r.dist;
-    _fieldT[k] = r.t;
-    _fieldB[k] = r.b;
+// One distance/t field PER BRANCH, min-combined at query time — not one
+// pre-combined field. A combined field has to pick a single branch identity
+// per texel while its distance is interpolated across texels, and near the
+// Voronoi frontier between trunk and distributary that mismatch fed
+// widthKAt() a (b, t) from one branch against a distance blended from both,
+// stepping the carve width exactly where the delta must be smoothest.
+// ~3 × FIELD_N² × 8 bytes ≈ 9.6 MB — cheap for what it buys.
+const NB = BRANCHES.length;
+const _fieldDistB = [];
+const _fieldTB = [];
+for (let b = 0; b < NB; b++) {
+  // Clamp rather than store Infinity: NaNs propagate horribly through lerps.
+  _fieldDistB.push(new Float32Array(FIELD_N * FIELD_N).fill(REACH * 4));
+  _fieldTB.push(new Float32Array(FIELD_N * FIELD_N));
+}
+
+{
+  // Single bake pass: per cell, walk the 3×3 buckets once and track the best
+  // sample PER branch (buckets pack the branch id — see above).
+  const bestD2 = new Float64Array(NB);
+  const bestT = new Float64Array(NB);
+  for (let j = 0; j < FIELD_N; j++) {
+    const z = -HALF + j * FIELD_CELL;
+    for (let i = 0; i < FIELD_N; i++) {
+      const x = -HALF + i * FIELD_CELL;
+      bestD2.fill(Infinity);
+      const cx = clamp(Math.floor((x + HALF) / CELL), 0, GRID_N - 1);
+      const cz = clamp(Math.floor((z + HALF) / CELL), 0, GRID_N - 1);
+      for (let dz = -1; dz <= 1; dz++) {
+        const rz = cz + dz;
+        if (rz < 0 || rz >= GRID_N) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const rx = cx + dx;
+          if (rx < 0 || rx >= GRID_N) continue;
+          const bucket = grid[rz * GRID_N + rx];
+          if (!bucket) continue;
+          for (let k = 0; k < bucket.length; k++) {
+            const packed = bucket[k];
+            const b = packed >> 12, si = packed & 0xfff;
+            const br = BRANCHES[b];
+            const ddx = x - br.sx[si], ddz = z - br.sz[si];
+            const d2 = ddx * ddx + ddz * ddz;
+            if (d2 < bestD2[b]) { bestD2[b] = d2; bestT[b] = br.st[si]; }
+          }
+        }
+      }
+      const k = j * FIELD_N + i;
+      for (let b = 0; b < NB; b++) {
+        if (bestD2[b] < Infinity) {
+          const d = Math.sqrt(bestD2[b]);
+          if (d < REACH * 4) {
+            _fieldDistB[b][k] = d;
+            _fieldTB[b][k] = bestT[b];
+          }
+        }
+      }
+    }
   }
 }
 
@@ -181,13 +197,22 @@ function nearestOnRiver(x, z) {
   const tx = fx - i, tz = fz - j;
 
   const r0 = j * FIELD_N, r1 = j1 * FIELD_N;
-  const d = (_fieldDist[r0 + i] * (1 - tx) + _fieldDist[r0 + i1] * tx) * (1 - tz)
-          + (_fieldDist[r1 + i] * (1 - tx) + _fieldDist[r1 + i1] * tx) * tz;
 
-  _result.dist = d;
+  // Bilinear distance per branch, THEN the min — so dist, t and b all come
+  // from the same branch and the returned triplet is coherent. t stays
+  // nearest-neighbour within the winning branch (it only selects a station).
+  let best = Infinity, bestB = 0;
+  for (let b = 0; b < NB; b++) {
+    const F = _fieldDistB[b];
+    const d = (F[r0 + i] * (1 - tx) + F[r0 + i1] * tx) * (1 - tz)
+            + (F[r1 + i] * (1 - tx) + F[r1 + i1] * tx) * tz;
+    if (d < best) { best = d; bestB = b; }
+  }
+
+  _result.dist = best;
   const kNear = (tz < 0.5 ? r0 : r1) + (tx < 0.5 ? i : i1);
-  _result.t = _fieldT[kNear];
-  _result.b = _fieldB[kNear];
+  _result.t = _fieldTB[bestB][kNear];
+  _result.b = bestB;
   return _result;
 }
 
@@ -424,6 +449,8 @@ const RIVER_FRAG = /* glsl */ `
    3. The bridge — taiko-bashi
    ──────────────────────────────────────────────────────────────── */
 
+let _woodBump = null;   // shared, lazily created — see note in buildBridge
+
 /**
  * A humped wooden garden bridge. Built from primitives rather than a mesh file:
  * an arched deck of transverse planks, two curved handrails on posts, and piles
@@ -435,9 +462,15 @@ function buildBridge(group, heightAt = null) {
   const halfW = RIVER.bridgeWidth * 0.5;
   const rise = RIVER.bridgeRise;
 
-  const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a3b, roughness: 0.82, metalness: 0.0 });
-  const woodDark = new THREE.MeshStandardMaterial({ color: 0x5f3b26, roughness: 0.88, metalness: 0.0 });
-  const rail = new THREE.MeshStandardMaterial({ color: 0x7d4a30, roughness: 0.8, metalness: 0.0 });
+  // Generated wood grain (streaks along U — see detailtex.js). One texture
+  // shared by the three timber materials; box/cylinder UVs carry it. Created
+  // once at module scope: build() may run more than once, and material
+  // disposal does not dispose textures — recreating it here would leak.
+  if (!_woodBump) { _woodBump = makeWoodBump(20260727); _woodBump.repeat.set(2, 1); }
+  const woodBump = _woodBump;
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a3b, roughness: 0.82, metalness: 0.0, bumpMap: woodBump, bumpScale: 0.35 });
+  const woodDark = new THREE.MeshStandardMaterial({ color: 0x5f3b26, roughness: 0.88, metalness: 0.0, bumpMap: woodBump, bumpScale: 0.35 });
+  const rail = new THREE.MeshStandardMaterial({ color: 0x7d4a30, roughness: 0.8, metalness: 0.0, bumpMap: woodBump, bumpScale: 0.28 });
 
   /** Height of the arch at normalised position u ∈ [-1, 1] across the span. */
   const arch = (u) => rise * (1 - u * u);
@@ -566,7 +599,23 @@ function buildBridge(group, heightAt = null) {
   bridge.rotation.y = ry;
 
   group.add(bridge);
-  return bridge;
+
+  // The FINAL placement, shift included, as shared data. The pilgrim path and
+  // the abutment lanterns must derive from this — recomputing the nominal
+  // position from RIVER elsewhere lands them up to 12 units off the real deck.
+  const info = {
+    center: { x: cx2, z: cz2 },
+    axis: { x: ax, z: az },        // local +X (deck long axis) in world space
+    yaw: ry,
+    baseY,
+    shift,
+    span,
+    ends: [
+      { x: cx2 + ax * span * 0.5, z: cz2 + az * span * 0.5, ground: gA },
+      { x: cx2 - ax * span * 0.5, z: cz2 - az * span * 0.5, ground: gB },
+    ],
+  };
+  return { bridge, info };
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -576,6 +625,10 @@ function buildBridge(group, heightAt = null) {
 export function createRiver({ wind } = {}) {
   const group = new THREE.Group();
   group.name = 'river';
+
+  // Scene objects owned by build(), replaced (not stacked) on a rebuild.
+  const branchMeshes = [];
+  let bridgeMesh = null;
 
   /**
    * Called once the terrain exists. Samples the carved bed along the
@@ -628,8 +681,11 @@ export function createRiver({ wind } = {}) {
       let pinnedTo = -1;
       if (b === 0) {
         for (let i = 1; i <= N; i++) if (br.profile[i] > br.profile[src]) src = i;
-        for (let i = src - 1; i >= 0; i--) {
-          br.profile[i] = Math.min(br.profile[i], bed[i] + RIVER.depth * 0.72);
+        // A trunk whose highest station is not (near) its first is misauthored:
+        // everything upstream of the argmax keeps its bed level and RISES in
+        // the flow direction, which no downstream pass can repair.
+        if (src > Math.ceil(N * 0.05)) {
+          console.warn(`[river] trunk source is not the highest station (argmax at ${src}/${N}) — path likely misauthored`);
         }
       } else {
         for (let i = 0; i <= N; i++) {
@@ -661,6 +717,19 @@ export function createRiver({ wind } = {}) {
       for (let i = N - M; i <= N; i++) {
         const a = (i - (N - M)) / M;
         br.profile[i] = br.profile[i] * (1 - a) + (WORLD.seaLevel + 0.05) * a;
+      }
+
+      // Final invariant, ENFORCED rather than hoped for: downstream of the
+      // seed the surface never rises. It runs after smoothing, junction
+      // re-pinning and the sea blend because each of those can locally lift a
+      // station (the blend pulls low mouth stations UP toward seaLevel+0.05).
+      // Tidal policy: the clamp wins — the last stations may end slightly
+      // BELOW seaLevel+0.05, which reads as the sea standing into the mouth.
+      // Pinned junction stations are exempt: matching the trunk exactly
+      // outranks local monotonicity, and the trunk itself is monotone.
+      const clampFrom = Math.max(1, (b === 0 ? src : Math.max(0, pinnedTo)) + 1);
+      for (let i = clampFrom; i <= N; i++) {
+        if (br.profile[i] > br.profile[i - 1]) br.profile[i] = br.profile[i - 1];
       }
 
       // Where does the river stop being a river?
@@ -702,6 +771,21 @@ export function createRiver({ wind } = {}) {
       }
     }
 
+    // build() owns its scene objects: a second call must replace, not stack.
+    // Previous branch ribbons share the trunk's material, so only their
+    // geometries are disposed; the bridge creates fresh materials every call,
+    // so it is disposed all the way down.
+    for (const m of branchMeshes) { group.remove(m); m.geometry.dispose(); }
+    branchMeshes.length = 0;
+    if (bridgeMesh) {
+      group.remove(bridgeMesh);
+      bridgeMesh.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+      bridgeMesh = null;
+    }
+
     // One ribbon per branch, all sharing the trunk's material (and therefore
     // its uniforms — update() touches all three surfaces at once). Each
     // distributary's ribbon starts only once its centreline has slid out from
@@ -718,8 +802,11 @@ export function createRiver({ wind } = {}) {
       mesh.name = `river-branch-${b}`;
       mesh.renderOrder = 2;
       group.add(mesh);
+      branchMeshes.push(mesh);
     }
-    buildBridge(group, heightAt);
+    const built = buildBridge(group, heightAt);
+    bridgeMesh = built.bridge;
+    api.bridgeInfo = built.info;
   }
 
   const uniforms = {
@@ -761,5 +848,28 @@ export function createRiver({ wind } = {}) {
     if (phase.skyColor) uniforms.uSkyColor.value.copy(phase.skyColor);
   }
 
-  return { group, update, build, water, carveRiver, isInRiver, curve, waterYAt };
+  function dispose() {
+    for (const m of branchMeshes) { group.remove(m); m.geometry.dispose(); }
+    branchMeshes.length = 0;
+    if (bridgeMesh) {
+      group.remove(bridgeMesh);
+      bridgeMesh.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+      bridgeMesh = null;
+    }
+    group.remove(water);
+    water.geometry.dispose();
+    water.material.dispose();
+  }
+
+  const api = {
+    group, update, build, dispose, water, carveRiver, isInRiver, curve, waterYAt,
+    // Set by build(): the bridge's FINAL placement (shift included) — the
+    // single source of truth for the path's last segment and the abutment
+    // lanterns. Null until the terrain exists.
+    bridgeInfo: null,
+  };
+  return api;
 }

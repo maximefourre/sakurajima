@@ -23,7 +23,7 @@ import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
 import { createShiba } from './shiba.js';
-import { createDetails, isOnPath } from './details.js';
+import { createDetails, isOnPath, initPath } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -92,8 +92,26 @@ controls.addEventListener('start', () => { controls.autoRotate = false; });
 controls.update();
 
 /* ── scene state ─────────────────────────────────────────────── */
+
+/**
+ * Quality tier is resolved BEFORE anything builds: a weak machine must never
+ * have to survive an ultra cold start just to reach the quality buttons.
+ * Priority: explicit ?q= URL param, then the persisted last choice, then the
+ * config default. Changing tier from the UI persists and RELOADS — a partial
+ * hot-rebuild left the scene half-ultra and lied about being low.
+ */
+const initialTier = (() => {
+  const requested = new URLSearchParams(location.search).get('q');
+  if (requested && QUALITY[requested]) return requested;
+  try {
+    const stored = localStorage.getItem('sakurajima.quality');
+    if (stored && QUALITY[stored]) return stored;
+  } catch { /* private mode — fall through */ }
+  return DEFAULT_QUALITY;
+})();
+
 const world = {
-  quality: DEFAULT_QUALITY,
+  quality: initialTier,
   dayTime: START_TIME,
   daySpeed: 1,
   paused: false,
@@ -268,6 +286,10 @@ async function boot() {
   // The river needs the finished terrain to know where its own bed ended up,
   // so the water surface and bridge are built here rather than at construction.
   world.river.build(world.heightAt);
+  // The bridge slid to its real footing during build(); snap the pilgrim
+  // path's last segment onto the actual abutment NOW, before the grass is
+  // placed — grass exclusion evaluates isOnPath at placement time.
+  initPath(world.river.bridgeInfo);
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });
@@ -362,6 +384,7 @@ async function boot() {
     normalAt: world.island.normalAt,
     inWater: world.inWater,
     wind: world.wind,
+    bridgeInfo: world.river.bridgeInfo,
   });
   scene.add(world.details.group);
 
@@ -536,60 +559,23 @@ $('s-wind').oninput = (e) => {
   $('v-wind').textContent = `${v.toFixed(1)}×`;
 };
 
-$('s-quality').onclick = async (e) => {
+$('s-quality').onclick = (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
   const q = btn.dataset.q;
   if (q === world.quality) return;
-  for (const b of $('s-quality').children) b.setAttribute('aria-pressed', String(b === btn));
-  world.quality = q;
-  await rebuildForQuality();
+  // Persist and reload: every system sizes itself at construction, so the only
+  // honest way to change tier is a cold start of that tier. The URL's ?q= is
+  // rewritten too, so an explicit link doesn't override the click after reload.
+  try { localStorage.setItem('sakurajima.quality', q); } catch { /* private mode */ }
+  const url = new URL(location.href);
+  url.searchParams.set('q', q);
+  location.assign(url);
 };
-
-/** Only the instance-count-heavy systems need rebuilding on a quality change. */
-async function rebuildForQuality() {
-  const q = QUALITY[world.quality];
-  applyDPR();
-
-  for (const [key, prop, parent] of [['grass', 'mesh', scene], ['petals', 'mesh', scene]]) {
-    const sys = world[key];
-    if (!sys) continue;
-    parent.remove(sys[prop]);
-    sys.dispose?.();
-  }
-
-  world.grass = createGrass({
-    seed: SEED, quality: q,
-    // createGrass does not read `quality`; these are the option names it
-    // actually honours. Without them it silently falls back to its own
-    // defaults — 96k blades over the wrong footprint, which on a 460-unit
-    // island reads as no grass at all.
-    count: q.grassBlades,
-    // Bound to the LAND, not the whole tile. The island only spans about 210
-    // units of the 460-unit world; spreading the blade budget across the full
-    // tile wasted three quarters of it on open sea and quartered the density
-    // where it actually shows.
-    bounds: { size: 230 * LAND_SCALE },
-    heightAt: world.heightAt,
-    slopeAt: world.slopeAt,
-    // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
-    // river are carved into the heightfield, so their beds pass every test grass
-    // does apply — gentle slope, right altitude — and the pools fill with
-    // submerged blades. The pilgrim path is packed earth for the same reason.
-    exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
-    wind: world.wind,
-  });
-  scene.add(world.grass.mesh);
-
-  world.petals = createPetals({
-    seed: SEED, quality: q,
-    canopies: world.canopies,
-    wind: world.wind,
-    heightAt: world.heightAt,
-  });
-  scene.add(world.petals.mesh);
-
-  world.sky.setQuality?.(q);
+// Reflect the ACTUAL tier in the buttons — index.html hardcoded ultra once,
+// which silently desynced from any other resolved tier.
+for (const b of $('s-quality').children) {
+  b.setAttribute('aria-pressed', String(b.dataset.q === world.quality));
 }
 
 addEventListener('keydown', (e) => {

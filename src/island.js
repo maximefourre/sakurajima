@@ -30,6 +30,7 @@
 
 import * as THREE from 'three';
 import { WORLD, LAND_SCALE, HEIGHT_SCALE } from './config.js';
+import { makeGrainBump } from './detailtex.js';
 import {
   noise2, fbm2, ridged2,
   streamFor, smoothstep as sstep, clamp, mix,
@@ -651,21 +652,30 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
 
+  // Generated micro-relief: a periodic value-noise bump map (see detailtex.js)
+  // gives light something to rake across up close, with mipmaps to stop it
+  // shimmering at distance. Repeat 96 puts one grain cell every ~15 units.
+  const grainBump = makeGrainBump(seed);
+  grainBump.repeat.set(96, 96);
+
   const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.96,
     metalness: 0.0,
+    bumpMap: grainBump,
+    bumpScale: 0.55,
   });
 
   // Sub-vertex grain. Vertex colours alone are ~0.75m resolution, which reads as
   // soft blobs up close; this puts texture back without a single fetched image.
   terrainMat.onBeforeCompile = (shader) => {
-    shader.vertexShader = 'varying vec3 vTerrW;\n' + shader.vertexShader.replace(
+    shader.vertexShader = 'varying vec3 vTerrW;\nvarying vec3 vTerrN;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\n\tvTerrW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      '#include <begin_vertex>\n\tvTerrW = (modelMatrix * vec4(transformed, 1.0)).xyz;\n\tvTerrN = normal;'
     );
     shader.fragmentShader = /* glsl */ `
       varying vec3 vTerrW;
+      varying vec3 vTerrN;
       float th21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
       float tvn(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -682,10 +692,22 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
         diffuseColor.rgb *= 0.88 + 0.26 * g;
         float warm = tvn(q * 0.11);
         diffuseColor.rgb *= mix(vec3(0.96, 0.99, 1.02), vec3(1.06, 1.02, 0.92), warm);
+        // Close-range micrograin, one octave finer than the blend above.
+        float fine = tvn(q * 9.0) * 0.6 + tvn(q * 23.0) * 0.4;
+        diffuseColor.rgb *= 0.93 + 0.14 * fine;
+        // Strata on steep faces: horizontal rock beds for the west cliff and
+        // the ridge flanks, wobbled by low-frequency noise so the bands read
+        // as geology rather than as contour lines.
+        float steep = 1.0 - smoothstep(0.55, 0.75, vTerrN.y);
+        if (steep > 0.01) {
+          float band = sin(vTerrW.y * 2.1 + tvn(q * 0.6) * 3.0);
+          float strata = smoothstep(0.15, 0.75, band * 0.5 + 0.5);
+          diffuseColor.rgb *= mix(1.0, 0.80 + 0.28 * strata, steep);
+        }
       }`
     );
   };
-  terrainMat.customProgramCacheKey = () => 'sakurajima-terrain-v1';
+  terrainMat.customProgramCacheKey = () => 'sakurajima-terrain-v2';
 
   const terrain = new THREE.Mesh(geo, terrainMat);
   terrain.name = 'terrain';
@@ -711,16 +733,21 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   /* ── 5. ocean ──────────────────────────────────────────────── */
 
   /**
-   * A polar disc, not a square plane: ~2m tessellation at the shoreline where
-   * the swell silhouette matters, stretching to 2.5km for the horizon, in one
-   * draw call with no overlapping seam to double-blend.
+   * A polar disc, not a square plane: fine tessellation at the shoreline where
+   * the swell silhouette matters, stretching to the horizon in one draw call
+   * with no overlapping seam to double-blend.
+   *
+   * `farR` IS the outer radius. The radius curve used to be nearR·t + farR·t⁵,
+   * whose real outer ring landed at nearR+farR — 844 units beyond what every
+   * caller (and the camera far plane) believed. The t⁵ shape is kept: dense
+   * rings near the coast, coarse at the horizon.
    */
   function makeOceanDisc(rings, spokes, nearR, farR) {
     const vCount = 1 + rings * spokes;
     const verts = new Float32Array(vCount * 3);
     for (let k = 1; k <= rings; k++) {
       const t = k / rings;
-      const r = nearR * t + farR * Math.pow(t, 5);
+      const r = nearR * t + (farR - nearR) * Math.pow(t, 5);
       for (let s = 0; s < spokes; s++) {
         const a = (s / spokes) * TAU;
         const o = (1 + (k - 1) * spokes + s) * 3;
@@ -873,6 +900,46 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     metalness: 0.0,
     flatShading: true,
   });
+
+  // Mineral grain per fragment, keyed to WORLD position so every instance of
+  // the six shared shapes weathers differently. Vertex colours carry the big
+  // strata/moss story; this carries the close-up.
+  rockMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = 'varying vec3 vRockW;\n' + shader.vertexShader.replace(
+      '#include <project_vertex>',
+      /* glsl */ `
+      {
+        vec4 rw = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          rw = instanceMatrix * rw;
+        #endif
+        vRockW = (modelMatrix * rw).xyz;
+      }
+      #include <project_vertex>`
+    );
+    shader.fragmentShader = /* glsl */ `
+      varying vec3 vRockW;
+      float rh21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+      float rvn(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(rh21(i), rh21(i + vec2(1.0, 0.0)), f.x),
+                   mix(rh21(i + vec2(0.0, 1.0)), rh21(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
+    ` + shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      /* glsl */ `#include <color_fragment>
+      {
+        vec2 q = vRockW.xz + vRockW.y * 0.7;
+        float grain = rvn(q * 3.1) * 0.6 + rvn(q * 11.0) * 0.4;
+        diffuseColor.rgb *= 0.90 + 0.20 * grain;
+        // sparse pale quartz veins
+        float vein = rvn(q * 1.7 + 31.0);
+        diffuseColor.rgb *= 1.0 + 0.14 * smoothstep(0.80, 0.92, vein);
+      }`
+    );
+  };
+  rockMat.customProgramCacheKey = () => 'sakurajima-rock-v2';
 
   const ROCK_TOTAL = quality && quality.rocks ? quality.rocks : 100;
   const SEA_STACKS = 5;
@@ -1066,6 +1133,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   function dispose() {
     geo.dispose();
     terrainMat.dispose();
+    grainBump.dispose();
     waterGeo.dispose();
     waterMat.dispose();
     heightTex.dispose();

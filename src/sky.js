@@ -29,8 +29,9 @@
  * 3. THE SKY, STARS AND MOON ARE PINNED TO THE FAR PLANE.
  *    Each celestial shader ends with `gl_Position.z = gl_Position.w * 0.999995`,
  *    which parks the fragment exactly at maximum depth. Consequence: none of them
- *    care what CAMERA.far is (2400 here), so we never have to push the far plane
- *    out to 100000 and wreck depth precision on a 240-unit island. Depth *test*
+ *    care what CAMERA.far is (see config.js — derived from the camera envelope
+ *    plus the ocean rim), so we never have to push the far plane out to 100000
+ *    and wreck depth precision. Depth *test*
  *    stays on so the island still occludes them; depth *write* is off, and the
  *    layer order is decided by renderOrder.
  */
@@ -55,7 +56,14 @@ export const SKY_TUNE = {
   /* — geometry — */
   latitude: 31.6,        // Sakurajima, Kagoshima. Sets how tilted the arc is.
   declination: 12.5,     // ~late April. Higher = longer day, higher noon sun.
-  moonDeclination: -7.0, // deliberately NOT the exact anti-sun; the moon rides lower.
+  // Authored well BELOW the anti-sun (-12.5 would be the true opposition):
+  // the orbit controls never let the camera look above ~20 deg, so a moon that
+  // culminates high is a moon nobody can see. -34 caps its culmination at
+  // ~24.4 deg — a low winter moon that stays inside the frameable band all
+  // night. Not astronomically possible (real lunar |dec| <= 28.6) and not
+  // meant to be. Side effect: short moonless windows at dayTime ~0.77-0.82
+  // and ~0.18-0.23; the raised night hemisphere carries those.
+  moonDeclination: -34.0,
   moonPhaseAngle: 0.70,  // radians of terminator offset. 0 = full, ~1.2 = half.
 
   /* — key light — */
@@ -77,14 +85,14 @@ export const SKY_TUNE = {
   nightDomeMaxOpacity: 0.92, // <1 on purpose: keeps a ghost of the addon's clouds at night.
 
   /* — stars — */
-  starCount: 3200,
+  starCount: 4800,
   starRadius: 2000,
-  starSizeScale: 1.0,
+  starSizeScale: 1.7,
   twinkleSpeed: 1.0,
 
   /* — moon — */
   moonDistance: 1600,
-  moonAngularRadius: 0.0175, // ~2° across. About 4× life-size — this is a fairy tale.
+  moonAngularRadius: 0.030, // ~3.4° across. About 7× life-size — this is a fairy tale.
 
   /* — fog — */
   createFogIfMissing: true,
@@ -274,9 +282,11 @@ const K_SUN_INTENSITY = [
  * the Purkinje shift means we *perceive* night as blue, and cinema agrees. */
 const MOON_COLOR_HIGH = new THREE.Color().setHex(0x8ea9dc);
 const MOON_COLOR_LOW = new THREE.Color().setHex(0xd6b493); // moon on the horizon goes amber
+// Peaks at ~23% of the noon sun — a cinematic bright night, not a black one.
+// The land has to stay READABLE at midnight or the whole night shift is wasted.
 const K_MOON_INTENSITY = [
-  [0.000, 0.30], [0.150, 0.26], [0.230, 0.10], [0.260, 0.00],
-  [0.740, 0.00], [0.780, 0.10], [0.850, 0.26], [1.000, 0.30],
+  [0.000, 1.00], [0.150, 0.85], [0.230, 0.30], [0.260, 0.00],
+  [0.740, 0.00], [0.780, 0.30], [0.850, 0.85], [1.000, 1.00],
 ];
 
 /* ── hemisphere bounce ────────────────────────────────────────────────────────
@@ -284,9 +294,11 @@ const K_MOON_INTENSITY = [
  * people expect: it is the only thing lighting the underside of the canopy, and
  * a warm brown at dawn vs an olive at noon is most of what sells the hour. */
 const K_HEMI_SKY = colorKeys([
-  [0.000, 0x0d1630], [0.205, 0x24345f], [0.250, 0x6d7fa8], [0.290, 0x9fbbe4],
+  // The midnight keys are a SATURATED blue on purpose: anything darker gets
+  // eaten by the ACES toe and the night reads as grey-black instead of blue.
+  [0.000, 0x1d3a78], [0.205, 0x24345f], [0.250, 0x6d7fa8], [0.290, 0x9fbbe4],
   [0.400, 0xb3d1f5], [0.500, 0xc0dcff], [0.620, 0xb6d0f2], [0.700, 0xd3b593],
-  [0.750, 0xb8836a], [0.790, 0x4a5988], [0.850, 0x1c2848], [1.000, 0x0d1630],
+  [0.750, 0xb8836a], [0.790, 0x4a5988], [0.850, 0x24417e], [1.000, 0x1d3a78],
 ]);
 const K_HEMI_GROUND = colorKeys([
   [0.000, 0x05070f], [0.205, 0x14161f], [0.250, 0x4a3328], [0.290, 0x6a5a3e],
@@ -294,8 +306,8 @@ const K_HEMI_GROUND = colorKeys([
   [0.750, 0x4a3024], [0.790, 0x24222f], [0.850, 0x0c0f18], [1.000, 0x05070f],
 ]);
 const K_HEMI_INTENSITY = [
-  [0.000, 0.28], [0.205, 0.45], [0.250, 0.80], [0.320, 1.05], [0.500, 1.25],
-  [0.680, 1.05], [0.750, 0.75], [0.790, 0.52], [0.850, 0.36], [1.000, 0.28],
+  [0.000, 0.50], [0.205, 0.45], [0.250, 0.80], [0.320, 1.05], [0.500, 1.25],
+  [0.680, 1.05], [0.750, 0.75], [0.790, 0.52], [0.850, 0.55], [1.000, 0.50],
 ];
 
 /* ── fog ──────────────────────────────────────────────────────────────────────
@@ -303,10 +315,12 @@ const K_HEMI_INTENSITY = [
  * meets the atmosphere. Density also rises at dawn/dusk: that is morning mist,
  * and it is free atmosphere. */
 const K_FOG_COLOR = colorKeys([
-  [0.000, 0x070c1c], [0.160, 0x101a36], [0.210, 0x2b3f6e], [0.250, 0xd97f52],
+  // Midnight fog is a deep blue rather than near-black: the horizon band it
+  // paints is most of the visible night sky at this camera's pitch.
+  [0.000, 0x101c40], [0.160, 0x101a36], [0.210, 0x2b3f6e], [0.250, 0xd97f52],
   [0.280, 0xeeb287], [0.330, 0xd9dff0], [0.400, 0xcfe0f4], [0.500, 0xd3e6fa],
   [0.620, 0xcfdcef], [0.700, 0xe8bb8b], [0.750, 0xe26f42], [0.775, 0xa05a58],
-  [0.800, 0x4f5c8c], [0.860, 0x1a2648], [1.000, 0x070c1c],
+  [0.800, 0x4f5c8c], [0.860, 0x1a2648], [1.000, 0x101c40],
 ]);
 // These were calibrated against a 240-unit island; the world is now 460 units
 // across, so the same look wants roughly half the density. It was briefly cut to
@@ -314,17 +328,21 @@ const K_FOG_COLOR = colorKeys([
 // sky dome was clipping to white and the ocean was being back-face culled, so the
 // haze had nowhere to sit against. With those fixed, 0.16 leaves the sea running
 // clear all the way to a razor-sharp line at the horizon, which is the one thing
-// that reliably breaks the illusion of distance. The sea reaches 2500 units out;
-// the density has to be enough to dissolve it there.
+// that reliably breaks the illusion of distance. The sea reaches ~4900 units
+// out; the density has to be enough to dissolve it there.
 // 0.56 was the 460-unit-world value; the island is now ×2.24 wider and the sea
 // disc reaches ~4900 units, so the same optical depth at the new horizon wants
 // the density scaled down by the same ratio. Raise if the horizon turns razor
 // sharp, lower if the island drowns in milk at noon.
 const FOG_SCALE = 0.25;
 const K_FOG_DENSITY = [
-  [0.000, 0.00105], [0.210, 0.00165], [0.250, 0.00230], [0.300, 0.00185],
+  // Night keys sit ~1.4x above the old values: the FOG_SCALE cut for the x5
+  // island removed the soft glow band along the night horizon — the one strip
+  // of sky the default camera actually frames — so the night keys buy it back
+  // without touching the tuned daytime.
+  [0.000, 0.00147], [0.210, 0.00165], [0.250, 0.00230], [0.300, 0.00185],
   [0.450, 0.00110], [0.500, 0.00095], [0.700, 0.00120], [0.750, 0.00190],
-  [0.800, 0.00165], [0.900, 0.00120], [1.000, 0.00105],
+  [0.800, 0.00165], [0.900, 0.00168], [1.000, 0.00147],
 ].map(([t, d]) => [t, d * FOG_SCALE]);
 
 /* ── camera response ──────────────────────────────────────────────────────────
@@ -332,9 +350,9 @@ const K_FOG_DENSITY = [
  * That is what a real camera operator does, and it is why the golden hour glows
  * instead of just being orange. */
 const K_EXPOSURE = [
-  [0.000, 0.55], [0.190, 0.62], [0.230, 0.80], [0.250, 0.98], [0.290, 0.92],
+  [0.000, 0.80], [0.190, 0.78], [0.230, 0.80], [0.250, 0.98], [0.290, 0.92],
   [0.380, 0.80], [0.500, 0.72], [0.640, 0.80], [0.700, 0.92], [0.750, 1.02],
-  [0.780, 0.88], [0.840, 0.68], [1.000, 0.55],
+  [0.780, 0.88], [0.840, 0.76], [1.000, 0.80],
 ];
 
 /* ── bloom ────────────────────────────────────────────────────────────────────
@@ -349,8 +367,11 @@ const K_BLOOM_RADIUS = [
   [0.000, 0.78], [0.250, 0.68], [0.500, 0.55], [0.750, 0.70], [0.820, 0.78], [1.000, 0.78],
 ];
 const K_BLOOM_THRESHOLD = [
-  [0.000, 0.55], [0.230, 0.62], [0.250, 0.78], [0.400, 0.88], [0.500, 0.95],
-  [0.640, 0.88], [0.750, 0.78], [0.800, 0.66], [0.870, 0.56], [1.000, 0.55],
+  // Night threshold sits at 0.42: low enough for the moon (~2.1 linear) and
+  // the brightest stars (~1.3) to halo, high enough that the disc itself
+  // still reads through its own glow instead of drowning in it.
+  [0.000, 0.42], [0.230, 0.62], [0.250, 0.78], [0.400, 0.88], [0.500, 0.95],
+  [0.640, 0.88], [0.750, 0.78], [0.800, 0.66], [0.870, 0.44], [1.000, 0.42],
 ];
 
 /* Golden-hour weight — exported through phase so petals/grass can warm their
@@ -508,8 +529,8 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
    * zenith→horizon gradient, the Milky Way, the residual twilight glow on the
    * horizon where the sun just went down, and the moon's halo. */
   const nightUniforms = {
-    uZenith: { value: new THREE.Color().setHex(0x050a1c) },
-    uHorizon: { value: new THREE.Color().setHex(0x14203c) },
+    uZenith: { value: new THREE.Color().setHex(0x0b1740) },
+    uHorizon: { value: new THREE.Color().setHex(0x1e3466) },
     uOpacity: { value: 0 },
     uTime: { value: 0 },
     uSkyRot: { value: new THREE.Matrix3() },
@@ -582,7 +603,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
             float dust  = smoothstep(0.32, 0.78, cloud);
             float dark  = smoothstep(0.62, 0.28, lanes);   // the dust lanes
             float glow  = mask * mask * (0.30 + 0.70 * dust) * mix(0.30, 1.0, dark);
-            col += uMwColor * glow * 0.55;
+            col += uMwColor * glow * 1.10;
           }
 
           // ── residual twilight on the horizon where the sun just set ──────
@@ -646,7 +667,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
       // Magnitude: heavily skewed, so a handful of stars carry the composition.
       const m = Math.pow(rng(), 3.2);
       mag[i] = m;
-      siz[i] = 1.05 + m * 4.6;
+      siz[i] = 1.9 + m * 6.0;
 
       const ct = rng();
       if (ct < 0.16) tmp.copy(cBlue);
@@ -707,16 +728,19 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
         vec3 dir = normalize(wp.xyz - cameraPosition);
 
         // Atmospheric extinction: stars dim AND redden as they approach the
-        // horizon. Also conveniently hides anything that has set.
-        float horizon = smoothstep(-0.015, 0.17, dir.y);
+        // horizon. Also conveniently hides anything that has set. The band is
+        // deliberately NARROW: the orbit camera can only frame the lowest
+        // 20 degrees of sky, so extinction reaching 10 degrees up would (and
+        // did) erase virtually every star the player can actually see.
+        float horizon = smoothstep(-0.04, 0.06, dir.y);
 
         // Two incommensurate frequencies -> scintillation that never loops.
         float s = uTime * uTwinkle;
         float tw = 0.70 + 0.30 * sin(s * aSpeed + aPhase) * sin(s * aSpeed * 0.41 + aPhase * 2.7);
 
-        vColor = mix(aColor * vec3(1.30, 0.80, 0.55), aColor, horizon);
+        vColor = mix(aColor * vec3(1.12, 0.92, 0.80), aColor, horizon);
         vMag   = aMag;
-        vAlpha = uOpacity * horizon * mix(0.55, 1.0, tw) * (0.22 + 0.78 * aMag);
+        vAlpha = uOpacity * horizon * mix(0.55, 1.0, tw) * (0.50 + 0.50 * aMag);
 
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         PIN_TO_FAR_PLANE
@@ -822,7 +846,9 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
             float edge = smoothstep(1.0, 0.982, r);
             // Earthshine: the unlit limb is not black, it is very faintly blue.
             vec3 surf = uDiskColor * limb * shade * (0.045 + 0.955 * lit);
-            col += surf * edge * 1.35;
+            // Driven well past 1.0 so the disc clips toward white and crosses
+            // the night bloom threshold — the halo is what sells the moon.
+            col += surf * edge * 2.4;
           }
 
           gl_FragColor = vec4(col * uOpacity, 1.0);
@@ -1210,10 +1236,11 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
         scene.fog.density = trackScalar(K_FOG_DENSITY, u);
       } else if (scene.fog.isFog) {
         // Linear fog: convert the density curve into a far distance so the same
-        // table drives either fog type.
+        // table drives either fog type. Ceiling tracks the ocean rim (~4900);
+        // the old 2200 was tuned for the pre-x5 island.
         const dens = trackScalar(K_FOG_DENSITY, u);
         scene.fog.near = 40;
-        scene.fog.far = clamp(2.2 / Math.max(dens, 1e-5), 260, 2200);
+        scene.fog.far = clamp(2.2 / Math.max(dens, 1e-5), 260, 6900);
       }
     }
 

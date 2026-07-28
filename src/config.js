@@ -198,7 +198,13 @@ export const PATH = {
 export const CAMERA = {
   fov: 42,
   near: 0.5,
-  far: Math.round(1750 * LAND_SCALE), // must exceed the ocean disc's far radius (≈ SIZE * 3.37)
+  // The far plane is a distance from the CAMERA, not from the origin. Worst
+  // case: the camera at maxDistance (620·L) on one side, looking across at the
+  // ocean rim (SIZE·3.37 = 460·L·3.37) on the far side — their SUM, plus a
+  // margin. makeOceanDisc's outer ring lands exactly at its farR argument.
+  // Depth precision is governed by `near`, not this value: going 5557→7091
+  // changes far/(far-near) by <0.01%.
+  far: Math.round((620 + 460 * 3.37) * LAND_SCALE) + 200,
   // Framed to read as an island: far enough out that the coastline and the
   // surrounding sea are both in shot, high enough to see the river's whole run.
   start: { x: 215 * LAND_SCALE * 0.86, y: 112 * LAND_SCALE * 0.86, z: 250 * LAND_SCALE * 0.86 },

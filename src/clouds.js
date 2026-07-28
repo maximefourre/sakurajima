@@ -8,8 +8,9 @@
  * enough that orbiting the island slides them across the dome behind them.
  *
  * The division of labour is deliberate and the two layers are tuned to meet:
- * this field fades out past ~640 units from the origin, which is exactly the
- * band of sky where the painted layer takes over. You never see the seam because
+ * this field fades out a little past the camera's own orbit envelope (see
+ * FADE_FAR below — derived from CAMERA.maxDistance), which is exactly the band
+ * of sky where the painted layer takes over. You never see the seam because
  * the near field is thinning into haze right where the far one begins.
  *
  * WHY BILLBOARD CLUSTERS AND NOT A RAYMARCH. A raymarched density field is the
@@ -39,22 +40,25 @@
  */
 
 import * as THREE from 'three';
-import { LAND_SCALE } from './config.js';
+import { CAMERA } from './config.js';
 import { streamFor, R, noise2, clamp } from './noise.js';
 
-/* Field extent. Half-span is comfortably beyond CAMERA.maxDistance (620·L) so
- * the radial fade never eats the clouds nearest the viewer — hence it rides
- * LAND_SCALE with the camera. */
-const FIELD_HALF = Math.round(620 * LAND_SCALE);
-const FADE_NEAR = Math.round(460 * LAND_SCALE);
-const FADE_FAR = Math.round(600 * LAND_SCALE);
+/* Field extent, DERIVED from the camera envelope: the radial fade (measured
+ * from the world origin) must complete beyond the farthest orbit position, or
+ * a fully zoomed-out camera sits at the edge of a field that has already faded
+ * to nothing around it. The old constants equalled maxDistance exactly — a
+ * margin that existed only in the comment. */
+const FIELD_HALF = Math.round(CAMERA.maxDistance * 1.18);
+const FADE_NEAR = Math.round(CAMERA.maxDistance * 0.82);
+const FADE_FAR = Math.round(CAMERA.maxDistance * 1.08);
+export { FIELD_HALF }; // asserted by test/invariants.html
 
 /* Cumulus condensation level: most of the deck shares a base height, because
  * real cumulus do — they all condense at the same altitude. A quarter of the
  * population is parked much higher purely to give the sky depth. Raised with
  * the bigger island so the deck doesn't sit on the ridge like a lid. */
-const DECK_LOW = [130, 190];
-const DECK_HIGH = [240, 330];
+const DECK_LOW = [150, 230];
+const DECK_HIGH = [280, 420];
 
 const CLUSTER_W = [80, 190]; // horizontal half-span of a cluster
 const CLUSTER_H = [30, 72];  // vertical extent above its base
@@ -104,10 +108,12 @@ const wrap = (v, span) => v - span * Math.floor(v / span);
  * parades past the camera. Even the ultra tier is only ~700 quads: the module's
  * real cost is fill rate, not geometry, so the count is set by how full the sky
  * should look and not by the triangle budget. */
+// Counts sized against the DERIVED field above: its area grew ~1.4x when the
+// margin became real, so each tier gained a row/column to hold the density.
 const TIERS = {
-  low:   { cols: 4, rows: 3, puffs: 9 },
-  high:  { cols: 5, rows: 4, puffs: 14 },
-  ultra: { cols: 7, rows: 6, puffs: 18 },
+  low:   { cols: 5, rows: 3, puffs: 9 },
+  high:  { cols: 5, rows: 5, puffs: 14 },
+  ultra: { cols: 8, rows: 7, puffs: 18 },
 };
 
 /**

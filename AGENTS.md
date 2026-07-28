@@ -27,7 +27,8 @@ river.js    — delta (tronc + distributaires), carve, rubans d'eau, pont taiko-
 ponds.js    — 3 étangs à koi (carve composé avec la rivière)
 grass.js    — brins instanciés, LOD par chunks
 sakura.js   — 5 archétypes de cerisiers, fleurs instanciées
-details.js  — fleurs sauvages, lanternes, galets, CHEMIN + TORII (exporte isOnPath)
+details.js  — fleurs sauvages, lanternes, galets, CHEMIN + TORII (exporte isOnPath, initPath)
+detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / shiba.js — atmosphère & personnage
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu
@@ -46,19 +47,34 @@ ponds.isInPond || river.isInRiver`.
 - **`AREA` vs `AREA_SOFT`** (`config.js`) : les scatters bon marché (fleurs,
   galets) scalent en `AREA = L²` ; les coûteux (herbe, arbres, pétales,
   rochers) en `AREA_SOFT = AREA^0.75`, compensé par des instances plus grosses.
+  Honnêteté : `AREA_SOFT` est la POLITIQUE par défaut, pas une protection — le
+  coefficient herbe ultra a été volontairement monté (300k→470k, ≈2.66 M de
+  brins) à la demande de l'utilisateur, un choix de goût pour la machine cible.
+  Les vrais replis machine faible sont les tiers low/high.
 - **`sunDistance` dérive de `LAND_SCALE`** (`sky.js`) : le near-plane d'ombre
   est `D_SUN − R_ISLAND − 80` et devient négatif (ombres mortes, zéro erreur)
   si on remet une constante.
 - **Rivière = `BRANCHES[]`** (`river.js`) : index 0 = tronc, le reste =
-  distributaires (`RIVER.branches`). Champ de distance baké min-combiné
-  (`_fieldDist/_fieldT/_fieldB`). API externe stable : `carveRiver`,
-  `isInRiver`, `waterYAt(t)` (= tronc). Jonction : les stations d'un
-  distributaire dans le chenal du tronc sont épinglées sur l'eau du tronc
-  (ré-épinglées après chaque lissage) ; son ruban démarre à >0.55·width de
-  l'axe du tronc (sinon double-blend). La jonction doit être où l'eau du tronc
-  ≈ niveau de la mer.
-- **Câblage herbe/pétales DUPLIQUÉ** dans `main.js` (création initiale ~302 ET
-  `rebuildForQuality` ~561) : toute modification doit être faite EN MIROIR.
+  distributaires (`RIVER.branches`). Champs de distance bakés PAR BRANCHE
+  (`_fieldDistB[b]/_fieldTB[b]`), min pris À LA REQUÊTE — le triplet
+  (dist, t, b) vient de la même branche, sinon `widthKAt` saute aux frontières
+  de Voronoï. API externe stable : `carveRiver`, `isInRiver`, `waterYAt(t)`
+  (= tronc) ; `BRANCHES` exporté en LECTURE SEULE pour test/invariants.html.
+  `build()` est idempotent (possède ses rubans/pont, remplace et dispose) ; la
+  factory expose `dispose()` et **`bridgeInfo`** (placement FINAL du pont,
+  shift compris) après build. Le profil d'eau est clampé jamais-remonter en
+  fin de build (politique tidale : l'embouchure peut finir sous seaLevel+0.05).
+  Jonction : stations d'un distributaire dans le chenal du tronc épinglées sur
+  l'eau du tronc ; ruban démarrant à >0.55·width de l'axe du tronc (sinon
+  double-blend). La jonction doit être où l'eau du tronc ≈ niveau de la mer.
+- **Changement de qualité = reload** : le tier est résolu AVANT le boot
+  (`?q=` → localStorage `sakurajima.quality` → défaut) ; le bouton persiste et
+  recharge. Il n'existe PLUS de rebuild à chaud ni de câblage dupliqué —
+  chaque système se dimensionne à la construction, un point c'est tout.
+- **Pont/chemin/lanternes = une seule source de vérité** : `river.bridgeInfo`
+  (centre, axe, culées réelles). `main.js` appelle `initPath(bridgeInfo)`
+  APRÈS `river.build` et AVANT `createGrass` (l'exclusion d'herbe suit le
+  tracé corrigé), et passe `bridgeInfo` à `createDetails` pour les lanternes.
 - **`createSakuraForest` et `createGrass` ignorent en silence les options
   inconnues.** sakura veut `isLand`, `windUniforms`, `quality` **numérique**
   (un objet → budget NaN → arbres sans branches). grass veut `count`, `bounds`,
@@ -88,9 +104,15 @@ ponds.isInPond || river.isInRiver`.
    dans le platier SE.
 8. Onglet en arrière-plan = rAF ET setTimeout étranglés.
 
-## Vérification visuelle type
+## Vérification type
 
-Midi (`__sk.world.dayTime = 0.5`) : mer jusqu'à l'horizon sans ligne rasoir,
-ombres présentes (si absentes → near-plane, piège sky.js). Delta vu du SE en
-hauteur : 3 bras distincts. Aube/nuit (0.97) : lanternes allumées aux bouts du
-pont. Vue sol : chemin de terre visible, herbe exclue dessus, torii debout.
+1. **`test/invariants.html`** (via serve.py) : la console doit finir par
+   `INVARIANTS: 8 pass, 0 fail` — profil monotone, 3 embouchures, continuité
+   de jonction, build idempotent, chemin→culée réelle, far plane, nuages.
+2. Visuel — midi (`__sk.world.dayTime = 0.5`) : mer jusqu'à l'horizon sans
+   ligne rasoir, ombres présentes (si absentes → near-plane, piège sky.js).
+   Delta vu du SE en hauteur : 3 bras distincts. Nuit (0.97) : lune basse au
+   sud avec halo, étoiles dans la bande 0–20°, terre lisible, lanternes
+   allumées aux bouts du pont. Vue sol : chemin de terre granuleux, herbe
+   exclue dessus, torii debout, bois du pont veiné.
+3. Tiers : `?q=low|high|ultra` — aria-pressed reflète le tier réel au boot.

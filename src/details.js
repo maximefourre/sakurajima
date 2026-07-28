@@ -23,6 +23,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
+import { makeWoodBump } from './detailtex.js';
 import { WORLD, LAND_SCALE, AREA, RIVER, PATH } from './config.js';
 
 const TAU = Math.PI * 2;
@@ -31,30 +32,74 @@ const TAU = Math.PI * 2;
    The pilgrim path — spatial index
    ──────────────────────────────────────────────────────────────── */
 
-const PATH_CURVE = new THREE.CatmullRomCurve3(
-  PATH.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
-);
 const PATH_N = 240;
-const _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+let PATH_CURVE = null;
+let _pp = null;
+let _pMinX = 0, _pMaxX = 0, _pMinZ = 0, _pMaxZ = 0;
+let P_NX = 1, P_NZ = 1;
+let _pGrid = null;
+let _pathEnd = null;   // world {x, z} of the built path's last point
 
-// Bounding box + coarse bucket grid: `isOnPath` is called for every one of the
-// grass system's millions of rejection samples, so anything not standing near
-// the route must pay four comparisons and nothing more.
-const P_PAD = PATH.width * 0.5 + 1.4;
-let _pMinX = Infinity, _pMaxX = -Infinity, _pMinZ = Infinity, _pMaxZ = -Infinity;
-for (const p of _pp) {
-  if (p.x < _pMinX) _pMinX = p.x; if (p.x > _pMaxX) _pMaxX = p.x;
-  if (p.z < _pMinZ) _pMinZ = p.z; if (p.z > _pMaxZ) _pMaxZ = p.z;
+/**
+ * (Re)build the path curve + its bucket index from a point list. The index
+ * exists because `isOnPath` is called for every one of the grass system's
+ * millions of rejection samples — anything not standing near the route must
+ * pay four comparisons and nothing more.
+ */
+function buildPathIndex(points) {
+  PATH_CURVE = new THREE.CatmullRomCurve3(
+    points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
+  );
+  _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+  _pathEnd = { x: _pp[PATH_N].x, z: _pp[PATH_N].z };
+
+  const P_PAD = PATH.width * 0.5 + 1.4;
+  _pMinX = Infinity; _pMaxX = -Infinity; _pMinZ = Infinity; _pMaxZ = -Infinity;
+  for (const p of _pp) {
+    if (p.x < _pMinX) _pMinX = p.x; if (p.x > _pMaxX) _pMaxX = p.x;
+    if (p.z < _pMinZ) _pMinZ = p.z; if (p.z > _pMaxZ) _pMaxZ = p.z;
+  }
+  _pMinX -= P_PAD; _pMaxX += P_PAD; _pMinZ -= P_PAD; _pMaxZ += P_PAD;
+  P_NX = Math.max(1, Math.ceil((_pMaxX - _pMinX) / P_CELL));
+  P_NZ = Math.max(1, Math.ceil((_pMaxZ - _pMinZ) / P_CELL));
+  _pGrid = new Array(P_NX * P_NZ);
+  for (let i = 0; i <= PATH_N; i++) {
+    const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((_pp[i].x - _pMinX) / P_CELL)));
+    const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((_pp[i].z - _pMinZ) / P_CELL)));
+    (_pGrid[cz * P_NX + cx] ||= []).push(i);
+  }
 }
-_pMinX -= P_PAD; _pMaxX += P_PAD; _pMinZ -= P_PAD; _pMaxZ += P_PAD;
 const P_CELL = 12;
-const P_NX = Math.max(1, Math.ceil((_pMaxX - _pMinX) / P_CELL));
-const P_NZ = Math.max(1, Math.ceil((_pMaxZ - _pMinZ) / P_CELL));
-const _pGrid = new Array(P_NX * P_NZ);
-for (let i = 0; i <= PATH_N; i++) {
-  const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((_pp[i].x - _pMinX) / P_CELL)));
-  const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((_pp[i].z - _pMinZ) / P_CELL)));
-  (_pGrid[cz * P_NX + cx] ||= []).push(i);
+// Fallback index from the authored points, so isOnPath works before initPath
+// (and in standalone test pages that never build a bridge).
+buildPathIndex(PATH.points);
+
+/**
+ * Snap the path's final approach onto the bridge's REAL west abutment.
+ *
+ * The bridge slides up to ±12 units along its own axis to find level footing
+ * (river.js buildBridge), so the authored endpoint is only nominal. Call this
+ * after river.build() and BEFORE createGrass — the grass exclusion evaluates
+ * isOnPath at placement time and must follow the corrected route.
+ * Returns the corrected end point {x, z} (the invariants test asserts on it).
+ */
+export function initPath(bridgeInfo) {
+  if (!bridgeInfo || !bridgeInfo.ends) return _pathEnd;
+  const pts = PATH.points.map(([x, z]) => [x, z]);
+  const [lx, lz] = pts[pts.length - 1];
+  // The abutment nearest the authored end IS the path's end of the deck —
+  // don't assume an index in `ends`.
+  let end = bridgeInfo.ends[0];
+  for (const e of bridgeInfo.ends) {
+    if ((e.x - lx) ** 2 + (e.z - lz) ** 2 < (end.x - lx) ** 2 + (end.z - lz) ** 2) end = e;
+  }
+  // Stop a couple of units OUTSIDE the abutment along the deck axis, so the
+  // earth ribbon meets the stone footing instead of running under the deck.
+  const ox = end.x - bridgeInfo.center.x, oz = end.z - bridgeInfo.center.z;
+  const ol = Math.hypot(ox, oz) || 1;
+  pts[pts.length - 1] = [end.x + (ox / ol) * 2.5, end.z + (oz / ol) * 2.5];
+  buildPathIndex(pts);
+  return _pathEnd;
 }
 
 /** True on the packed earth of the pilgrim path — keeps the grass off it. */
@@ -251,7 +296,8 @@ function makeToriiGeometry() {
     const c = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { c[i * 3] = tint.r; c[i * 3 + 1] = tint.g; c[i * 3 + 2] = tint.b; }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
-    geo.deleteAttribute('uv');
+    // UVs are KEPT (cylinders and boxes both have them, so the merge is
+    // consistent) — the torii material carries a generated wood-grain bumpMap.
     parts.push(geo);
   };
 
@@ -290,6 +336,7 @@ export function createDetails({
   normalAt = null,
   inWater = null,
   wind = null,
+  bridgeInfo = null,   // river.bridgeInfo — the bridge's FINAL placement
 } = {}) {
   if (typeof heightAt !== 'function') {
     throw new Error('[details] createDetails requires heightAt(x, z) -> y');
@@ -391,11 +438,24 @@ export function createDetails({
       [-79, 12.5], [-59, 27.5], [-37, 44],      // beside the pilgrim path, cliff to bridge
     ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]);
 
-    // A pair of lanterns flanking each end of the bridge, computed from the
-    // same curve the bridge is placed on so they land on its actual abutments
-    // wherever the footprint scale puts them. RIVER.path is already in world
-    // units — no LAND_SCALE here.
-    {
+    // A pair of lanterns flanking each end of the bridge. The bridge slides
+    // along its own axis to find level footing, so its REAL placement comes
+    // from river.bridgeInfo — the nominal curve position can be up to 12
+    // units off the actual abutments. The nominal computation remains only
+    // as a fallback for standalone use without a built river.
+    if (bridgeInfo && bridgeInfo.ends) {
+      const fx = -bridgeInfo.axis.z, fz = bridgeInfo.axis.x;   // flow axis
+      for (const end of bridgeInfo.ends) {
+        const ox = end.x - bridgeInfo.center.x, oz = end.z - bridgeInfo.center.z;
+        const ol = Math.hypot(ox, oz) || 1;
+        for (const along of [-1, 1]) {
+          spots.push([
+            end.x + (ox / ol) * 2.0 + fx * 2.6 * along,
+            end.z + (oz / ol) * 2.0 + fz * 2.6 * along,
+          ]);
+        }
+      }
+    } else {
       const c = new THREE.CatmullRomCurve3(
         RIVER.path.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
       );
@@ -584,6 +644,33 @@ export function createDetails({
       // Wins the depth fight against the terrain it hugs on steeper ground.
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
+    // Gritty speckle so the packed earth reads as trodden grit, not paint.
+    // World-position keyed — the ribbon has no UVs.
+    pathMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = 'varying vec3 vPathW;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n\tvPathW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+      shader.fragmentShader = /* glsl */ `
+        varying vec3 vPathW;
+        float ph21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+        float pvn(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(ph21(i), ph21(i + vec2(1.0, 0.0)), f.x),
+                     mix(ph21(i + vec2(0.0, 1.0)), ph21(i + vec2(1.0, 1.0)), f.x), f.y);
+        }
+      ` + shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        /* glsl */ `#include <color_fragment>
+        {
+          vec2 q = vPathW.xz;
+          float grit = pvn(q * 6.5) * 0.55 + pvn(q * 21.0) * 0.45;
+          diffuseColor.rgb *= 0.90 + 0.20 * grit;
+        }`
+      );
+    };
+    pathMat.customProgramCacheKey = () => 'sakurajima-path-v2';
     disposables.push(pathGeo, pathMat);
     const path = new THREE.Mesh(pathGeo, pathMat);
     path.name = 'pilgrim-path';
@@ -592,7 +679,13 @@ export function createDetails({
 
     // — the torii along the route —
     const toriiGeo = makeToriiGeometry();
-    const toriiMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0 });
+    const toriiBump = makeWoodBump(seed);
+    toriiBump.repeat.set(1.5, 1);
+    const toriiMat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.72, metalness: 0,
+      bumpMap: toriiBump, bumpScale: 0.22,
+    });
+    disposables.push(toriiBump);
     disposables.push(toriiGeo, toriiMat);
     const torii = new THREE.InstancedMesh(toriiGeo, toriiMat, PATH.toriiAt.length);
     torii.name = 'torii';
