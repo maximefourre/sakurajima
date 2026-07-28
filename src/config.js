@@ -162,7 +162,7 @@ export const QUALITY = {
   },
   ultra: {
     label: 'ultra',
-    grassBlades: Math.round(470000 * AREA_SOFT),
+    grassBlades: Math.round(520000 * AREA_SOFT),
     grassRadius: Math.round(130 * LAND_SCALE),
     petals: Math.round(8500 * AREA_SOFT),
     trees: Math.round(330 * AREA_SOFT),

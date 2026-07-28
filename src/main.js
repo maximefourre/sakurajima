@@ -507,6 +507,10 @@ function frame() {
   // imperceptible; the reverse order makes fast turns feel like ice.
   world.shiba.update(t, dt, { camera });
   world.birds.setRepeller?.(world.shiba.position);
+  // The meadow parts around him. Placed after shiba.update so the uniform is
+  // this frame's position, and unconditional: it applies in both camera modes —
+  // in follow mode you swim through it, in orbit mode you watch him wade.
+  world.grass.setPlayer?.(world.shiba.position, dt);
 
   if (world.camMode === 'follow') {
     updateFollowCamera(dt);

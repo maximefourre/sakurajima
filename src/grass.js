@@ -161,8 +161,8 @@ const DEFAULTS = {
 	exclude: null,         // optional: (x, z) -> bool, true = no grass here
 
 	// --- blade shape -------------------------------------------------------------
-	bladeHeight: 0.62,     // world units at heightScale = 1
-	bladeWidth: 0.068,     // world units at widthJitter = 1
+	bladeHeight: 0.78,     // world units at heightScale = 1 — shoulder-high on the shiba in thick clumps
+	bladeWidth: 0.082,     // world units at widthJitter = 1 — widened with the height to keep the aspect
 	segmentsHi: 5,
 	segmentsLo: 2,
 	loWidthMul: 1.75,      // far blades are fatter so a sparser far field still covers
@@ -209,6 +209,9 @@ const DEFAULTS = {
 	windStrength: 1.0,     // fallback wind only
 	windGust: 0.35,        // fallback wind only
 	windDir: [ 0.82, 0.57 ],
+	// --- player interaction --------------------------------------------------------
+	playerRadius: 2.4,     // world units: blades inside this part radially away from the shiba
+	playerStrength: 1.1,   // radians of extra tip bend at the core of the radius
 
 	// --- shading -----------------------------------------------------------------
 	ao: 0.42,
@@ -226,7 +229,7 @@ const DEFAULTS = {
 	// the meadow from the postcard camera. chunkDivisions raised so frustum
 	// culling stays fine-grained over the much larger bounds.
 	chunkDivisions: 10,
-	lodDistance: 48,
+	lodDistance: 58,
 	lodHysteresis: 4,
 	lodKeep: 0.45,
 	fadeStart: 160,
@@ -354,6 +357,10 @@ uniform float uRippleSpeed;
 uniform float uRippleAmp;
 uniform float uFadeStart;
 uniform float uFadeEnd;
+uniform vec3  uPlayer;
+uniform vec3  uPlayerTrail;
+uniform float uPlayerRadius;
+uniform float uPlayerStrength;
 
 varying float vGrassH;
 varying vec3  vGrassTint;
@@ -362,6 +369,7 @@ varying float vGrassGust;
 vec3  gGrassAxis  = vec3( 1.0, 0.0, 0.0 );
 float gGrassAngle = 0.0;
 float gGrassFade  = 1.0;
+float gGrassSquash = 1.0;
 
 ${windGLSL}
 
@@ -417,6 +425,41 @@ void grassSetup() {
 
 	// sum wind + rest droop as rotation VECTORS -> one Rodrigues call, not two
 	vec3 rv = axWind * bend + vec3( 1.0, 0.0, 0.0 ) * aParams.z;
+
+	// --- player interaction: blades part radially away from the shiba ------------
+	// Two probe points share one falloff: the dog himself, and a trailing point
+	// that lags him so a run leaves a brief wake. The push is a rotation vector
+	// exactly like the wind term, so tips move more than roots for free, and a
+	// vertical squash makes it read as parting rather than shearing. The vertical
+	// falloff also keeps grass under the bridge still when he crosses above it.
+	{
+		float vFall = 1.0 - smoothstep( 2.0, 4.0, abs( rootW.y - uPlayer.y ) );
+
+		vec2 pv = rootW.xz - uPlayer.xz;
+		float dP = length( pv );
+		float prox = ( 1.0 - smoothstep( 0.25 * uPlayerRadius, uPlayerRadius, dP ) ) * vFall;
+
+		vec2 tv = rootW.xz - uPlayerTrail.xz;
+		float dT = length( tv );
+		float proxT = ( 1.0 - smoothstep( 0.20 * uPlayerRadius, 1.15 * uPlayerRadius, dT ) ) * vFall * 0.55;
+
+		vec2 pushDir = pv * ( prox / max( dP, 1e-4 ) ) + tv * ( proxT / max( dT, 1e-4 ) );
+		float pushMag = length( pushDir );
+
+		float press = min( prox + proxT, 1.0 );
+		gGrassSquash = 1.0 - 0.30 * press * press;
+
+		if ( pushMag > 1e-4 ) {
+			vec3 pw = vec3( pushDir.x, 0.0, pushDir.y ) / pushMag;
+			vec3 pl = vec3( dot( im[ 0 ], pw ), dot( im[ 1 ], pw ), dot( im[ 2 ], pw ) );
+			pl.y = 0.0;
+			pl = normalize( pl + vec3( 1e-5, 0.0, 0.0 ) );
+			float bendP = min( pushMag, 1.0 );
+			bendP = bendP * bendP * ( 3.0 - 2.0 * bendP ) * uPlayerStrength;
+			rv += vec3( pl.z, 0.0, -pl.x ) * bendP;
+		}
+	}
+
 	gGrassAngle = length( rv );
 	gGrassAxis = gGrassAngle > 1e-5 ? rv / gGrassAngle : vec3( 1.0, 0.0, 0.0 );
 
@@ -428,7 +471,7 @@ vec3 grassNormal( vec3 n ) {
 
 vec3 grassPosition() {
 	float wJ = aWidth * uBladeWidth;
-	vec3 p = vec3( position.x * wJ, position.y * aParams.w * uBladeHeight, position.z * wJ );
+	vec3 p = vec3( position.x * wJ, position.y * aParams.w * uBladeHeight * gGrassSquash, position.z * wJ );
 	// rotate each cross-section about the root by theta * t^2:
 	// distance from the root is preserved (no stretch), base stays planted, tip whips.
 	p = sgTwist( p, gGrassAxis, gGrassAngle * aH * aH );
@@ -550,6 +593,10 @@ export function createGrass( options = {} ) {
 		uRippleAmp: { value: CFG.rippleAmp },
 		uFadeStart: { value: CFG.fadeStart },
 		uFadeEnd: { value: CFG.fadeEnd },
+		uPlayer: { value: new THREE.Vector3( 1e4, -1e4, 1e4 ) },
+		uPlayerTrail: { value: new THREE.Vector3( 1e4, -1e4, 1e4 ) },
+		uPlayerRadius: { value: CFG.playerRadius },
+		uPlayerStrength: { value: CFG.playerStrength },
 
 		uSunDirWorld: { value: new THREE.Vector3().fromArray( CFG.sunDirection ).normalize() },
 		uSunColor: { value: new THREE.Color( CFG.sunColor ) },
@@ -942,6 +989,19 @@ export function createGrass( options = {} ) {
 
 	}
 
+	function setPlayer( pos, dt ) {
+
+		// first call: snap the trail onto the player so he does not drag a wake
+		// in from the sentinel position at (1e4, -1e4, 1e4)
+		if ( uniforms.uPlayerTrail.value.y < - 500 ) uniforms.uPlayerTrail.value.copy( pos );
+
+		uniforms.uPlayer.value.copy( pos );
+		// the trail lags about a third of a second behind: at run speed (7.4 u/s)
+		// it sits roughly 2 units back, holding the wake open briefly
+		uniforms.uPlayerTrail.value.lerp( pos, Math.min( 1, ( dt || 0.016 ) * 3.0 ) );
+
+	}
+
 	function setCamera( cam ) { activeCamera = cam; }
 
 	function dispose() {
@@ -967,6 +1027,7 @@ export function createGrass( options = {} ) {
 		update,               // update(elapsedSeconds, camera?)
 		setSun,
 		setWindDirection,
+		setPlayer,            // setPlayer(worldPos, dt) — parts the blades around the shiba
 		setCamera,
 		dispose,
 		material,
