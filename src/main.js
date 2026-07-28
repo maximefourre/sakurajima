@@ -169,7 +169,11 @@ async function boot() {
     // defaults — 96k blades over the wrong footprint, which on a 460-unit
     // island reads as no grass at all.
     count: q.grassBlades,
-    bounds: { size: WORLD.size },
+    // Bound to the LAND, not the whole tile. The island only spans about 210
+    // units of the 460-unit world; spreading the blade budget across the full
+    // tile wasted three quarters of it on open sea and quartered the density
+    // where it actually shows.
+    bounds: { size: 230 },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
@@ -216,7 +220,7 @@ async function boot() {
   panel.classList.add('on');
 
   // Handy for debugging from the console: window.__sk.world.river, etc.
-  globalThis.__sk = { world, scene, camera, renderer, THREE };
+  globalThis.__sk = { world, scene, camera, renderer, controls, THREE };
 
   renderer.setAnimationLoop(frame);
 }
@@ -364,7 +368,11 @@ async function rebuildForQuality() {
     // defaults — 96k blades over the wrong footprint, which on a 460-unit
     // island reads as no grass at all.
     count: q.grassBlades,
-    bounds: { size: WORLD.size },
+    // Bound to the LAND, not the whole tile. The island only spans about 210
+    // units of the 460-unit world; spreading the blade budget across the full
+    // tile wasted three quarters of it on open sea and quartered the density
+    // where it actually shows.
+    bounds: { size: 230 },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     isInPond: (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z),
