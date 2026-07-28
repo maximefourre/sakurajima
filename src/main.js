@@ -384,6 +384,15 @@ async function boot() {
   hud.classList.add('on');
   panel.classList.add('on');
 
+  // The controls have to announce themselves. From the opening camera the dog is
+  // a few pixels of orange on a 300-unit island, and a scene that looks like a
+  // postcard gives you no reason to suspect there is anything to press.
+  const hint = $('hint');
+  setTimeout(() => hint.classList.add('on'), 1400);
+  const dismissHint = () => hint.classList.add('gone');
+  setTimeout(dismissHint, 13000);
+  addEventListener('keydown', dismissHint, { once: true });
+
   // Handy for debugging from the console: window.__sk.world.river, etc.
   globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock };
 

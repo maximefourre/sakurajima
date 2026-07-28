@@ -190,6 +190,34 @@
     #panel { width: calc(100% - 2rem); left: 1rem; right: 1rem; }
   }
 
+  /* ── opening hint ─────────────────────────────────────────────
+     The dog is a metre-high figure on a 300-metre island: from the postcard
+     camera he is four pixels, and nothing on screen said he was there at all. */
+  #hint {
+    position: fixed; z-index: 25;
+    left: 50%; bottom: clamp(2.2rem, 7vh, 5rem);
+    transform: translateX(-50%);
+    display: flex; gap: 1.4rem; align-items: center;
+    padding: .7rem 1.15rem;
+    border: 1px solid rgba(244,236,226,.10);
+    border-radius: 3px;
+    background: rgba(16,13,18,.5);
+    backdrop-filter: blur(22px) saturate(1.25);
+    -webkit-backdrop-filter: blur(22px) saturate(1.25);
+    font-size: .68rem; letter-spacing: .14em; white-space: nowrap;
+    opacity: 0; pointer-events: none;
+    transition: opacity 1.2s ease;
+  }
+  #hint.on { opacity: .82; }
+  #hint.gone { opacity: 0; }
+  #hint kbd {
+    font-family: ui-monospace, Menlo, monospace;
+    background: rgba(242,184,205,.16);
+    color: var(--sakura);
+    padding: .12rem .42rem; border-radius: 2px; margin-right: .3rem;
+  }
+  @media (max-width: 640px) { #hint { display: none; } }
+
   #fatal {
     position: fixed; inset: 0; z-index: 200; display: none;
     place-content: center; padding: 2rem;
@@ -252,6 +280,12 @@
     <kbd>C</kbd> caméra libre ↔ suivie · <kbd>glisser</kbd> orbiter · <kbd>molette</kbd> zoom<br>
     <kbd>espace</kbd> pause du temps · <kbd>H</kbd> masquer l'interface
   </div>
+</div>
+
+<div id="hint">
+  <span><kbd>C</kbd>caméra suivie</span>
+  <span><kbd>Z Q S D</kbd>promener le shiba</span>
+  <span><kbd>Maj</kbd>courir</span>
 </div>
 
 <div id="fatal"></div>
