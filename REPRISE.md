@@ -41,6 +41,16 @@ python3 serve.py 5173
 - **`src/ponds.js`, `src/birds.js`, `src/clouds.js`** — les trois stubs
   remplacés. Étangs à koi et nénuphars, vol de boids qui se perche la nuit et
   se disperse quand le chien approche, cumulus proches à vraie parallaxe.
+- **`src/details.js`** — le niveau du sol. Fleurs sauvages en dérives (quatre
+  espèces qui se regroupent séparément, pliées par le vent partagé), lanternes
+  de pierre le long du chemin du pont dont la cage à feu s'allume au crépuscule,
+  galets sur l'estran.
+- **L'embouchure de la rivière.** Le chenal ne creusait pas seulement la terre :
+  il continuait sous la mer, et le ruban d'eau s'arrêtait sur une arête
+  rectangulaire posée au-dessus des vagues. Le carve s'éteint maintenant quand
+  le sol atteint le niveau de l'eau, et l'embouchure est *trouvée* et non
+  écrite : on échantillonne les berges de part et d'autre du couloir et le
+  ruban se dissout là où elles disparaissent.
 
 ---
 
@@ -74,3 +84,13 @@ python3 serve.py 5173
    appeler `__sk.frame()` en boucle synchrone.
 4. `globalThis.__sk` expose `{ world, scene, camera, renderer, controls, THREE,
    frame, setCamMode, clock }`.
+5. **L'enroulement des triangles contre l'attribut `normal`.** Ce projet s'est
+   fait avoir trois fois : le disque d'océan, la corolle des fleurs, et les ailes
+   des oiseaux. Sur un matériau `DoubleSide`, three inverse la normale d'ombrage
+   pour la face arrière ; si l'enroulement géométrique regarde vers le bas alors
+   que l'attribut dit vers le haut, la surface est éclairée par en dessous et
+   sort noire — sans aucune erreur, avec tous les uniformes corrects.
+6. **`instanceColor` sans `vertexColors: true`** ne fait rien : le chunk
+   `color_fragment` de three est gardé par `USE_COLOR` seul, donc la couleur est
+   téléversée, multipliée dans l'étage sommet, puis jamais lue. Il faut les deux,
+   plus un attribut `color` blanc sur la géométrie.
