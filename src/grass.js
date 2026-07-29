@@ -161,8 +161,8 @@ const DEFAULTS = {
 	exclude: null,         // optional: (x, z) -> bool, true = no grass here
 
 	// --- blade shape -------------------------------------------------------------
-	bladeHeight: 0.78,     // world units at heightScale = 1 — shoulder-high on the shiba in thick clumps
-	bladeWidth: 0.082,     // world units at widthJitter = 1 — widened with the height to keep the aspect
+	bladeHeight: 1.17,     // ×1.5 sur demande joueur — le shiba nage dedans
+	bladeWidth: 0.10,      // élargi avec la hauteur pour garder l'aspect
 	segmentsHi: 5,
 	segmentsLo: 2,
 	loWidthMul: 1.45,      // far blades only slightly fatter - a big gap here is what made the LOD swap pop
@@ -177,7 +177,11 @@ const DEFAULTS = {
 	beachY: 1.6,
 	beachBlend: 1.5,
 	shoreWobble: 0.9,      // wiggle on the beach line so it is not a contour ring
-	uplandY: 24.0,         // follows HEIGHT_SCALE — the raised ridge flanks stay grassed
+	// 24 → 45 : le plafond « sommets nus » rendait chauves 8.5 % de l'île
+	// (+13 % en éclaircie) — la crête ET tout le plateau ouest rehaussé. Le
+	// sommet culmine ~29 : à 45, plus AUCUNE calvitie d'altitude (consigne
+	// joueur : de l'herbe partout).
+	uplandY: 45.0,
 	uplandBlend: 6.0,
 	slopeSoft: 0.13,       // 1 - n.y   (~30 deg) -> density starts dropping
 	slopeMax: 0.38,        // ~50 deg -> no grass
