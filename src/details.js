@@ -462,8 +462,11 @@ function makeToriiGeometry() {
     parts.push(geo);
   };
 
-  part(new THREE.CylinderGeometry(0.20, 0.25, 4.5, 10), VERMILION, 2.25, -1.9);
-  part(new THREE.CylinderGeometry(0.20, 0.25, 4.5, 10), VERMILION, 2.25, 1.9);
+  // Piliers ALLONGÉS sous le niveau 0 (span −1.8..4.5) : c'est le fût qui
+  // s'enterre dans la pente, pas le portique qui s'enfonce — enfoncer tout
+  // le torii posait la traverse basse au ras du sol (capture joueur).
+  part(new THREE.CylinderGeometry(0.20, 0.27, 6.3, 10), VERMILION, 1.35, -1.9);
+  part(new THREE.CylinderGeometry(0.20, 0.27, 6.3, 10), VERMILION, 1.35, 1.9);
   part(new THREE.BoxGeometry(5.0, 0.26, 0.22), VERMILION, 3.30);
   part(new THREE.BoxGeometry(0.22, 0.92, 0.20), VERMILION, 3.88);
   part(new THREE.BoxGeometry(5.3, 0.24, 0.32), VERMILION, 4.44);
@@ -751,20 +754,26 @@ export function createDetails({
           vec2 q = vPathW.xz;
           float grit = pvn(q * 6.5) * 0.55 + pvn(q * 21.0) * 0.45;
           float mottle = pvn(q * 1.9 + 7.3);
-          // Contraste double (0.90+0.20 -> 0.78+0.34) et marbrure basse
-          // frequence tiree vers la terre brune : a 20 pour cent le grain
-          // disparaissait au tone mapping et le ruban lisait comme de la
-          // peinture beige (capture joueur : texture mal appliquee).
-          diffuseColor.rgb *= 0.78 + 0.34 * grit;
-          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.90, 0.80, 0.66), mottle * 0.38);
-          // Ragged border: the outer rim is EATEN by world-position noise -
-          // opaque cutout, so depth still writes and nothing needs sorting.
-          float bite = pvn(q * 3.4) * 0.6 + pvn(q * 11.0) * 0.4;
-          if (vPathEdge > 0.55 + bite * 0.45) discard;
+          // SENTE FOULEE, pas ruban decoupe (consigne joueur : un chemin trace
+          // par des passages repetes). Trois etages :
+          // 1. le grain et la marbrure de terre battue, partout ;
+          diffuseColor.rgb *= 0.80 + 0.30 * grit;
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 0.80, 0.62), mottle * 0.35);
+          // 2. le coeur COMPACTE par les pas, un peu plus clair et lisse ;
+          diffuseColor.rgb *= 1.0 + 0.10 * smoothstep(0.5, 0.0, vPathEdge);
+          // 3. les bords qui VERDISSENT vers l'herbe avant de s'effilocher —
+          //    la couleur converge vers la pelouse AVANT la decoupe, donc la
+          //    frontiere fond au lieu de trancher. L'ancien seuil mordait
+          //    jusqu'au centre (iles vertes en plein chemin, dechire).
+          float fray = pvn(q * 3.1) * 0.55 + pvn(q * 9.5) * 0.45;
+          float verge = smoothstep(0.38, 0.95, vPathEdge + (fray - 0.5) * 0.35);
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.74, 0.83, 0.55), verge);
+          float cut = vPathEdge + (fray - 0.5) * 0.50;
+          if (cut > 0.80) discard;
         }`
       );
     };
-    pathMat.customProgramCacheKey = () => 'sakurajima-path-v3';
+    pathMat.customProgramCacheKey = () => 'sakurajima-path-v4';
     disposables.push(pathMat);
 
     const p = new THREE.Vector3(), tn = new THREE.Vector3();
@@ -895,14 +904,15 @@ export function createDetails({
         // walk UNDER the gate (perpendicular to the local tangent).
         _e.set(0, Math.atan2(tn.x, tn.z), 0);
         _q.setFromEuler(_e);
-        // Enfoncé FRANCHEMENT : base calée sous le PIED LE PLUS BAS des deux
-        // poteaux (sur un dévers, poser au centre − 0.06 laissait le poteau
-        // aval flotter — capture joueur), puis descendue de 0.45 de plus.
+        // Base calée sous le PIED LE PLUS BAS des deux poteaux (sur un dévers,
+        // poser au centre laissait le poteau aval flotter). L'ancrage profond
+        // vient des piliers allongés (−1.8 sous la base), pas d'un enfoncement
+        // du portique entier — qui noyait la traverse basse.
         const cy = Math.cos(_e.y), sy = Math.sin(_e.y);
         const hwT = 2.6;
         const gA = heightAt(p.x + cy * hwT, p.z - sy * hwT);
         const gB = heightAt(p.x - cy * hwT, p.z + sy * hwT);
-        const baseY = Math.min(gA, gB, heightAt(p.x, p.z)) - 0.45;
+        const baseY = Math.min(gA, gB, heightAt(p.x, p.z)) - 0.12;
         _m.compose(_p.set(p.x, baseY, p.z), _q, _s);
         torii.setMatrixAt(i, _m);
       });
