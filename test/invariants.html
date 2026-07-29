@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>banc d'essai — invariants (delta, pont, enveloppes)</title>
+<title>banc d'essai — invariants (île sans rivière)</title>
 <script type="importmap">
 { "imports": {
     "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
@@ -20,24 +20,22 @@
 <div id="log"></div>
 <script type="module">
 /*
- * Invariants numériques du delta, du pont et des enveloppes de caméra.
+ * Invariants numériques de l'île sans rivière (étangs, chemin, enveloppes).
  * Chaque check émet une ligne PASS/FAIL (+ console.error en échec) et la page
  * se termine par une ligne unique greppable :  INVARIANTS: N pass, M fail
  *
- * Le pipeline est le VRAI pipeline (ponds -> river -> carve -> island -> build),
- * en tier low pour que le bake reste court.
+ * Pipeline : seedNoise → createWind → createPonds → carve = étangs →
+ * createIsland → initPath(null). Tier low pour un bake court.
  */
 const log = document.getElementById('log');
 const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
 window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
 window.addEventListener('unhandledrejection', e => { say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); });
 
-import * as THREE from 'three';
-import { SEED, WORLD, CAMERA, QUALITY, RIVER } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
-import { createRiver, BRANCHES, widthKAt, isInRiver } from '../src/river.js';
 import { createIsland } from '../src/island.js';
 import { initPath } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
@@ -53,154 +51,20 @@ say('modules chargés', 'ok');
 
 const wind = createWind();
 const ponds = createPonds({ seed: SEED, wind, quality: QUALITY.low, heightAt: null });
-const river = createRiver({ wind });
-const carve = (x, z, h) => river.carveRiver(x, z, ponds.carvePonds(x, z, h));
+const carve = (x, z, h) => ponds.carvePonds(x, z, h);
 const t0 = performance.now();
 const island = createIsland({ seed: SEED, quality: { label: 'low', rocks: 8 }, carve });
 say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier low)`);
-river.build(island.heightAt);
 
-/* ── 1. l'eau épouse son lit : jamais dessous, remontées locales douces ────
- *      (politique v4 : plus de profil monotone global — l'eau suit le
- *       terrain lissé, contenue localement ; cf. river.js build()) ───────── */
+/* ── 1. chemin sur la terre ferme ────────────────────────────────────────── */
 {
-  let aboveBed = true, worstUnder = 0, underAt = '';
-  let gentle = true, worstRise = 0, riseAt = '';
-  for (let b = 0; b < BRANCHES.length; b++) {
-    const br = BRANCHES[b];
-    for (let i = 0; i <= br.N; i++) {
-      if (!br.fade || br.fade[i] < 0.5) continue;
-      // Zone d'épinglage de jonction (b>0, t<0.30) : l'eau y est celle du
-      // tronc, le lit sondé celui de la branche, et le ruban de la branche
-      // n'y démarre même pas — hors sujet (même exemption que le 3bis).
-      if (b > 0 && i / br.N < 0.30) continue;
-      const bedC = island.heightAt(br.sx[i], br.sz[i]);
-      const under = bedC - br.profile[i];
-      if (under > 0.02 && under > worstUnder) { worstUnder = under; underAt = `b${b} i${i}`; aboveBed = false; }
-      if (i > 0 && br.fade[i - 1] >= 0.5) {
-        const rise = br.profile[i] - br.profile[i - 1];
-        // Un FILET collé au lit (< 0.25 u d'eau) qui remonte, c'est le lit
-        // qui grimpe — un rapide, pas une fuite. Seule une nappe profonde
-        // qui monte est pathologique (build borne à 0.12/station).
-        const film = br.profile[i] - bedC < 0.25;
-        if (!film && rise > 0.25 && rise > worstRise) { worstRise = rise; riseAt = `b${b} i${i}`; gentle = false; }
-      }
-    }
-  }
-  check('surface jamais sous son lit (fade>0.5)', aboveBed,
-    aboveBed ? `${BRANCHES.length} branches` : `sous le lit de ${worstUnder.toFixed(2)} u à ${underAt}`);
-  check('nappe profonde : remontées ≤ 0.25 u/station', gentle,
-    gentle ? '' : `+${worstRise.toFixed(2)} u à ${riseAt}`);
+  const end = initPath(null);
+  const h = island.heightAt(end.x, end.z);
+  check('chemin sur la terre ferme', h > WORLD.seaLevel + 0.5,
+    `end h=${h.toFixed(2)} (seuil ${WORLD.seaLevel + 0.5})`);
 }
 
-/* ── 2. trois embouchures distinctes ─────────────────────────────────────── */
-{
-  const mouths = BRANCHES.map((br) => ({ x: br.sx[br.N], z: br.sz[br.N] }));
-  let minD = Infinity;
-  for (let a = 0; a < mouths.length; a++) {
-    for (let b = a + 1; b < mouths.length; b++) {
-      minD = Math.min(minD, Math.hypot(mouths[a].x - mouths[b].x, mouths[a].z - mouths[b].z));
-    }
-  }
-  check('3 embouchures écartées (> 80 u deux à deux)', mouths.length === 3 && minD > 80,
-    `${mouths.length} embouchures, min ${minD.toFixed(0)} u`);
-}
-
-/* ── 3. continuité autour de la jonction : pas de trou isInRiver dans le
- *       chenal, pas de saut de carve entre sondes adjacentes ────────────── */
-{
-  // Transects perpendiculaires au tronc, de part et d'autre de la jonction
-  // authorée [40,80]·L (le split est à t≈0.80 du tronc).
-  const L = 3.1752;
-  const junction = { x: 40 * L, z: 80 * L };
-  let gapFree = true, smooth = true, worstJump = 0, worstBands = 0;
-  for (let s = -5; s <= 5; s++) {
-    // ligne de sondes espacées de 1 u, transversale (axe ~NE-SO)
-    const cx = junction.x + s * 4, cz = junction.z + s * 2;
-    // Un transect près de la jonction traverse LÉGITIMEMENT jusqu'à trois
-    // chenaux (tronc + distributaires) séparés par de la terre. Le défaut
-    // recherché — le scintillement d'identité de branche du champ combiné —
-    // fragmentait le chenal en BEAUCOUP de petites bandes. On compte donc
-    // les bandes contiguës : plus de 3, c'est un trou artificiel.
-    let bands = 0, prevIn = false;
-    let prevH = null;
-    for (let o = -30; o <= 30; o += 1) {
-      const x = cx + o * 0.6, z = cz - o * 0.8;
-      const inR = river.isInRiver(x, z);
-      if (inR && !prevIn) bands++;
-      prevIn = inR;
-      const h = island.heightAt(x, z);
-      if (prevH !== null) {
-        const jump = Math.abs(h - prevH);
-        if (jump > worstJump) worstJump = jump;
-        if (jump > 1.5) smooth = false;
-      }
-      prevH = h;
-    }
-    if (bands > worstBands) worstBands = bands;
-    if (bands > 3) gapFree = false;
-  }
-  check('jonction sans trou isInRiver (≤ 3 bandes/transect)', gapFree, `max ${worstBands} bandes`);
-  check('carve continu à la jonction (sauts < 1.5 u)', smooth, `pire saut ${worstJump.toFixed(2)} u`);
-}
-
-/* ── 3bis. contention LOCALE : sous la crête de digue, OU filet plancher ── */
-{
-  const _t9 = new THREE.Vector3();
-  let contained = true, worst = 0, where = '';
-  for (let b = 0; b < BRANCHES.length; b++) {
-    const br = BRANCHES[b];
-    for (let i = 1; i < br.N; i++) {
-      if (!br.fade || br.fade[i] < 0.5) continue;
-      // Zone d'épinglage de jonction (b>0, t<0.30) : l'eau y est celle du
-      // tronc et les sondes « berges » tombent dans le chenal voisin.
-      if (b > 0 && i / br.N < 0.30) continue;
-      br.curve.getTangentAt(i / br.N, _t9);
-      const nx = -_t9.z, nz = _t9.x;
-      const l = Math.hypot(nx, nz) || 1;
-      // Même sémantique que build(), sur EXACTEMENT les mêmes rayons :
-      // crête de digue par côté = max du sol le long du rayon de berge.
-      const wHalf = RIVER.width * 0.5 * widthKAt(b, i / br.N);
-      // Une digue est du sol SEC (même règle que build) : les rayons dans un
-      // chenal mouillé sont ignorés ; sans berge sèche des deux côtés, la
-      // station n'est pas testable (l'eau y rejoint l'eau).
-      let crestL = -Infinity, crestR = -Infinity;
-      for (let k2 = 0; k2 < 5; k2++) {
-        const d = wHalf + 0.5 + 2.5 * (k2 / 4);
-        const xl = br.sx[i] + (nx / l) * d, zl = br.sz[i] + (nz / l) * d;
-        const xr = br.sx[i] - (nx / l) * d, zr = br.sz[i] - (nz / l) * d;
-        if (!isInRiver(xl, zl)) { const g2 = island.heightAt(xl, zl); if (g2 > crestL) crestL = g2; }
-        if (!isInRiver(xr, zr)) { const g2 = island.heightAt(xr, zr); if (g2 > crestR) crestR = g2; }
-      }
-      if (crestL === -Infinity || crestR === -Infinity) continue;
-      const bedC = island.heightAt(br.sx[i], br.sz[i]);
-      const lim = Math.max(Math.min(crestL, crestR) - 0.10, bedC + 0.15, WORLD.seaLevel + 0.03);
-      const excess = br.profile[i] - lim;
-      if (excess > 0.20 && excess > worst) { worst = excess; where = `b${b} i${i}`; contained = false; }
-    }
-  }
-  check('contention locale (crête de digue ou filet plancher)', contained,
-    contained ? '' : `dépassement ${worst.toFixed(2)} u à ${where}`);
-}
-
-/* ── 4. build() idempotent ───────────────────────────────────────────────── */
-{
-  const before = river.group.children.length;
-  river.build(island.heightAt);
-  const after = river.group.children.length;
-  check('river.build() idempotent (mêmes enfants)', before === after, `${before} → ${after}`);
-}
-
-/* ── 5. le chemin aboutit à la culée réelle ──────────────────────────────── */
-{
-  const end = initPath(river.bridgeInfo);
-  const ends = river.bridgeInfo?.ends ?? [];
-  let d = Infinity;
-  for (const e of ends) d = Math.min(d, Math.hypot(end.x - e.x, end.z - e.z));
-  check('fin du chemin < 8 u de la culée réelle', d < 8, `${d.toFixed(1)} u`);
-}
-
-/* ── 6. far plane ≥ pire cas caméra + bord réel de l'océan ───────────────── */
+/* ── 2. far plane ≥ pire cas caméra + bord réel de l'océan ───────────────── */
 {
   const ocean = island.group.getObjectByName('ocean');
   ocean.geometry.computeBoundingSphere();
@@ -210,9 +74,26 @@ river.build(island.heightAt);
     `far ${CAMERA.far} vs ${Math.round(CAMERA.maxDistance + rim)}`);
 }
 
-/* ── 7. champ de nuages au-delà de l'orbite maximale ─────────────────────── */
+/* ── 3. champ de nuages au-delà de l'orbite maximale ─────────────────────── */
 check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDistance,
   `${CLOUD_FIELD_HALF} vs ${Math.round(CAMERA.maxDistance)}`);
+
+/* ── 4. étangs carvés : centre dans le bassin, fond plus bas que pourtour ─── */
+{
+  let ok = true, detail = '';
+  for (const p of ponds.PONDS) {
+    const inPond = ponds.isInPond(p.x, p.z);
+    const hCenter = island.heightAt(p.x, p.z);
+    const hRim = island.heightAt(p.x + p.radius * 2.5, p.z);
+    if (!inPond || !(hCenter < hRim)) {
+      ok = false;
+      detail = `pond@(${p.x.toFixed(0)},${p.z.toFixed(0)}) in=${inPond} hC=${hCenter.toFixed(2)} hR=${hRim.toFixed(2)}`;
+      break;
+    }
+  }
+  check('étangs carvés (centre mouillé, fond < pourtour)', ok,
+    ok ? `${ponds.PONDS.length} bassins` : detail);
+}
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
 say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');

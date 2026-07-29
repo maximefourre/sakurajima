@@ -15,7 +15,6 @@ import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
 import { createIsland } from './island.js';
 import { createPonds } from './ponds.js';
-import { createRiver } from './river.js';
 import { createSakuraForest } from './sakura.js';
 import { createGrass } from './grass.js';
 import { createPetals } from './petals.js';
@@ -116,7 +115,7 @@ const world = {
   daySpeed: 1,
   paused: false,
   wind: null,
-  island: null, ponds: null, river: null, forest: null, grass: null,
+  island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
@@ -268,12 +267,11 @@ async function boot() {
 
   await step('relief de l’île');
   world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null });
-  world.river = createRiver({ wind: world.wind });
-  // Both the pond basins and the river channel are composed INTO the island's
-  // heightfield, so the terrain mesh and every heightAt() query agree on where
-  // the ground is by construction rather than by coincidence. Carving after the
-  // fact would leave the water floating over higher ground.
-  const carve = (x, z, h) => world.river.carveRiver(x, z, world.ponds.carvePonds(x, z, h));
+  // Only the pond basins are composed INTO the island's heightfield, so the
+  // terrain mesh and every heightAt() query agree on where the ground is by
+  // construction rather than by coincidence. Carving after the fact would
+  // leave the water floating over higher ground.
+  const carve = (x, z, h) => world.ponds.carvePonds(x, z, h);
   world.island = createIsland({ seed: SEED, quality: q, carve });
   scene.add(world.island.group);
 
@@ -283,30 +281,21 @@ async function boot() {
   world.heightAt = world.island.heightAt;
   world.slopeAt = world.island.slopeAt;
 
-  // The river needs the finished terrain to know where its own bed ended up,
-  // so the water surface and bridge are built here rather than at construction.
-  world.river.build(world.heightAt, world.island.waterUniforms);
-  // The bridge slid to its real footing during build(); snap the pilgrim
-  // path's last segment onto the actual abutment NOW, before the grass is
-  // placed — grass exclusion evaluates isOnPath at placement time.
-  initPath(world.river.bridgeInfo);
+  // Authored pilgrim path only — no abutment to snap onto. Call before grass
+  // placement so exclusion evaluates isOnPath against the nominal route.
+  initPath(null);
 
-  // Composite ground for MOVERS only (dog, follow camera): the bridge deck
-  // overrides the terrain column it covers. Scatter/placement systems keep
-  // using world.heightAt — island.heightAt stays the single source of truth
-  // for everything rooted in the terrain.
-  world.groundAt = (x, z) => {
-    const d = world.river.bridgeDeckHeightAt(x, z);
-    return d !== null ? d : world.heightAt(x, z);
-  };
+  // groundAt is the mover surface (dog, follow camera). Today it is just the
+  // terrain; kept as a wrapper so later systems can override a column without
+  // forking every caller.
+  world.groundAt = (x, z) => world.heightAt(x, z);
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });
   scene.add(world.ponds.group);
-  scene.add(world.river.group);
 
-  /** Standing or running water. Every scatter system has to reject it. */
-  world.inWater = (x, z) => world.ponds.isInPond(x, z) || world.river.isInRiver(x, z);
+  /** Standing water (ponds). Every scatter system has to reject it. */
+  world.inWater = (x, z) => world.ponds.isInPond(x, z);
 
   await step('cerisiers');
   world.forest = createSakuraForest({
@@ -348,10 +337,10 @@ async function boot() {
     bounds: { size: 230 * LAND_SCALE },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds and the
-    // river are carved into the heightfield, so their beds pass every test grass
-    // does apply — gentle slope, right altitude — and the pools fill with
-    // submerged blades. The pilgrim path is packed earth for the same reason.
+    // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds are
+    // carved into the heightfield, so their beds pass every test grass does
+    // apply — gentle slope, right altitude — and the pools fill with submerged
+    // blades. The pilgrim path is packed earth for the same reason.
     exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
     wind: world.wind,
   });
@@ -373,8 +362,8 @@ async function boot() {
     wind: world.wind,
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    // Same contract as grass: keeps the fallen-petal carpet out of the river,
-    // the ponds and off the packed earth of the pilgrim path.
+    // Same contract as grass: keeps the fallen-petal carpet out of the ponds
+    // and off the packed earth of the pilgrim path.
     exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
   });
   scene.add(world.petals.mesh);
@@ -404,7 +393,7 @@ async function boot() {
     normalAt: world.island.normalAt,
     inWater: world.inWater,
     wind: world.wind,
-    bridgeInfo: world.river.bridgeInfo,
+    bridgeInfo: null,
   });
   scene.add(world.details.group);
 
@@ -415,9 +404,6 @@ async function boot() {
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     isInPond: world.inWater,
-    deckHeightAt: world.river.bridgeDeckHeightAt,
-    deckNormalAt: world.river.bridgeDeckNormalAt,
-    waterSurfaceAt: world.river.waterSurfaceYAt,
     wind: world.wind,
     seaLevel: world.island.seaLevel,
   });
@@ -439,7 +425,7 @@ async function boot() {
   setTimeout(dismissHint, 13000);
   addEventListener('keydown', dismissHint, { once: true });
 
-  // Handy for debugging from the console: window.__sk.world.river, etc.
+  // Handy for debugging from the console: window.__sk.world, etc.
   globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock };
 
   renderer.setAnimationLoop(frame);
@@ -482,7 +468,6 @@ function frame() {
 
   world.island.update(t, phase);
   world.ponds.update(t, dt, phase);
-  world.river.update(t, shaderPhase);
 
   // Trees take wind as their second argument, not the phase; the lighting
   // arrives separately through setEnvironment(). See forestWind for why this

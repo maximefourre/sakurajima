@@ -30,7 +30,7 @@
  */
 
 import * as THREE from 'three';
-import { WORLD, RIVER, LAND_SCALE } from './config.js';
+import { WORLD, LAND_SCALE } from './config.js';
 import { streamFor, R, noise2, clamp, mix } from './noise.js';
 
 const TAU = Math.PI * 2;
@@ -164,19 +164,8 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
     (p) => p && Number.isFinite(p.x) && Number.isFinite(p.z) && Number.isFinite(p.radius)
   );
 
-  // river.js exposes no point query at construction time and main.js passes
-  // none, so the channel is re-sampled here from the authored path. 160 points,
-  // build-time only.
-  const riverPts = new THREE.CatmullRomCurve3(
-    RIVER.path.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
-  ).getSpacedPoints(160);
-  const RIVER_CLEAR2 = (RIVER.width * 0.5 + RIVER.bankWidth * 0.5 + 2) ** 2;
-
+  // Plus de riviere sur l'ile : seuls les etangs interdisent un site au sol.
   function blocked(x, z) {
-    for (let i = 0; i < riverPts.length; i++) {
-      const dx = x - riverPts[i].x, dz = z - riverPts[i].z;
-      if (dx * dx + dz * dz < RIVER_CLEAR2) return true;
-    }
     for (let i = 0; i < pondList.length; i++) {
       const p = pondList[i];
       const dx = x - p.x, dz = z - p.z;

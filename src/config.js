@@ -13,10 +13,10 @@ export const SEED = 20260727;
  * Island footprint multiplier.
  *
  * Every hand-authored coordinate in this project — the ridge spine, the meadow
- * shelf, the secondary bumps, the pond basins, the river's path, the lantern
+ * shelf, the secondary bumps, the pond basins, the paths, the lantern
  * line — was laid out against one particular island size. Growing the island by
  * editing `ISLAND_R` alone leaves all of it huddled in the middle of a bigger
- * landmass with the river ending nowhere near the sea.
+ * landmass with the coastline nowhere near where it was authored.
  *
  * So the footprint is ONE knob and every authored XZ coordinate is multiplied by
  * it at the point where it is defined. Heights do NOT follow this knob: the
@@ -214,89 +214,10 @@ export const CAMERA = {
   // changes far/(far-near) by <0.01%.
   far: Math.round((620 + 460 * 3.37) * LAND_SCALE) + 200,
   // Framed to read as an island: far enough out that the coastline and the
-  // surrounding sea are both in shot, high enough to see the river's whole run.
+  // surrounding sea are both in shot, high enough to take in the whole landmass.
   start: { x: 215 * LAND_SCALE * 0.86, y: 112 * LAND_SCALE * 0.86, z: 250 * LAND_SCALE * 0.86 },
   target: { x: 0, y: 4, z: 10 * LAND_SCALE },
   minDistance: 14,
   maxDistance: 620 * LAND_SCALE,
   maxPolar: Math.PI * 0.495, // stop just above the horizon so you can't go under the island
-};
-
-/**
- * The river. A single watercourse from the ridge to the sea, crossed by a
- * wooden bridge. Its path is a hand-placed spline rather than something derived
- * from the terrain: a real drainage simulation would wander plausibly but boringly,
- * whereas an authored curve can be made to pass exactly where the bridge should be.
- */
-export const RIVER = {
-  // Control points in world XZ, source (up on the ridge) to mouth (the sea).
-  //
-  // These are not guesses: the terrain was probed for its actual land extent
-  // (x ∈ [-102, 102], z ∈ [-110, 94], summit at (-60, 0) ≈ 20.6) and the line
-  // was then chosen to descend monotonically from the ridge shoulder to the
-  // south-east coast — roughly 19 → 17 → 13 → 8 → 0.6 → sea. An authored path
-  // that climbs anywhere makes the water surface either flow uphill or, once
-  // the descent constraint kicks in, flatten out entirely.
-  // Sinuous rather than a straight diagonal: a river drawn as a smooth line
-  // between two points reads unmistakably as a road. The lateral wander is what
-  // makes it look like water found this route rather than an engineer choosing it.
-  //
-  // Scaled by LAND_SCALE, like every other authored coordinate: the path's whole
-  // point is where it meets the coast, and left unscaled on a larger island it
-  // would stop in open meadow.
-  path: [
-    [-48,  -4],
-    [-42,  10],
-    [-28,  18],
-    [-22,  32],
-    [ -6,  38],
-    [  2,  52],
-    [ 16,  58],
-    [ 24,  72],
-    [ 40,  80],
-    [ 50,  94],
-    [ 64, 106],
-  ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]),
-
-  // Distributaries of the delta — the river reaches the sea at three mouths.
-  // Each path BEGINS with the two trunk control points around the junction
-  // ([24,72] then [40,80], t ≈ 0.80 on the trunk, downstream of the bridge) so
-  // the Catmull-Rom tangent at the split matches the trunk's flow direction,
-  // then diverges to its own mouth. Mouths are 60+ world units apart with land
-  // tongues between them; all end past the coast so the bank-based mouth
-  // detection in river.js finds each estuary on its own. `widthK` is the share
-  // of the flow a distributary carries — the carve blends from full trunk
-  // width at the junction down to this.
-  // The junction sits where the trunk's water is already near sea level
-  // (probed: waterY ≈ 0.9 at [40,80]) — splitting higher upstream pins the
-  // branches to a water level ABOVE the low coastal flat they then cross,
-  // which reads as a floating sheet. The whole south-east quadrant is a low
-  // braided plain, so the arms fan out WIDE: mouths are 135–165 world units
-  // apart, each meeting its own stretch of surf.
-  branches: [
-    { path: [[24, 72], [40, 80], [56, 84], [72, 84], [86, 82], [98, 80]],  widthK: 0.55 }, // east mouth
-    { path: [[24, 72], [40, 80], [38, 92], [32, 104], [24, 116], [16, 126]], widthK: 0.50 }, // south-west mouth
-  ].map((b) => ({ ...b, path: b.path.map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]) })),
-
-  // The channel widens with the island, but only partly — a river is sized by
-  // its catchment, not by the map, and at full scale it starts to read as an
-  // estuary all the way up.
-  width: 6.0 * (1 + (LAND_SCALE - 1) * 0.6),
-  bankWidth: 6.5 * (1 + (LAND_SCALE - 1) * 0.6),
-  // Depth follows the relief raise, capped — a deeper cut than ~4.3 starts to
-  // read as a gorge at this channel width.
-  depth: 3.4 * Math.min(HEIGHT_SCALE, 1.25),
-  flowSpeed: 0.55,    // surface scroll rate
-
-  // Where along the path (0..1) the bridge sits. 0.46 puts it on the middle
-  // reach, where the banks are widest and the crossing reads best.
-  bridgeAt: 0.46,
-  // Spans the wetted channel plus a margin, NOT the full carve: the river runs
-  // along the ridge flank here, so the west bank climbs forever — a longer
-  // deck just drives its west end into the hillside and leaves the east end
-  // on a stone tower. buildBridge() also slides the deck a few units along its
-  // own axis to find the most level pair of abutments.
-  bridgeSpan: 16 * (1 + (LAND_SCALE - 1) * 0.6),
-  bridgeWidth: 5.5,
-  bridgeRise: 4.6,    // camber of the arch — taiko-bashi are steeply humped
 };

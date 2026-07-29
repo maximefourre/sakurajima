@@ -169,9 +169,11 @@ const DEFAULTS = {
 	normalBow: 0.55,       // fake cross-section cupping baked into the normals
 
 	// --- placement ---------------------------------------------------------------
-	// Coverage is deliberately generous: wide clump mask, few bare patches,
-	// grass climbing slightly steeper ground. Perceived density comes from
-	// COVERAGE far more than from blade count.
+	// Full coverage (player brief: no bare square metres). Clump mask only
+	// modulates density — never digs holes. bareThreshold is parked above the
+	// noise range so the bare-earth mask never fires (kept with bareFloor for
+	// memory). Only hard excludes leave grass-free ground: path, sand, ponds,
+	// rocks. Perceived density comes from COVERAGE far more than blade count.
 	beachY: 1.6,
 	beachBlend: 1.5,
 	shoreWobble: 0.9,      // wiggle on the beach line so it is not a contour ring
@@ -180,10 +182,11 @@ const DEFAULTS = {
 	slopeSoft: 0.13,       // 1 - n.y   (~30 deg) -> density starts dropping
 	slopeMax: 0.38,        // ~50 deg -> no grass
 	patchScale: 0.030,     // low-freq clump mask
-	patchLow: 0.05,
-	patchHigh: 0.40,
+	patchLow: 0.20,
+	patchHigh: 0.75,
+	patchFloor: 0.55,      // densité MINIMALE partout : la touffe module, ne troue jamais
 	bareScale: 0.115,      // higher-freq bare-earth mask
-	bareThreshold: 0.92,
+	bareThreshold: 2.0,
 	bareFloor: 0.20,
 	tintScale: 0.021,      // low-freq colour patches
 	terrainTilt: 0.38,     // 0 = always vertical, 1 = fully aligned to the ground normal
@@ -703,15 +706,14 @@ export function createGrass( options = {} ) {
 
 		// (1) cheapest test first: low-frequency clump mask -> patches, not Poisson
 		const patchN = fbm2D( x * CFG.patchScale, z * CFG.patchScale, nSeed, 3 );
-		let p = smooth01( patchN, CFG.patchLow, CFG.patchHigh );
-		if ( p <= 0.001 ) continue;
+		let p = CFG.patchFloor + ( 1 - CFG.patchFloor ) * smooth01( patchN, CFG.patchLow, CFG.patchHigh );
 
 		// bare earth: sharp higher-frequency mask punches holes through the clumps
 		const bare = valueNoise2D( x * CFG.bareScale, z * CFG.bareScale, ( nSeed ^ 0x9e37 ) >>> 0 );
 		if ( bare > CFG.bareThreshold ) p *= CFG.bareFloor;
 		if ( rand() > p ) continue;
 
-		// (2) standing water. Ponds and the river are carved into the heightfield
+		// (2) standing water. The pond basins are carved into the heightfield
 		// itself, so their beds pass the height and slope tests perfectly happily
 		// and fill up with submerged grass. Nothing else here can catch that: the
 		// bed of a pond is, geometrically, a gentle hollow in the meadow.

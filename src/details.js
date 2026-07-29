@@ -11,9 +11,8 @@
  *   1. Wildflowers, in drifts rather than sprinkled. Real meadows are patchy —
  *      a species takes a hollow and holds it — and an even scatter is the single
  *      most reliable way to make procedural planting look procedural.
- *   2. Stone lanterns, which are the only man-made thing on the island besides
- *      the bridge. They also give the night cycle something to do at ground
- *      level: their fire boxes come up as the sun goes down.
+ *   2. Stone lanterns along the pilgrim path — the only man-made lights at
+ *      ground level. Their fire boxes come up as the sun goes down.
  *   3. Beach litter — pebbles and driftwood along the tideline, where the eye
  *      goes looking for scale and currently finds an unbroken sweep of sand.
  *
@@ -24,8 +23,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
 import { makeWoodBump } from './detailtex.js';
-import { WORLD, LAND_SCALE, AREA, RIVER, PATH } from './config.js';
-import { riverBedFactor, waterSurfaceYAt } from './river.js';
+import { WORLD, LAND_SCALE, AREA, PATH } from './config.js';
 
 const TAU = Math.PI * 2;
 
@@ -56,8 +54,7 @@ function buildPathIndex(points) {
   // Organic wander: push every sample sideways with low-frequency fbm, then
   // REBUILD the curve from the perturbed samples and resample — so the ribbon,
   // the grass exclusion and the torii all follow the same wandering line. The
-  // last stretch (t > 0.90) stays authored: initPath snaps it onto the real
-  // bridge abutment and the invariants assert on it.
+  // last stretch (t > 0.90) stays closer to the authored polyline.
   {
     const _tanP = new THREE.Vector3();
     for (let i = 1; i < PATH_N; i++) {
@@ -95,18 +92,19 @@ function buildPathIndex(points) {
   }
 }
 const P_CELL = 12;
-// Fallback index from the authored points, so isOnPath works before initPath
-// (and in standalone test pages that never build a bridge).
+// Index from the authored points at import — the normal case (no abutment to
+// snap onto). initPath(null) keeps this route; a non-null bridgeInfo remains
+// supported for tests or a future path network that supplies an end target.
 buildPathIndex(PATH.points);
 
 /**
- * Snap the path's final approach onto the bridge's REAL west abutment.
+ * Ensure the pilgrim-path spatial index is ready and return the path end.
  *
- * The bridge slides up to ±12 units along its own axis to find level footing
- * (river.js buildBridge), so the authored endpoint is only nominal. Call this
- * after river.build() and BEFORE createGrass — the grass exclusion evaluates
- * isOnPath at placement time and must follow the corrected route.
- * Returns the corrected end point {x, z} (the invariants test asserts on it).
+ * `bridgeInfo === null` is the NORMAL case: the authored PATH polyline is kept
+ * as-is (built at import). A non-null `bridgeInfo` with `ends` still snaps the
+ * last control point onto the nearest end (legacy / future path-network hook).
+ * Call before createGrass so exclusion follows the final route.
+ * Returns the end point {x, z}.
  */
 export function initPath(bridgeInfo) {
   if (!bridgeInfo || !bridgeInfo.ends) return _pathEnd;
@@ -350,7 +348,7 @@ function makeToriiGeometry() {
  * @param {Function} opts.heightAt
  * @param {Function} [opts.slopeAt]
  * @param {Function} [opts.normalAt]
- * @param {Function} [opts.inWater]  (x, z) => bool — ponds and river
+ * @param {Function} [opts.inWater]  (x, z) => bool — ponds
  * @param {object}   [opts.wind]     from createWind(); shared BY REFERENCE
  */
 export function createDetails({
@@ -361,7 +359,7 @@ export function createDetails({
   normalAt = null,
   inWater = null,
   wind = null,
-  bridgeInfo = null,   // river.bridgeInfo — the bridge's FINAL placement
+  bridgeInfo = null,   // unused (kept for call-site compatibility); lanterns are path-only
 } = {}) {
   if (typeof heightAt !== 'function') {
     throw new Error('[details] createDetails requires heightAt(x, z) -> y');
@@ -456,47 +454,13 @@ export function createDetails({
   let lanternCount = 0;
   {
     const rng = streamFor(seed, 'details.lanterns');
-    // Hand-placed rather than scattered. Lanterns mark a route — one standing on
-    // its own in the middle of a field reads as set dressing nobody put there.
+    // Hand-placed rather than scattered. A lantern exists ONLY along a path
+    // (or at the overlook terrace that terminates it) — one standing alone in
+    // a field reads as set dressing nobody put there.
     const spots = [
-      [-14, 26], [4, 40], [22, 54], [40, 66],   // the approach to the bridge
-      [-79, 12.5], [-59, 27.5], [-37, 44],      // beside the pilgrim path, cliff to bridge
+      [-79, 12.5], [-59, 27.5], [-37, 44],      // beside the pilgrim path
       [-91, -2], [-86, 5],                      // flanking the overlook terrace at the rim
     ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]);
-
-    // A pair of lanterns flanking each end of the bridge. The bridge slides
-    // along its own axis to find level footing, so its REAL placement comes
-    // from river.bridgeInfo — the nominal curve position can be up to 12
-    // units off the actual abutments. The nominal computation remains only
-    // as a fallback for standalone use without a built river.
-    if (bridgeInfo && bridgeInfo.ends) {
-      const fx = -bridgeInfo.axis.z, fz = bridgeInfo.axis.x;   // flow axis
-      for (const end of bridgeInfo.ends) {
-        const ox = end.x - bridgeInfo.center.x, oz = end.z - bridgeInfo.center.z;
-        const ol = Math.hypot(ox, oz) || 1;
-        for (const along of [-1, 1]) {
-          spots.push([
-            end.x + (ox / ol) * 2.0 + fx * 2.6 * along,
-            end.z + (oz / ol) * 2.0 + fz * 2.6 * along,
-          ]);
-        }
-      }
-    } else {
-      const c = new THREE.CatmullRomCurve3(
-        RIVER.path.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
-      );
-      const p = c.getPointAt(RIVER.bridgeAt);
-      const tn = c.getTangentAt(RIVER.bridgeAt);
-      const l = Math.hypot(tn.x, tn.z) || 1;
-      const nx = -tn.z / l, nz = tn.x / l;      // deck axis
-      const tx = tn.x / l, tz = tn.z / l;       // flow axis
-      const end = RIVER.bridgeSpan * 0.5 + 2.0;
-      for (const side of [-1, 1]) {
-        for (const along of [-1, 1]) {
-          spots.push([p.x + nx * end * side + tx * 2.6 * along, p.z + nz * end * side + tz * 2.6 * along]);
-        }
-      }
-    }
     const usable = spots.filter(([x, z]) => heightAt(x, z) >= WORLD.beachTop && !wet(x, z));
     lanternCount = usable.length;
 
@@ -619,41 +583,6 @@ export function createDetails({
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     group.add(mesh);
-
-    // — river gravel: pebbles strewn along the carved beds, seen through the
-    // now-transparent water. Sampled by jittering along the authored paths
-    // instead of island-wide rejection (the channels are a sliver of the map).
-    {
-      const wantR = Math.round(420 * budget);
-      const meshR = new THREE.InstancedMesh(pebbleGeo, pebbleMat, wantR);
-      meshR.name = 'river-pebbles';
-      meshR.castShadow = false;
-      meshR.receiveShadow = true;
-      const paths = [RIVER.path, ...(RIVER.branches || []).map((b) => b.path)];
-      let placedR = 0, attemptsR = 0;
-      while (placedR < wantR && attemptsR < wantR * 30) {
-        attemptsR++;
-        const path = paths[(rng() * paths.length) | 0];
-        const a = path[(rng() * (path.length - 1)) | 0];
-        const b2 = path[Math.min(path.length - 1, ((rng() * (path.length - 1)) | 0) + 1)];
-        const tt = rng();
-        const x = a[0] + (b2[0] - a[0]) * tt + R.range(rng, -9, 9);
-        const z = a[1] + (b2[1] - a[1]) * tt + R.range(rng, -9, 9);
-        if (riverBedFactor(x, z) < 0.45) continue;
-        const h = heightAt(x, z);
-        const w = waterSurfaceYAt(x, z);
-        if (w === null || h > w - 0.08) continue;   // only the wetted bed
-        _e.set(rng() * TAU, rng() * TAU, rng() * TAU);
-        _q.setFromEuler(_e);
-        const sc = R.skew(rng, 0.4, 1.9, 1.6);
-        _m.compose(_p.set(x, h - 0.03 * sc, z), _q, _s.set(sc, sc * 0.6, sc * 1.2));
-        meshR.setMatrixAt(placedR++, _m);
-      }
-      meshR.count = placedR;
-      meshR.instanceMatrix.needsUpdate = true;
-      meshR.computeBoundingSphere();
-      group.add(meshR);
-    }
   }
 
   /* ── 4. the pilgrim path and its torii ───────────────────────── */
