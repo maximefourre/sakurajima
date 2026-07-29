@@ -82,9 +82,16 @@ export { BRANCHES };
  * sonder les crêtes de digue sur EXACTEMENT les mêmes rayons que build().
  */
 export function widthKAt(b, t) {
-  // The trunk is born narrow — a spring, not a canal: 0.35 of full width at
-  // the source, its own width by t = 0.10 (~55 world units downstream).
-  if (b === 0) return 0.35 + 0.65 * smoothstep(0.0, 0.10, t);
+  // Vasque de naissance : à 0.35× la largeur, le chenal de la source était
+  // plus étroit que le pas de la grille de terrain — le bake le lissait en
+  // flaque de 3 cm (capture joueur). La source naît en vasque PLEINE largeur
+  // (résoluble par la grille : eau profonde entre les rochers du récif), se
+  // resserre en goulet, puis reprend sa largeur de croisière.
+  if (b === 0) {
+    const pool = 1 - smoothstep(0.015, 0.06, t);
+    const neck = 0.55 + 0.45 * smoothstep(0.04, 0.12, t);
+    return Math.max(pool, neck);
+  }
   const k = BRANCHES[b].widthK;
   return 1 + (k - 1) * smoothstep(0.20, 0.55, t);
 }
@@ -334,7 +341,10 @@ export function riverBedFactor(x, z) {
   const { dist, t, b } = nearestOnRiver(x, z);
   const wk = widthKAt(b, t);
   const halfW = RIVER.width * 0.5 * wk;
-  return 1 - smoothstep(halfW * 0.9, halfW + RIVER.bankWidth * wk * 0.45, dist);
+  // Tablier resserré (0.45 -> 0.26·bank) : dans les références (rivières
+  // Ghibli), l'herbe descend presque jusqu'à la ligne d'eau — un lit de
+  // sable large de tout le couloir noyait la rivière dans un oued beige.
+  return 1 - smoothstep(halfW * 0.9, halfW + RIVER.bankWidth * wk * 0.26, dist);
 }
 
 /**
@@ -462,10 +472,12 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     // du delta les jupes d'un bras pendent DANS le chenal mouillé du voisin —
     // sans ce flag elles dessinaient des lignes blanches géométriques à
     // travers l'eau. La jupe bouche un jour, elle ne joue pas l'eau vive.
-    // Un bord DRAPÉ est marqué aussi (presque autant) : posé à sol+0.08 au
-    // fond de la tranchée d'un autre bras, sa profondeur ≈ 0 le peignait en
-    // « eau peu profonde » pâle sous l'eau du voisin — une couture claire.
-    skirt.push(1, brchL ? 0 : 0.85, brchR ? 0 : 0.85, 1);
+    // Un bord DRAPÉ est marqué aussi, mais modérément (0.5) : posé à
+    // sol+0.08 au fond de la tranchée d'un autre bras, sa profondeur ≈ 0 le
+    // peignait en « eau peu profonde » pâle sous l'eau du voisin — une
+    // couture claire. Le flag s'interpole jusqu'à l'autre bord (2 colonnes
+    // intérieures seulement) : le garder bas limite la casse au centre.
+    skirt.push(1, brchL ? 0 : 0.5, brchR ? 0 : 0.5, 1);
 
     if (i < N) {
       const a = i * 4;
@@ -631,9 +643,15 @@ const RIVER_FRAG = /* glsl */ `
     // invisible et les biefs peu profonds lisaient comme des oueds à sec —
     // la rivière doit se LIRE comme une rivière, style féérique assumé. Le
     // bord reste doux (0.30) pour que la ligne d'eau fonde dans la berge.
-    float alpha = mix(0.34, 0.85, depthN);
+    // 0.92 au coeur : une eau « profonde » dont on voit le lit n'est pas
+    // profonde — le fond doit disparaître là où le chien perd pied.
+    // PAS de réduction d'alpha par vSkirt : avec 2 colonnes intérieures, le
+    // flag d'un bord drapé s'interpole à travers TOUTE la nappe — chaque
+    // bief à bord drapé perdait un tiers d'alpha sur la moitié de sa largeur
+    // et rendait laiteux (le « délavé » qui a survécu à trois réglages de
+    // couleur). Le flag ne coupe que écume/spéculaire/fresnel.
+    float alpha = mix(0.34, 0.92, depthN);
     alpha = max(alpha, foam * 0.75);
-    alpha *= 1.0 - 0.35 * vSkirt;
     gl_FragColor = vec4(col, alpha * pow(vFade, 0.55));
     #include <fog_fragment>
   }
@@ -1103,11 +1121,13 @@ export function createRiver({ wind } = {}) {
     // Saturated on purpose: at the grazing angles a walker sees the river
     // from, the fresnel sky mix bleaches whatever it is given — a desaturated
     // deep colour washed out to lifeless grey.
-    uShallow:  { value: new THREE.Color(0x43b0aa) },
-    // Plus clair et plus saturé que l'ancien 0x155a68 : la heightmap (texel
-    // 2-3 u) lisse la tranchée étroite et sous-estime la profondeur — le
-    // teal doit déjà chanter à mi-rampe.
-    uDeep:     { value: new THREE.Color(0x1a7183) },
+    // Étalonné sur les rivières Ghibli (consigne : comparer aux références
+    // en ligne) : leur eau est un BLEU saturé quasi opaque, plus foncé que
+    // les berges — le teal-gris translucide lisait « sable mouillé ». La
+    // heightmap (texel 2-3 u) sous-estime en plus la profondeur des
+    // tranchées étroites : la couleur doit chanter dès la mi-rampe.
+    uShallow:  { value: new THREE.Color(0x4fc4c4) },
+    uDeep:     { value: new THREE.Color(0x1e6f97) },
     uMouthCol: { value: new THREE.Color(0x2f9aa0) },
     uSunDir:   { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color(1, 1, 1) },

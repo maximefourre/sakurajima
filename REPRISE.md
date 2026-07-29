@@ -349,6 +349,30 @@ Piège de vérif payé : une « eau pâle qui couvre tout » à hauteur de chien
 peut être l'ENVERS de la nappe — vérifier `waterSurfaceYAt(x,z)` contre le y
 caméra avant de conclure (deux fausses itérations sur ce fantôme).
 
+**Suite 3 (même jour) — « pas profond », « flaque à la source », étalonnage
+Ghibli.** Consigne utilisateur adoptée en mémoire : comparer chaque passe
+visuelle à une référence en ligne. Écarts relevés (recherche d'images
+« ghibli river ») : leur eau est un bleu saturé quasi opaque PLUS FONCÉ que
+les berges, l'herbe descend à la ligne d'eau, pas de tablier de sable géant.
+1. **Le voile laiteux, enfin élucidé** : le flag `aSkirt` d'un bord drapé
+   (0.85) s'interpole à travers TOUTE la nappe (2 colonnes intérieures
+   seulement) → chaque bief à bord drapé perdait ~30 % d'alpha sur la moitié
+   de sa largeur. C'était LE « délavé » qui survivait à tous les réglages de
+   couleur. L'alpha ne dépend plus de vSkirt (seuls écume/spec/fresnel sont
+   coupés), flag drapé à 0.5.
+2. Couleurs étalonnées Ghibli : uShallow 0x4fc4c4, uDeep 0x1e6f97, alpha
+   cœur 0.92 ; tablier de lit resserré (riverBedFactor 0.45→0.26·bank).
+3. **Nage** (shiba.js) : dès que le sol est à plus de 0.85 sous la surface,
+   le chien perd pied et flotte à surface−0.85 (avant : il marchait au fond
+   en scaphandrier — « il a pied partout » = aucune profondeur perceptible).
+4. **Vasque de source** (widthKAt tronc) : né à 0.35× la largeur, le chenal
+   était plus étroit que le pas de la grille → bake lissé en flaque. La
+   source naît en vasque pleine largeur, se resserre en goulet (0.55), puis
+   largeur de croisière.
+Piège de vérif : en camMode « orbit », l'update du shiba est GELÉE — toute
+mesure console de sa physique (nage, saut) doit se faire en caméra suivie,
+sinon on lit des instantanés figés en plein lerp.
+
 ---
 
 ## Reste à faire, dans l'ordre

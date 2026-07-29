@@ -568,6 +568,7 @@ export function createShiba({
     moving: false,
     running: false,
     wading: false,
+    swimming: false,   // il a perdu pied dans la rivière — il flotte
     sitting: 0,        // 0..1 blend, not a boolean — he folds down over ~0.8 s
     excitement: 0,     // decays after a run; drives the tail
     tailPhase: 0,      // integrated wag phase — sin(t*rate) with a moving rate whips
@@ -861,8 +862,22 @@ export function createShiba({
 
     const dHere = deckHeightAt ? deckHeightAt(position.x, position.z) : null;
     const onDeck = dHere !== null && position.y > dHere - 2.0;
-    const ground = onDeck ? dHere : heightAt(position.x, position.z);
+    let ground = onDeck ? dHere : heightAt(position.x, position.z);
     state.wading = ground < seaLevel + 0.06;
+    // NAGE : quand le chenal est plus profond que ses pattes, le shiba perd
+    // pied et flotte juste sous la surface au lieu de marcher au fond en
+    // scaphandrier invisible — c'est la nage qui rend la profondeur lisible.
+    state.swimming = false;
+    if (!onDeck && waterSurfaceAt && !state.airborne) {
+      const wSw = waterSurfaceAt(position.x, position.z);
+      if (wSw !== null && ground < wSw - 0.85) {
+        // Immergé au poitrail, tête hors de l'eau — à −0.55 il semblait
+        // MARCHER sur l'eau.
+        ground = wSw - 0.85;
+        state.swimming = true;
+        state.wading = true;
+      }
+    }
     if (state.airborne) {
       // Ballistic: gravity only, land when the arc meets the ground (deck
       // included - you can hop onto the bridge planks).
