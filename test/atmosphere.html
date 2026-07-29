@@ -113,6 +113,8 @@ function sample(skyBundle, dayTime) {
     mieG: skyU.mieDirectionalG?.value ?? null,
     tint: skyU.uSkyTint?.value?.clone?.() ?? skyU.uSkyTint?.value ?? null,
     tintStrength: skyU.uSkyTintStrength?.value ?? null,
+    horizonFog: skyU.uHorizonFogColor?.value?.clone?.() ?? null,
+    horizonFogStrength: skyU.uHorizonFogStrength?.value ?? null,
     twilightGlow: skyBundle.sky.nightDome?.material?.uniforms?.uSunGlowColor?.value?.clone?.() ?? null,
   };
 }
@@ -213,6 +215,34 @@ check('autumn midi fog density > spring',
   aNoon.fogDensity != null && sNoon.fogDensity != null
     && aNoon.fogDensity > sNoon.fogDensity + 1e-9,
   `spring ${sNoon.fogDensity} autumn ${aNoon.fogDensity}`);
+
+/* ── HORIZON-1: autumn golden hour densifies shared fog so sea→fogColor fuses ── */
+check('autumn golden fog density ≫ spring golden',
+  aGold.fogDensity != null && sGold.fogDensity != null
+    && aGold.fogDensity > sGold.fogDensity * 1.80,
+  `spring ${sGold.fogDensity} autumn ${aGold.fogDensity} ratio ${
+    (aGold.fogDensity && sGold.fogDensity) ? (aGold.fogDensity / sGold.fogDensity).toFixed(3) : '?'
+  }`);
+check('autumn golden fog density > autumn midi (boost goldenW)',
+  aGold.fogDensity != null && aNoon.fogDensity != null
+    && aGold.fogDensity > aNoon.fogDensity * 1.06,
+  `noon ${aNoon.fogDensity} gold ${aGold.fogDensity}`);
+check('autumn golden horizonFogStrength > 0',
+  aGold.horizonFogStrength != null && aGold.horizonFogStrength > 0.25,
+  `got ${aGold.horizonFogStrength}`);
+check('autumn golden horizonFogColor === fogColor',
+  aGold.horizonFog && distColor(aGold.horizonFog, aGold.fog) < 2e-3,
+  aGold.horizonFog ? `${hexOf(aGold.horizonFog)} vs ${hexOf(aGold.fog)}` : 'missing');
+check('spring golden horizonFogStrength 0',
+  sGold.horizonFogStrength != null && near(sGold.horizonFogStrength, 0, 1e-6),
+  `got ${sGold.horizonFogStrength}`);
+check('nuit profonde autumn horizonFogStrength 0',
+  aNight.horizonFogStrength != null && aNight.horizonFogStrength < 0.01,
+  `got ${aNight.horizonFogStrength}`);
+check('nuit profonde autumn fog density ≈ spring (pas de boost nuit)',
+  aNight.fogDensity != null && sNight.fogDensity != null
+    && near(aNight.fogDensity, sNight.fogDensity, 1e-9),
+  `spring ${sNight.fogDensity} autumn ${aNight.fogDensity}`);
 
 /* ── deep night neutrality: no orange grade on moon/dome/fog path ── */
 check('nuit profonde autumn ≈ spring sun (coeffs ~0)',

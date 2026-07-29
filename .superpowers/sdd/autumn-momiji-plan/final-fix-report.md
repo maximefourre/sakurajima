@@ -1,8 +1,8 @@
 # Final fix wave — autumn night readability + golden horizon
 
 **Base head:** `5b9ae34`  
-**Verdict:** **DONE_WITH_CONCERNS** (residual golden sea/sky luminance step remains after contingency tint-cap only)
-
+**Wave commits:** `e0eb773` (night + tint + HUD), then HORIZON-1 follow-up  
+**Verdict:** **DONE**
 ## Defects addressed
 
 | ID | Severity | Symptom | Fix |
@@ -133,13 +133,55 @@ No longer `1 / 0.00M` on high/ultra.
 **FIXED (tiny, isolated, covered by headed observation).**  
 Cause was composer multi-pass `info` auto-reset, not seasonal rendering. Fix is two lines around the existing render path in `main.js` (+ mirror in `sky.render`). Safe relative to shading. Leave in.
 
-## Concerns
+## Concerns (resolved)
 
-1. **HORIZON-1 residual:** Cap `.08` alone does not fully erase the golden-hour sea/sky luminance step on a pure seaward framing. Further work would need a shared horizon grade beyond the plan’s first contingency (still must not fork ocean fog color).
-2. Capture clock labels can lag when the rAF loop is halted for stable screenshots; phase/`dayTime` values above are authoritative.
+1. ~~**HORIZON-1 residual**~~ — **CLOSED** in follow-up below. Cap `.08` alone was insufficient because the Sky addon dome is `fog:false`; ocean `fog_fragment` already converged to `phase.fogColor` but the dome did not. Fixed by low-elevation dome mix toward the **same** `fogColor` (no second palette) + autumn `goldenW` dens term.
+2. Capture clock labels can lag when the rAF loop is halted; phase/`dayTime` values are authoritative. Prefer live rAF screenshots (`preserveDrawingBuffer=false`).
 3. Absolute screenshot band luma is framing-sensitive; phase fill metrics + maple close visual are the primary NIGHT-1 evidence.
 
-## Files touched
+## HORIZON-1 follow-up (same session)
+
+### Root cause (confirmed)
+
+- Magenta fog probe: ocean horizon turns magenta → `fog_fragment` works.
+- Sky addon ShaderMaterial has `fog: false` and never received scene fog.
+- Density-only boost therefore could not fuse the dome edge; rowΔ stayed ~45–60 with cold sea (`seaWarm ≈ -1`) vs warm sky (`skyWarm ≈ 54`).
+
+### Fix (`src/sky.js` only + harness)
+
+1. Keep `uSkyTintStrength` cap **`.08`**.
+2. Autumn fog dens:  
+   `dens *= 1 + 0.08·dayW + 0.10·twilightW + 0.85·goldenW`  
+   (spring skips; deep night `goldenW=0` → dens identical to spring).
+3. Preallocated uniforms (no per-frame alloc):  
+   `uHorizonFogColor` (`.copy(_fogColor)` each frame),  
+   `uHorizonFogStrength = min(0.92, 0.55·goldenW + 0.28·twilightW)` autumn only, else `0`.
+4. Fragment (after tint): low-elevation band  
+   `hz = 1 - smoothstep(-0.015, 0.12, viewDir.y)`  
+   `skyLin = mix(skyLin, uHorizonFogColor, strength·hz)`.
+
+### RED → GREEN
+
+- Extended `test/atmosphere.html`: golden dens ≫ spring (≥1.80×), gold > noon, night dens equal, horizonFogStrength >0 autumn gold / 0 spring / 0 night, horizonFogColor === fogColor.
+- **ATMOSPHERE: 37 pass, 0 fail**
+- **INVARIANTS: 7 pass, 0 fail**
+
+### Same seaward framing metrics (full center band)
+
+| Shot | maxRowΔ | dRGB | skyWarm | seaWarm |
+|---|---:|---:|---:|---:|
+| before matrix coast | **44.74** | 44.1 | 54.2 | **-1.0** |
+| after3 dens-only (same pose) | **59.37** | 45.6 | 53.6 | **-2.9** |
+| after9 high fused | **9.66** | 31.3 | 54.8 | **+41.8** |
+| after10 ultra fused (same pose) | **21.87** | 31.1 | 54.7 | **+41.9** |
+
+Visual: soft warm horizon band, no razor line. Screenshots:
+
+- `fix-wave-shots/after9-autumn-high-72-seaward.png`
+- `fix-wave-shots/after10-autumn-ultra-72-seaward.png`
+- before: `fix-wave-shots/before-autumn-ultra-72-coast.webp`
+
+## Files touched (full wave)
 
 - `src/sky.js`
 - `src/main.js`

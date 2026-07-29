@@ -521,6 +521,9 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
   // Seasonal dome tint — identity/0 in spring; warm multiplicative grade in autumn.
   sky.material.uniforms.uSkyTint = { value: (isAutumn ? AUTUMN_SKY_TINT : SKY_TINT_IDENTITY).clone() };
   sky.material.uniforms.uSkyTintStrength = { value: 0 };
+  // Same fogColor the ocean fog_fragment mixes toward — sky dome has fog:false.
+  sky.material.uniforms.uHorizonFogColor = { value: new THREE.Color(0xcfe0f4) };
+  sky.material.uniforms.uHorizonFogStrength = { value: 0 };
   // NOTE: a ShaderMaterial does not auto-declare its uniforms in GLSL the way
   // MeshStandardMaterial does — adding the entry to `uniforms` alone leaves the
   // identifier undeclared, the shader fails to compile, and the dome renders
@@ -528,11 +531,18 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
   sky.material.fragmentShader =
     'uniform float uSkyGain;\nuniform float uSkyCompress;\n' +
     'uniform vec3 uSkyTint;\nuniform float uSkyTintStrength;\n' +
+    'uniform vec3 uHorizonFogColor;\nuniform float uHorizonFogStrength;\n' +
     sky.material.fragmentShader.replace(
       'gl_FragColor = vec4( texColor, 1.0 );',
       `vec3 skyLin = texColor * uSkyGain;
        skyLin = skyLin / ( 1.0 + skyLin * uSkyCompress );
        skyLin *= mix( vec3( 1.0 ), uSkyTint, uSkyTintStrength );
+       // Geometric horizon band → shared fogColor (ocean already fogs here).
+       {
+         vec3 viewDir = normalize( vWorldPosition - cameraPosition );
+         float hz = 1.0 - smoothstep( -0.015, 0.12, viewDir.y );
+         skyLin = mix( skyLin, uHorizonFogColor, clamp( uHorizonFogStrength * hz, 0.0, 1.0 ) );
+       }
        gl_FragColor = vec4( skyLin, 1.0 );`
     );
   sky.material.needsUpdate = true;
@@ -1285,7 +1295,10 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
     if (scene.fog) {
       scene.fog.color.copy(_fogColor);
       let dens = trackScalar(K_FOG_DENSITY, u);
-      if (isAutumn) dens *= 1 + 0.08 * dayW + 0.10 * twilightW;
+      // Golden dens: coastal cameras only see ~400–1500 u of water; FogExp2
+      // needs enough dens²·z² for fog_fragment to reach shared fogColor.
+      // spring skips; deep night goldenW=0 so night dens unchanged.
+      if (isAutumn) dens *= 1 + 0.08 * dayW + 0.10 * twilightW + 0.85 * goldenW;
       if (scene.fog.isFogExp2) {
         scene.fog.density = dens;
       } else if (scene.fog.isFog) {
@@ -1295,6 +1308,15 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
         scene.fog.near = 40;
         scene.fog.far = clamp(2.2 / Math.max(dens, 1e-5), 260, 6900);
       }
+    }
+    // Sky dome is unfogged (addon ShaderMaterial fog:false). Drive the low-
+    // elevation band toward the SAME fogColor ocean already mixes to — not a
+    // second palette. Strength 0 spring + deep night.
+    if (skyU.uHorizonFogColor) skyU.uHorizonFogColor.value.copy(_fogColor);
+    if (skyU.uHorizonFogStrength) {
+      skyU.uHorizonFogStrength.value = isAutumn
+        ? Math.min(0.92, 0.55 * goldenW + 0.28 * twilightW)
+        : 0;
     }
 
     /* ── celestial layers ────────────────────────────────────────────────── */
