@@ -487,8 +487,8 @@ const RIVER_FRAG = /* glsl */ `
     // reads as motion along ONE axis; using symmetric noise makes it look like
     // a lake with a current, which is wrong.
     float s = vUv.y - uTime * uFlow;
-    float r1 = vnoise(vec2(vUv.x * 16.0, s * 10.0));
-    float r2 = vnoise(vec2(vUv.x * 34.0 + 4.7, s * 21.0));
+    float r1 = vnoise(vec2(vUv.x * 22.0, s * 5.5));
+    float r2 = vnoise(vec2(vUv.x * 44.0 + 4.7, s * 11.0));
     float ripple = r1 * 0.65 + r2 * 0.35;
 
     // REAL depth: surface height minus the carved bed under this fragment,
@@ -877,17 +877,27 @@ export function createRiver({ wind } = {}) {
           br.curve.getTangentAt(i / N, _tanC);
           const nx = -_tanC.z, nz = _tanC.x;
           const l = Math.hypot(nx, nz) || 1;
-          // Sample 3 units past the ribbon edge — sampling at +1 landed INSIDE
-          // the carve bowl (ground ~= bed there), which pinned the whole
-          // surface onto its own bed: centimetres of depth everywhere, so the
-          // depth-keyed shader rendered one pale foam sheet, and clamp-then-
-          // flatten built literal walls of water at every bed dip. The clamp
-          // only needs to stop the sheet SPANNING over real banks; the
-          // depth-based transparency melts the thin edge overlap visually.
-          const offC = RIVER.width * 0.5 * widthKAt(b, i / N) + 3.0;
-          const gL = heightAt(br.sx[i] + (nx / l) * offC, br.sz[i] + (nz / l) * offC);
-          const gR = heightAt(br.sx[i] - (nx / l) * offC, br.sz[i] - (nz / l) * offC);
-          const ceilY = Math.max(Math.max(gL, gR) + 0.10, WORLD.seaLevel + 0.03);
+          // CONTAINMENT. A horizontal sheet only holds if BOTH banks stand
+          // above it — but the bank that matters is each side's LEVEE CREST:
+          // the HIGHEST ground along the bank ray, not the ground at one
+          // fixed offset. On a symmetric reach the crest is the natural bank
+          // top, so deep water survives; on a cross-slope reach it is the
+          // carved bowl's rim before the hillside falls away, so the water
+          // drops to a contained thread instead of pouring over the low side
+          // (the floating pane the player kept photographing) — and instead
+          // of draining to puddles, which is what clamping under the ground
+          // at a single far offset did.
+          const wHalf = RIVER.width * 0.5 * widthKAt(b, i / N);
+          const bankW = RIVER.bankWidth * (b === 0 ? 1 : br.widthK);
+          let crestL = -Infinity, crestR = -Infinity;
+          for (let k2 = 0; k2 < 5; k2++) {
+            const d = wHalf + 0.5 + (bankW * 0.85 - 0.5) * (k2 / 4);
+            const gl2 = heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
+            const gr2 = heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
+            if (gl2 > crestL) crestL = gl2;
+            if (gr2 > crestR) crestR = gr2;
+          }
+          const ceilY = Math.max(Math.min(crestL, crestR) - 0.10, WORLD.seaLevel + 0.03);
           if (br.profile[i] > ceilY) br.profile[i] = ceilY;
         }
       };

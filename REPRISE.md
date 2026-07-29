@@ -257,6 +257,26 @@ ventilateurs (non fait).
 
 ---
 
+## Session « rivière v3 » du 29/07 — la contention, enfin juste
+
+Trois formulations du clamp de niveau d'eau, trois leçons :
+1. `max(berges)` : l'eau fuit PAR-DESSUS la berge basse sur tout dévers →
+   nappe de verre flottante (la capture du joueur).
+2. `min(sol à offset fixe)` : sur dévers le sol à 9 u est déjà en contrebas →
+   la rivière se vide en flaques.
+3. **La bonne : la CRÊTE DE DIGUE par côté** — max du sol le long du rayon de
+   berge (5 échantillons de halfW+0.5 à halfW+0.85·bank), puis
+   `min(crêteL, crêteR) − 0.10`. Bief symétrique : crête = haut de berge
+   naturel → eau profonde conservée. Dévers : crête = rebord du bol avant la
+   descente → filet contenu et continu. C'est l'équivalent côté profil du
+   « terrain conformé à la spline » des outils de rivière (Unreal/Waterways).
+La rivière se traverse désormais à gué (blocage supprimé, ralenti ×0.55 dans
+l'eau), les rides sont étirées ~4:1 dans le sens du courant, et l'invariant
+n°9 verrouille la contention (zone d'épinglage de jonction exemptée, comme le
+clamp). INVARIANTS: 9 pass, 0 fail.
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

@@ -641,15 +641,7 @@ export function createShiba({
         }
       }
     }
-    // A mid-island river bed sits far above sea level, so the sea-level wade
-    // rule never sees it: refuse any column where the ground lies under the
-    // river's own water sheet (the bridge short-circuit above already let a
-    // deck crossing through).
-    if (waterSurfaceAt) {
-      const w = waterSurfaceAt(x, z);
-      if (w !== null && heightAt(x, z) < w - 0.18) return false;
-    }
-    const h = heightAt(x, z);
+        const h = heightAt(x, z);
     if (h < seaLevel - SHIBA.wadeDepth) return false;
     if (isInPond && isInPond(x, z) && h < seaLevel + 0.1) return false;
     if (slopeAt && slopeAt(x, z) > SHIBA.maxSlope) return false;
@@ -834,7 +826,13 @@ export function createShiba({
     if (wants) _wish.normalize();
 
     /* — speed — */
-    const top = state.running ? SHIBA.runSpeed : SHIBA.walkSpeed;
+    let top = state.running ? SHIBA.runSpeed : SHIBA.walkSpeed;
+    // Wading through the river: passable, but water is thick. The sea-level
+    // wade rule never sees a bed 8 units up the hillside, so ask the river.
+    if (waterSurfaceAt && !state.airborne) {
+      const wS = waterSurfaceAt(position.x, position.z);
+      if (wS !== null && position.y < wS - 0.05) { top *= 0.55; state.wading = true; }
+    }
     const target = wants ? top : 0;
     const rate = target > state.speed ? SHIBA.accel : SHIBA.brake;
     state.speed += clamp(target - state.speed, -rate * dt, rate * dt);

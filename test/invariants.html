@@ -32,6 +32,7 @@ const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`
 window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
 window.addEventListener('unhandledrejection', e => { say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); });
 
+import * as THREE from 'three';
 import { SEED, WORLD, CAMERA, QUALITY, RIVER } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
@@ -136,6 +137,40 @@ river.build(island.heightAt);
   }
   check('jonction sans trou isInRiver (≤ 3 bandes/transect)', gapFree, `max ${worstBands} bandes`);
   check('carve continu à la jonction (sauts < 1.5 u)', smooth, `pire saut ${worstJump.toFixed(2)} u`);
+}
+
+/* ── 3bis. contention : l'eau passe sous la berge la plus basse ──────────── */
+{
+  const _t9 = new THREE.Vector3();
+  let contained = true, worst = 0, where = '';
+  for (let b = 0; b < BRANCHES.length; b++) {
+    const br = BRANCHES[b];
+    for (let i = 1; i < br.N; i++) {
+      if (!br.fade || br.fade[i] < 0.5) continue;
+      // Zone d'épinglage de jonction (b>0, t<0.30) : exemptée du clamp par
+      // conception — l'eau y est celle du tronc et les sondes « berges »
+      // tombent dans le chenal mouillé voisin, pas sur de vraies berges.
+      if (b > 0 && i / br.N < 0.30) continue;
+      br.curve.getTangentAt(i / br.N, _t9);
+      const nx = -_t9.z, nz = _t9.x;
+      const l = Math.hypot(nx, nz) || 1;
+      // Même sémantique que le clamp : la CRÊTE de digue par côté (max du sol
+      // le long du rayon de berge), pas le sol à un offset unique.
+      let crestL = -Infinity, crestR = -Infinity;
+      for (let k2 = 0; k2 < 5; k2++) {
+        const d = 6.9 + 0.5 + (14.9 * 0.85 - 0.5) * (k2 / 4);
+        const gl2 = island.heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
+        const gr2 = island.heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
+        if (gl2 > crestL) crestL = gl2;
+        if (gr2 > crestR) crestR = gr2;
+      }
+      const lim = Math.max(Math.min(crestL, crestR) - 0.10, 0.03 + 0.001);
+      const excess = br.profile[i] - lim - 0.02;
+      if (excess > 0.15 && excess > worst) { worst = excess; where = `b${b} i${i}`; contained = false; }
+    }
+  }
+  check('eau contenue sous la berge la plus basse (fade>0.5)', contained,
+    contained ? '' : `dépassement ${worst.toFixed(2)} u à ${where}`);
 }
 
 /* ── 4. build() idempotent ───────────────────────────────────────────────── */
