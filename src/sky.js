@@ -282,6 +282,19 @@ const K_SUN_INTENSITY = [
  * the Purkinje shift means we *perceive* night as blue, and cinema agrees. */
 const MOON_COLOR_HIGH = new THREE.Color().setHex(0x8ea9dc);
 const MOON_COLOR_LOW = new THREE.Color().setHex(0xd6b493); // moon on the horizon goes amber
+/** Moon disc high-altitude colour — hoisted so update() never allocates. */
+const MOON_DISK_HIGH = new THREE.Color(0xf6f2e4);
+/** Residual twilight glow on the night dome — selected once per season. */
+const TWILIGHT_GLOW_SPRING = new THREE.Color(0xff7a33);
+const TWILIGHT_GLOW_AUTUMN = new THREE.Color(0xe75b22);
+
+/* Autumn atmosphere grades — applied after trackColor, zero at deep night. */
+const AUTUMN_SUN_GRADE = new THREE.Color(0xffb45f);
+const AUTUMN_HEMI_SKY_GRADE = new THREE.Color(0xaebbc5);
+const AUTUMN_HEMI_GROUND_GRADE = new THREE.Color(0x7b5430);
+const AUTUMN_FOG_GRADE = new THREE.Color(0xc9aa87);
+const AUTUMN_SKY_TINT = new THREE.Color(0xffd0a2);
+const SKY_TINT_IDENTITY = new THREE.Color(0xffffff);
 // Peaks at ~23% of the noon sun — a cinematic bright night, not a black one.
 // The land has to stay READABLE at midnight or the whole night shift is wasted.
 const K_MOON_INTENSITY = [
@@ -439,7 +452,10 @@ const HASH_GLSL = /* glsl */ `
    FACTORY
    ══════════════════════════════════════════════════════════════════════════════ */
 
-export function createSky({ scene, renderer, camera, quality = {} }) {
+export function createSky({ scene, renderer, camera, quality = {}, season = 'spring' } = {}) {
+  const mode = season === 'autumn' ? 'autumn' : 'spring';
+  const isAutumn = mode === 'autumn';
+  const twilightGlow = isAutumn ? TWILIGHT_GLOW_AUTUMN : TWILIGHT_GLOW_SPRING;
   const rng = streamFor(SEED, 'sky:stars');
 
   const LAT = SKY_TUNE.latitude * DEG;
@@ -499,16 +515,21 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
    */
   sky.material.uniforms.uSkyGain = { value: K_SKY_GAIN[0][1] };
   sky.material.uniforms.uSkyCompress = { value: 0.45 };
+  // Seasonal dome tint — identity/0 in spring; warm multiplicative grade in autumn.
+  sky.material.uniforms.uSkyTint = { value: (isAutumn ? AUTUMN_SKY_TINT : SKY_TINT_IDENTITY).clone() };
+  sky.material.uniforms.uSkyTintStrength = { value: 0 };
   // NOTE: a ShaderMaterial does not auto-declare its uniforms in GLSL the way
   // MeshStandardMaterial does — adding the entry to `uniforms` alone leaves the
   // identifier undeclared, the shader fails to compile, and the dome renders
   // black with no obvious clue as to why. The declaration has to go in too.
   sky.material.fragmentShader =
     'uniform float uSkyGain;\nuniform float uSkyCompress;\n' +
+    'uniform vec3 uSkyTint;\nuniform float uSkyTintStrength;\n' +
     sky.material.fragmentShader.replace(
       'gl_FragColor = vec4( texColor, 1.0 );',
       `vec3 skyLin = texColor * uSkyGain;
        skyLin = skyLin / ( 1.0 + skyLin * uSkyCompress );
+       skyLin *= mix( vec3( 1.0 ), uSkyTint, uSkyTintStrength );
        gl_FragColor = vec4( skyLin, 1.0 );`
     );
   sky.material.needsUpdate = true;
@@ -537,7 +558,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
     uMwPole: { value: new THREE.Vector3(0.30, 0.55, -0.78).normalize() },
     uMwColor: { value: new THREE.Color().setHex(0x9fb0e8) },
     uSunGlowDir: { value: new THREE.Vector3(1, 0, 0) },
-    uSunGlowColor: { value: new THREE.Color().setHex(0xff7a33) },
+    uSunGlowColor: { value: twilightGlow.clone() },
     uTwilight: { value: 0 },
     uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
     uMoonHaloColor: { value: new THREE.Color().setHex(0xa8c0f0) },
@@ -974,6 +995,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
     dayTime: 0,
     solar: 0,               // remapped phase; 0.25 = sunrise, 0.75 = sunset, always
     name: 'night',
+    season: mode,
     sunriseAt: SUNRISE_T,
     sunsetAt: SUNSET_T,
 
@@ -1169,10 +1191,19 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
       setU('sunPosition', _skySunDir);
 
       skyU.uSkyGain.value = trackScalar(K_SKY_GAIN, u);
-      skyU.turbidity && (skyU.turbidity.value = trackScalar(K_TURBIDITY, u));
+      let turbidity = trackScalar(K_TURBIDITY, u);
+      let mieCoef = trackScalar(K_MIE_COEF, u);
+      let tintStrength = 0;
+      if (isAutumn) {
+        turbidity += 0.35 * dayW + 0.45 * goldenW + 0.25 * twilightW;
+        mieCoef *= 1 + 0.12 * dayW + 0.06 * goldenW;
+        tintStrength = Math.min(0.12, 0.05 * dayW + 0.07 * goldenW + 0.03 * twilightW);
+      }
+      skyU.turbidity && (skyU.turbidity.value = turbidity);
       skyU.rayleigh && (skyU.rayleigh.value = trackScalar(K_RAYLEIGH, u));
-      skyU.mieCoefficient && (skyU.mieCoefficient.value = trackScalar(K_MIE_COEF, u));
+      skyU.mieCoefficient && (skyU.mieCoefficient.value = mieCoef);
       skyU.mieDirectionalG && (skyU.mieDirectionalG.value = trackScalar(K_MIE_G, u));
+      if (skyU.uSkyTintStrength) skyU.uSkyTintStrength.value = tintStrength;
 
       skyU.cloudScale && (skyU.cloudScale.value = trackScalar(K_CLOUD_SCALE, u));
       skyU.cloudSpeed && (skyU.cloudSpeed.value = trackScalar(K_CLOUD_SPEED, u));
@@ -1185,6 +1216,9 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
 
     /* ── sun light ───────────────────────────────────────────────────────── */
     trackColor(K_SUN_COLOR, u, _sunColor);
+    if (isAutumn) {
+      _sunColor.lerp(AUTUMN_SUN_GRADE, dayW * (0.14 + 0.16 * goldenW));
+    }
     // The keyframed intensity is gated by real altitude. Without this gate the
     // key light briefly rakes UP through the island from below the waterline at
     // the crossings, and the terrain lights from underneath. Very hard to debug
@@ -1223,6 +1257,10 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
     /* ── hemisphere bounce ───────────────────────────────────────────────── */
     trackColor(K_HEMI_SKY, u, _hemiSky);
     trackColor(K_HEMI_GROUND, u, _hemiGround);
+    if (isAutumn) {
+      _hemiSky.lerp(AUTUMN_HEMI_SKY_GRADE, dayW * (0.10 + 0.08 * goldenW));
+      _hemiGround.lerp(AUTUMN_HEMI_GROUND_GRADE, dayW * (0.30 + 0.12 * goldenW));
+    }
     const hemiI = trackScalar(K_HEMI_INTENSITY, u);
     hemiLight.color.copy(_hemiSky);
     hemiLight.groundColor.copy(_hemiGround);
@@ -1230,15 +1268,19 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
 
     /* ── fog ─────────────────────────────────────────────────────────────── */
     trackColor(K_FOG_COLOR, u, _fogColor);
+    if (isAutumn) {
+      _fogColor.lerp(AUTUMN_FOG_GRADE, dayW * 0.12 + twilightW * 0.14);
+    }
     if (scene.fog) {
       scene.fog.color.copy(_fogColor);
+      let dens = trackScalar(K_FOG_DENSITY, u);
+      if (isAutumn) dens *= 1 + 0.08 * dayW + 0.10 * twilightW;
       if (scene.fog.isFogExp2) {
-        scene.fog.density = trackScalar(K_FOG_DENSITY, u);
+        scene.fog.density = dens;
       } else if (scene.fog.isFog) {
         // Linear fog: convert the density curve into a far distance so the same
         // table drives either fog type. Ceiling tracks the ocean rim (~4900);
         // the old 2200 was tuned for the pre-x5 island.
-        const dens = trackScalar(K_FOG_DENSITY, u);
         scene.fog.near = 40;
         scene.fog.far = clamp(2.2 / Math.max(dens, 1e-5), 260, 6900);
       }
@@ -1267,7 +1309,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
       const h0 = Math.max(1e-6, Math.hypot(sunDirection.x, sunDirection.z));
       _sunGlowDir.set(sunDirection.x / h0, 0.055, sunDirection.z / h0).normalize();
       nightUniforms.uSunGlowDir.value.copy(_sunGlowDir);
-      nightUniforms.uSunGlowColor.value.setHex(0xff7a33);
+      nightUniforms.uSunGlowColor.value.copy(twilightGlow);
       nightUniforms.uTwilight.value = Math.max(0, 1 - Math.abs(sunY) / 0.32);
       nightUniforms.uMoonDir.value.copy(moonDirection);
       nightUniforms.uMoonGlow.value = moonGate * nightW * 0.9;
@@ -1289,7 +1331,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
       moonUniforms.uGlow.value = 0.35 + 0.65 * nightW;
       // A moon low on the horizon reddens exactly like the sun does.
       moonUniforms.uDiskColor.value.lerpColors(
-        MOON_COLOR_LOW, new THREE.Color().setHex(0xf6f2e4), smooth(moonY, 0.02, 0.28)
+        MOON_COLOR_LOW, MOON_DISK_HIGH, smooth(moonY, 0.02, 0.28)
       );
     }
 
@@ -1307,6 +1349,7 @@ export function createSky({ scene, renderer, camera, quality = {} }) {
     phase.dayTime = d;
     phase.solar = u;
     phase.name = phaseName(u);
+    phase.season = mode;
     phase.sunAltitude = Math.asin(clamp(sunY, -1, 1));
     phase.sunAzimuth = Math.atan2(sunDirection.x, -sunDirection.z);
     phase.day = dayW;

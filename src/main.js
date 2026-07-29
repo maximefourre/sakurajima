@@ -367,13 +367,12 @@ async function boot() {
   });
   scene.add(world.grass.mesh);
 
-  await step('pétales');
-  // The forest exposes canopy positions as `emitters` ({position, radius}); the
-  // petal system wants flat {x, z, radius}. Without this the spawn falls back to
-  // a uniform box and petals rain everywhere instead of drifting off the trees.
-  // The forest emitter y is the canopy CENTRE in world space (sakura.js bakes
-  // canopyCenter through the placement transform) — the petal system needs it
-  // to spawn petals at crown height instead of a global ceiling.
+  await step(world.season === 'autumn' ? 'feuilles' : 'pétales');
+  // The forest exposes canopy positions as `emitters` ({position, radius, dominant});
+  // the foliage-fall system wants flat {x,y,z,radius,dominant}. Without this the
+  // spawn falls back to a uniform box and leaves/petals rain everywhere instead
+  // of drifting off the crowns. Emitter y is the canopy CENTRE in world space
+  // (sakura.js bakes canopyCenter through the placement transform).
   world.canopies = (world.forest.emitters ?? []).map((e) => ({
     x: e.position.x, y: e.position.y, z: e.position.z, radius: e.radius,
     dominant: e.dominant ?? null,
@@ -398,7 +397,7 @@ async function boot() {
   if (world.petals.carpet) scene.add(world.petals.carpet);
 
   await step('ciel');
-  world.sky = createSky({ scene, renderer, camera, quality: q });
+  world.sky = createSky({ scene, renderer, camera, quality: q, season: world.season });
 
   await step('nuages');
   world.clouds = createClouds({ seed: SEED, wind: world.wind, quality: q });
