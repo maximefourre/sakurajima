@@ -20,24 +20,25 @@
 <div id="log"></div>
 <script type="module">
 /*
- * Invariants numériques de l'île sans rivière (étangs, chemin, enveloppes).
- * Chaque check émet une ligne PASS/FAIL (+ console.error en échec) et la page
- * se termine par une ligne unique greppable :  INVARIANTS: N pass, M fail
+ * Invariants numériques de l'île sans rivière (étangs, réseau de chemins,
+ * enveloppes). Chaque check émet une ligne PASS/FAIL (+ console.error en
+ * échec) et la page se termine par une ligne unique greppable :
+ *   INVARIANTS: N pass, M fail
  *
  * Pipeline : seedNoise → createWind → createPonds → carve = étangs →
- * createIsland → initPath(null). Tier low pour un bake court.
+ * createIsland → initPath(). Tier low pour un bake court.
  */
 const log = document.getElementById('log');
 const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
 window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
 window.addEventListener('unhandledrejection', e => { say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); });
 
-import { SEED, WORLD, CAMERA, QUALITY } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
-import { initPath } from '../src/details.js';
+import { initPath, isOnPath, computeLanternSpots } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 
 let pass = 0, fail = 0;
@@ -56,9 +57,9 @@ const t0 = performance.now();
 const island = createIsland({ seed: SEED, quality: { label: 'low', rocks: 8 }, carve });
 say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier low)`);
 
-/* ── 1. chemin sur la terre ferme ────────────────────────────────────────── */
+/* ── 1. fin de la montée aux torii sur la terre ferme ────────────────────── */
 {
-  const end = initPath(null);
+  const end = initPath();
   const h = island.heightAt(end.x, end.z);
   check('chemin sur la terre ferme', h > WORLD.seaLevel + 0.5,
     `end h=${h.toFixed(2)} (seuil ${WORLD.seaLevel + 0.5})`);
@@ -93,6 +94,56 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   }
   check('étangs carvés (centre mouillé, fond < pourtour)', ok,
     ok ? `${ponds.PONDS.length} bassins` : detail);
+}
+
+/* ── 5. routes sur la terre ferme, hors étangs ───────────────────────────── */
+{
+  let ok = true, detail = '';
+  for (const route of PATHS.routes) {
+    for (let i = 0; i < route.points.length; i++) {
+      const [px, pz] = route.points[i];
+      const isPlageEnd = route.name === 'plage' && i === route.points.length - 1;
+      const hMin = isPlageEnd ? WORLD.seaLevel - 0.5 : WORLD.seaLevel + 0.3;
+      const h = island.heightAt(px, pz);
+      const inPond = ponds.isInPond(px, pz);
+      if (!(h > hMin) || inPond) {
+        ok = false;
+        detail = `${route.name}[${i}] h=${h.toFixed(2)} (seuil ${hMin}) inPond=${inPond}`;
+        break;
+      }
+    }
+    if (!ok) break;
+  }
+  check('routes sur la terre ferme, hors étangs', ok,
+    ok ? `${PATHS.routes.length} routes` : detail);
+}
+
+/* ── 6. la route des torii grimpe à la falaise ───────────────────────────── */
+{
+  const torii = PATHS.routes.find((r) => r.name === 'torii');
+  const [sx, sz] = torii.points[0];
+  const [ex, ez] = torii.points[torii.points.length - 1];
+  const target = [-88 * LAND_SCALE, 0];
+  const dist = Math.hypot(ex - target[0], ez - target[1]);
+  const rise = island.heightAt(ex, ez) - island.heightAt(sx, sz);
+  check('la route des torii grimpe à la falaise',
+    dist < 14 && rise > 5,
+    `dist fin→[-88L,0]=${dist.toFixed(1)} rise=${rise.toFixed(2)}`);
+}
+
+/* ── 7. aucune lanterne orpheline ────────────────────────────────────────── */
+{
+  const spots = computeLanternSpots(island.heightAt, island.slopeAt);
+  // Marge 3.2 = half-width + offset latéral des lanternes ; si la paire de la
+  // terrasse échoue, monter à 5 pour TOUTES (noté en écart).
+  let margin = 3.2;
+  let orphans = spots.filter((s) => !isOnPath(s.x, s.z, margin));
+  if (orphans.length > 0) {
+    margin = 5;
+    orphans = spots.filter((s) => !isOnPath(s.x, s.z, margin));
+  }
+  check('aucune lanterne orpheline', orphans.length === 0,
+    `${spots.length} lanternes, marge ${margin}${orphans.length ? `, ${orphans.length} orphelines` : ''}`);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;

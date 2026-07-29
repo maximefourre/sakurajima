@@ -281,9 +281,9 @@ async function boot() {
   world.heightAt = world.island.heightAt;
   world.slopeAt = world.island.slopeAt;
 
-  // Authored pilgrim path only — no abutment to snap onto. Call before grass
-  // placement so exclusion evaluates isOnPath against the nominal route.
-  initPath(null);
+  // Authored path network. Call before grass placement so exclusion evaluates
+  // isOnPath against every route.
+  initPath();
 
   // groundAt is the mover surface (dog, follow camera). Today it is just the
   // terrain; kept as a wrapper so later systems can override a column without
@@ -317,7 +317,8 @@ async function boot() {
     keepBlossomSamples: false,
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    isLand: (x, z) => !world.inWater(x, z),
+    // Trees refuse the path corridor (half-width + 4 u ≈ 5.6 u from the axis).
+    isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4),
     windUniforms: forestWind,
   });
   scene.add(world.forest.group);
@@ -393,7 +394,6 @@ async function boot() {
     normalAt: world.island.normalAt,
     inWater: world.inWater,
     wind: world.wind,
-    bridgeInfo: null,
   });
   scene.add(world.details.group);
 

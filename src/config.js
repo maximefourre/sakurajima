@@ -181,25 +181,33 @@ export const QUALITY = {
 export const DEFAULT_QUALITY = 'ultra';
 
 /**
- * The pilgrim path: from the cliff-top overlook on the west coast, along the
- * ridge flank and the river's south bank, down to the west end of the bridge.
- * Authored in unit-island coordinates like everything else. Torii stand at
- * `toriiAt` fractions along the spline. The route deliberately keeps ≥ ~19
- * units from the river centreline until the abutment — closer and it falls
- * into the carved bank.
+ * Le réseau de chemins de terre. Trois routes partant d'un carrefour en
+ * lisière de la prairie : la MONTÉE AUX TORII (reprend les lacets éprouvés
+ * de l'ancienne montée, jusqu'à la terrasse belvédère de la falaise ouest),
+ * la BOUCLE DES ÉTANGS (fermée, elle longe les trois bassins à koi sans
+ * jamais entrer dans leurs berges creusées), et le CHEMIN DE LA PLAGE vers
+ * le sable du sud-est. Coordonnées authorées, montées en LAND_SCALE comme
+ * toute la géographie.
  */
-export const PATH = {
-  // Switchbacks on the climb (x -88..-60, where the ground rises to the cliff
-  // rim) then a meandering descent to the bridge. The route deliberately keeps
-  // >= ~16 units from the river centreline — closer and it falls into the
-  // carved bank.
-  points: [
-    [-88, 0], [-84, 7], [-77, 4], [-72, 12], [-79, 18], [-70, 23],
-    [-61, 19], [-54, 27], [-47, 35], [-41, 30], [-36, 43],
-    [-26, 48], [-17, 51], [-9, 54],
-  ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]),
+export const PATHS = {
   width: 3.2,
-  toriiAt: [0.02, 0.5, 0.93],
+  lanternEvery: 30,   // unités monde d'arc entre deux lanternes
+  routes: [
+    { name: 'torii',
+      points: [
+        [6, -30], [-4, -26], [-18, -18], [-30, -8], [-42, 4], [-54, 12],
+        [-61, 19], [-70, 23], [-79, 18], [-72, 12], [-77, 4], [-84, 7],
+        [-88, 0],
+      ],
+      toriiAt: [0.30, 0.48, 0.64, 0.80, 0.94] },
+    { name: 'etangs',
+      points: [
+        [6, -30], [26, -38], [18, -56], [4, -68], [-12, -58], [-10, -42],
+        [6, -30],
+      ] },
+    { name: 'plage',
+      points: [[6, -30], [18, -18], [30, -4], [38, 10], [44, 26], [46, 40]] },
+  ].map((r) => ({ ...r, points: r.points.map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]) })),
 };
 
 /** Camera framing. Chosen so the opening shot reads as a postcard, not a debug view. */

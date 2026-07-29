@@ -375,6 +375,30 @@ sinon on lit des instantanés figés en plein lerp.
 
 ---
 
+## Session « exit la rivière, place aux chemins » du 29/07 (après-midi)
+
+Décision utilisateur après cinq itérations d'eau : « enlève la rivière et le
+pont, tu n'arrives pas à faire un truc propre ». Exécution en deux chantiers
+Grok :
+1. **Excision** : river.js supprimé, carve = étangs seuls, inWater = étangs,
+   birds.js réparé (il importait encore RIVER — crash au boot, repéré par
+   Grok), toute la doc/commentaires nettoyés. Les étangs à koi restent.
+   **Herbe partout** : plancher de densité 0.55 (patchFloor), masque de terre
+   nue désarmé — les « m² sans un brin » étaient les clairières volontaires
+   de la passe polish.
+2. **Réseau de chemins** (`PATHS`, 3 routes depuis un carrefour de prairie) :
+   la montée aux TORII (lacets éprouvés de l'ancien chemin, terrasse de la
+   falaise ouest, rim rehaussé 8→12.5·H pour un vrai dénivelé de ~10 u),
+   la boucle fermée des ÉTANGS, le chemin de la PLAGE. Lanternes GÉNÉRÉES le
+   long des routes uniquement (quinconce, sautées si pente forte — consigne :
+   plus de lanterne orpheline à flanc de falaise), cerisiers exclus de
+   l'emprise (`isOnPath(x, z, 4)`). INVARIANTS: 7 pass, 0 fail.
+Vérifié : boot sans erreur, vue aérienne (réseau lisible entre les étangs),
+montée aux torii à midi, lanternes allumées et torii sous la Voie lactée à
+23 h.
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

@@ -6,15 +6,17 @@
  * that there is a dog to walk, the ground is somewhere you actually go, and an
  * unbroken green field with trees standing in it looks like a golf course.
  *
- * Three passes, in the order they matter at eye level:
+ * Four passes, in the order they matter at eye level:
  *
  *   1. Wildflowers, in drifts rather than sprinkled. Real meadows are patchy —
  *      a species takes a hollow and holds it — and an even scatter is the single
  *      most reliable way to make procedural planting look procedural.
- *   2. Stone lanterns along the pilgrim path — the only man-made lights at
- *      ground level. Their fire boxes come up as the sun goes down.
+ *   2. A network of packed-earth paths (torii climb, pond loop, beach trail)
+ *      with stone lanterns ONLY along those routes — never orphan lamps in a
+ *      field. Their fire boxes come up as the sun goes down.
  *   3. Beach litter — pebbles and driftwood along the tideline, where the eye
  *      goes looking for scale and currently finds an unbroken sweep of sand.
+ *   4. Torii gates on the climb to the west-cliff overlook terrace.
  *
  * Everything is instanced and everything is seeded. No textures, as elsewhere.
  */
@@ -23,61 +25,140 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
 import { makeWoodBump } from './detailtex.js';
-import { WORLD, LAND_SCALE, AREA, PATH } from './config.js';
+import { WORLD, LAND_SCALE, AREA, PATHS } from './config.js';
 
 const TAU = Math.PI * 2;
 
 /* ────────────────────────────────────────────────────────────────
-   The pilgrim path — spatial index
+   Path network — curves + spatial index (all routes)
    ──────────────────────────────────────────────────────────────── */
 
 const PATH_N = 240;
-let PATH_CURVE = null;
-let _pp = null;
+/** Per-route built geometry: { name, curve, pp, closed, toriiAt? }. */
+let _routes = [];
+/** Flat sample list for the bucket index (all routes). Each entry: {x, z}. */
+let _samples = [];
 let _pMinX = 0, _pMaxX = 0, _pMinZ = 0, _pMaxZ = 0;
 let P_NX = 1, P_NZ = 1;
 let _pGrid = null;
-let _pathEnd = null;   // world {x, z} of the built path's last point
+/** World {x, z} of the torii route's end (overlook terrace). */
+let _pathEnd = null;
 
 /**
- * (Re)build the path curve + its bucket index from a point list. The index
- * exists because `isOnPath` is called for every one of the grass system's
- * millions of rejection samples — anything not standing near the route must
- * pay four comparisons and nothing more.
+ * Build one route's curve from authored points, with lateral fbm wander so the
+ * ribbon, grass exclusion, lanterns and torii share the same line.
+ *
+ * - torii climb: dead zone near the end (t > 0.90) so the terrace arrival stays
+ *   on the authored rim.
+ * - pond loop (closed): no dead zone; ends get the SAME offset so the join
+ *   does not step.
+ * - beach trail: open, no dead zone (starts soft like the others).
  */
-function buildPathIndex(points) {
-  PATH_CURVE = new THREE.CatmullRomCurve3(
-    points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'catmullrom', 0.5
+function buildRoute(route) {
+  const pts = route.points;
+  const closed = pts.length > 2
+    && Math.abs(pts[0][0] - pts[pts.length - 1][0]) < 1e-6
+    && Math.abs(pts[0][1] - pts[pts.length - 1][1]) < 1e-6;
+  // Closed CatmullRom with a duplicated first/last point makes a zero-length
+  // segment at the join — strip the trailing duplicate when closed.
+  const ctrlIn = closed ? pts.slice(0, -1) : pts;
+  let curve = new THREE.CatmullRomCurve3(
+    ctrlIn.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+    closed, 'catmullrom', 0.5
   );
-  _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+  let pp = curve.getSpacedPoints(PATH_N);
+  const nLast = pp.length - 1;
+  const deadEnd = route.name === 'torii';
+  const _tanP = new THREE.Vector3();
 
-  // Organic wander: push every sample sideways with low-frequency fbm, then
-  // REBUILD the curve from the perturbed samples and resample — so the ribbon,
-  // the grass exclusion and the torii all follow the same wandering line. The
-  // last stretch (t > 0.90) stays closer to the authored polyline.
-  {
-    const _tanP = new THREE.Vector3();
-    for (let i = 1; i < PATH_N; i++) {
-      const t = i / PATH_N;
-      const amp = 2.5 * (1 - smoothstep(0.90, 0.97, t)) * (i < 4 ? i / 4 : 1);
-      PATH_CURVE.getTangentAt(t, _tanP);
+  if (closed) {
+    // Perturb every sample (including the nominal ends) with full amp; then
+    // force both ends onto the same displaced position so the loop seals.
+    for (let i = 0; i <= nLast; i++) {
+      const t = i / nLast;
+      const amp = 2.5 * (i < 4 || i > nLast - 4
+        ? Math.min(i, nLast - i, 4) / 4
+        : 1);
+      curve.getTangentAt(Math.min(t, 0.9999), _tanP);
       const nx = -_tanP.z, nz = _tanP.x;
       const l = Math.hypot(nx, nz) || 1;
-      const off = fbm2(_pp[i].x * 0.02 + 7.7, _pp[i].z * 0.02 - 3.1, 3) * amp;
-      _pp[i].x += (nx / l) * off;
-      _pp[i].z += (nz / l) * off;
+      const off = fbm2(pp[i].x * 0.02 + 7.7, pp[i].z * 0.02 - 3.1, 3) * amp;
+      pp[i].x += (nx / l) * off;
+      pp[i].z += (nz / l) * off;
     }
-    const ctrl = [];
-    for (let i = 0; i <= PATH_N; i += 4) ctrl.push(_pp[Math.min(i, PATH_N)].clone());
-    if ((PATH_N % 4) !== 0) ctrl.push(_pp[PATH_N].clone());
-    PATH_CURVE = new THREE.CatmullRomCurve3(ctrl, false, 'catmullrom', 0.5);
-    _pp = PATH_CURVE.getSpacedPoints(PATH_N);
+    // Seal: first and last sample are the same world point.
+    pp[nLast].x = pp[0].x;
+    pp[nLast].z = pp[0].z;
+  } else {
+    for (let i = 1; i < nLast; i++) {
+      const t = i / nLast;
+      const endFade = deadEnd ? (1 - smoothstep(0.90, 0.97, t)) : 1;
+      const amp = 2.5 * endFade * (i < 4 ? i / 4 : 1);
+      curve.getTangentAt(t, _tanP);
+      const nx = -_tanP.z, nz = _tanP.x;
+      const l = Math.hypot(nx, nz) || 1;
+      const off = fbm2(pp[i].x * 0.02 + 7.7, pp[i].z * 0.02 - 3.1, 3) * amp;
+      pp[i].x += (nx / l) * off;
+      pp[i].z += (nz / l) * off;
+    }
   }
-  _pathEnd = { x: _pp[PATH_N].x, z: _pp[PATH_N].z };
 
-  const P_PAD = PATH.width * 0.5 + 1.4;
+  const ctrl = [];
+  for (let i = 0; i <= nLast; i += 4) ctrl.push(pp[Math.min(i, nLast)].clone());
+  if ((nLast % 4) !== 0) ctrl.push(pp[nLast].clone());
+  // Closed rebuild: if the polyline already seals (first≈last), keep open
+  // Catmull with duplicated ends so getPointAt(0)===getPointAt(1) spatially.
+  const rebuildClosed = closed
+    && Math.hypot(ctrl[0].x - ctrl[ctrl.length - 1].x, ctrl[0].z - ctrl[ctrl.length - 1].z) < 0.5;
+  if (rebuildClosed) {
+    // Drop the last control if it duplicates the first for a true closed curve.
+    const body = ctrl.slice(0, -1);
+    curve = new THREE.CatmullRomCurve3(body, true, 'catmullrom', 0.5);
+  } else {
+    curve = new THREE.CatmullRomCurve3(ctrl, false, 'catmullrom', 0.5);
+  }
+  pp = curve.getSpacedPoints(PATH_N);
+  if (closed) {
+    const last = pp[pp.length - 1];
+    last.x = pp[0].x;
+    last.z = pp[0].z;
+  }
+
+  return {
+    name: route.name,
+    curve,
+    pp,
+    closed,
+    toriiAt: route.toriiAt || null,
+    points: route.points,
+  };
+}
+
+/**
+ * (Re)build every route curve and the shared bucket index. The index exists
+ * because `isOnPath` is called for every one of the grass system's millions of
+ * rejection samples — anything not standing near a route must pay four
+ * comparisons and nothing more.
+ */
+function buildPathNetwork() {
+  _routes = PATHS.routes.map(buildRoute);
+  _samples = [];
+  for (const r of _routes) {
+    for (const p of r.pp) _samples.push({ x: p.x, z: p.z });
+  }
+
+  const torii = _routes.find((r) => r.name === 'torii');
+  if (torii) {
+    const end = torii.pp[torii.pp.length - 1];
+    _pathEnd = { x: end.x, z: end.z };
+  } else {
+    _pathEnd = { x: 0, z: 0 };
+  }
+
+  // Pad for isOnPath(x,z,extra) with extra up to 6.
+  const P_PAD = PATHS.width * 0.5 + 6;
   _pMinX = Infinity; _pMaxX = -Infinity; _pMinZ = Infinity; _pMaxZ = -Infinity;
-  for (const p of _pp) {
+  for (const p of _samples) {
     if (p.x < _pMinX) _pMinX = p.x; if (p.x > _pMaxX) _pMaxX = p.x;
     if (p.z < _pMinZ) _pMinZ = p.z; if (p.z > _pMaxZ) _pMaxZ = p.z;
   }
@@ -85,52 +166,37 @@ function buildPathIndex(points) {
   P_NX = Math.max(1, Math.ceil((_pMaxX - _pMinX) / P_CELL));
   P_NZ = Math.max(1, Math.ceil((_pMaxZ - _pMinZ) / P_CELL));
   _pGrid = new Array(P_NX * P_NZ);
-  for (let i = 0; i <= PATH_N; i++) {
-    const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((_pp[i].x - _pMinX) / P_CELL)));
-    const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((_pp[i].z - _pMinZ) / P_CELL)));
+  for (let i = 0; i < _samples.length; i++) {
+    const p = _samples[i];
+    const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((p.x - _pMinX) / P_CELL)));
+    const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((p.z - _pMinZ) / P_CELL)));
     (_pGrid[cz * P_NX + cx] ||= []).push(i);
   }
 }
 const P_CELL = 12;
-// Index from the authored points at import — the normal case (no abutment to
-// snap onto). initPath(null) keeps this route; a non-null bridgeInfo remains
-// supported for tests or a future path network that supplies an end target.
-buildPathIndex(PATH.points);
+buildPathNetwork();
 
 /**
- * Ensure the pilgrim-path spatial index is ready and return the path end.
- *
- * `bridgeInfo === null` is the NORMAL case: the authored PATH polyline is kept
- * as-is (built at import). A non-null `bridgeInfo` with `ends` still snaps the
- * last control point onto the nearest end (legacy / future path-network hook).
- * Call before createGrass so exclusion follows the final route.
- * Returns the end point {x, z}.
+ * Rebuild the full path-network index and return the end of the 'torii' route
+ * (overlook terrace). Call before createGrass so exclusion follows the network.
+ * No arguments — the network is fully authored in PATHS.
+ * @returns {{x: number, z: number}}
  */
-export function initPath(bridgeInfo) {
-  if (!bridgeInfo || !bridgeInfo.ends) return _pathEnd;
-  const pts = PATH.points.map(([x, z]) => [x, z]);
-  const [lx, lz] = pts[pts.length - 1];
-  // The abutment nearest the authored end IS the path's end of the deck —
-  // don't assume an index in `ends`.
-  let end = bridgeInfo.ends[0];
-  for (const e of bridgeInfo.ends) {
-    if ((e.x - lx) ** 2 + (e.z - lz) ** 2 < (end.x - lx) ** 2 + (end.z - lz) ** 2) end = e;
-  }
-  // Stop a couple of units OUTSIDE the abutment along the deck axis, so the
-  // earth ribbon meets the stone footing instead of running under the deck.
-  const ox = end.x - bridgeInfo.center.x, oz = end.z - bridgeInfo.center.z;
-  const ol = Math.hypot(ox, oz) || 1;
-  pts[pts.length - 1] = [end.x + (ox / ol) * 2.5, end.z + (oz / ol) * 2.5];
-  buildPathIndex(pts);
+export function initPath() {
+  buildPathNetwork();
   return _pathEnd;
 }
 
-/** True on the packed earth of the pilgrim path — keeps the grass off it. */
-export function isOnPath(x, z) {
+/**
+ * True if (x,z) lies within (PATHS.width/2 + extra) of any route axis.
+ * Buckets are sized for extra up to 6 (tree exclusion uses 4; lanterns use ~3.2).
+ * Default extra=1.3 keeps the historical grass/petal verge (half-width + 1.3).
+ */
+export function isOnPath(x, z, extra = 1.3) {
   if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return false;
   const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((x - _pMinX) / P_CELL)));
   const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((z - _pMinZ) / P_CELL)));
-  const r2 = (PATH.width * 0.5 + 1.3) ** 2;
+  const r2 = (PATHS.width * 0.5 + extra) ** 2;
   for (let dz = -1; dz <= 1; dz++) {
     const rz = cz + dz;
     if (rz < 0 || rz >= P_NZ) continue;
@@ -140,7 +206,7 @@ export function isOnPath(x, z) {
       const bucket = _pGrid[rz * P_NX + rx];
       if (!bucket) continue;
       for (let k = 0; k < bucket.length; k++) {
-        const p = _pp[bucket[k]];
+        const p = _samples[bucket[k]];
         const ddx = x - p.x, ddz = z - p.z;
         if (ddx * ddx + ddz * ddz < r2) return true;
       }
@@ -148,6 +214,76 @@ export function isOnPath(x, z) {
   }
   return false;
 }
+
+/**
+ * Lantern feet along every route (plus the overlook terrace pair). Pure so the
+ * invariant bench can re-run the same placement without building meshes.
+ *
+ * One lantern every PATHS.lanternEvery world units of arc, alternating sides,
+ * offset by (width/2 + 1.3). Skipped under water (h < seaLevel+0.3) or on a
+ * cliff face (local slope > 0.9).
+ *
+ * @param {Function} heightAt
+ * @param {Function} [slopeAt]
+ * @returns {{x: number, z: number}[]}
+ */
+export function computeLanternSpots(heightAt, slopeAt = null) {
+  const spots = [];
+  const halfW = PATHS.width * 0.5;
+  const sideOff = halfW + 1.3;
+  const every = PATHS.lanternEvery;
+  const p = new THREE.Vector3();
+  const tn = new THREE.Vector3();
+
+  for (const route of _routes) {
+    const len = route.curve.getLength();
+    // Start a half-step in so the junction is not stacked with three lanterns.
+    let side = 1;
+    let s = every * 0.5;
+    let n = 0;
+    while (s < len - every * 0.25) {
+      const t = Math.min(0.999, s / len);
+      route.curve.getPointAt(t, p);
+      route.curve.getTangentAt(t, tn);
+      const l = Math.hypot(tn.x, tn.z) || 1;
+      const nx = -tn.z / l, nz = tn.x / l;
+      const x = p.x + nx * sideOff * side;
+      const z = p.z + nz * sideOff * side;
+      const h = heightAt(x, z);
+      const sl = slopeAt ? slopeAt(x, z) : 0;
+      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9) {
+        spots.push({ x, z });
+      }
+      side = -side;
+      n++;
+      s = every * 0.5 + n * every;
+    }
+  }
+
+  // Terrace pair flanking the overlook at the west rim (arrival of the torii
+  // climb). Same side offset as the rest of the network so they sit on the
+  // path verge — authored [-91,-2]/[-86,5] land ~11 u off-axis after
+  // LAND_SCALE and would fail the orphan invariant even at marge 5.
+  const torii = _routes.find((r) => r.name === 'torii');
+  if (torii) {
+    const tEnd = 0.999;
+    torii.curve.getPointAt(tEnd, p);
+    torii.curve.getTangentAt(tEnd, tn);
+    const l = Math.hypot(tn.x, tn.z) || 1;
+    const nx = -tn.z / l, nz = tn.x / l;
+    for (const side of [1, -1]) {
+      const x = p.x + nx * sideOff * side;
+      const z = p.z + nz * sideOff * side;
+      const h = heightAt(x, z);
+      const sl = slopeAt ? slopeAt(x, z) : 0;
+      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9) spots.push({ x, z });
+    }
+  }
+  return spots;
+}
+
+/** Filled by createDetails — last lantern feet placed (read-only snapshot). */
+export let lanternSpots = [];
 
 /* ── art direction ───────────────────────────────────────────────
  * Four species, weighted. The white daisy is the workhorse and reads at the
@@ -359,7 +495,6 @@ export function createDetails({
   normalAt = null,
   inWater = null,
   wind = null,
-  bridgeInfo = null,   // unused (kept for call-site compatibility); lanterns are path-only
 } = {}) {
   if (typeof heightAt !== 'function') {
     throw new Error('[details] createDetails requires heightAt(x, z) -> y');
@@ -454,15 +589,10 @@ export function createDetails({
   let lanternCount = 0;
   {
     const rng = streamFor(seed, 'details.lanterns');
-    // Hand-placed rather than scattered. A lantern exists ONLY along a path
-    // (or at the overlook terrace that terminates it) — one standing alone in
-    // a field reads as set dressing nobody put there.
-    const spots = [
-      [-79, 12.5], [-59, 27.5], [-37, 44],      // beside the pilgrim path
-      [-91, -2], [-86, 5],                      // flanking the overlook terrace at the rim
-    ].map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]);
-    const usable = spots.filter(([x, z]) => heightAt(x, z) >= WORLD.beachTop && !wet(x, z));
-    lanternCount = usable.length;
+    // Generated ONLY along the path network (+ terrace pair). No orphan lamps.
+    const spots = computeLanternSpots(heightAt, slopeAt);
+    lanternSpots = spots.map((s) => ({ x: s.x, z: s.z }));
+    lanternCount = spots.length;
 
     if (lanternCount > 0) {
       const geo = makeLanternGeometry();
@@ -476,7 +606,7 @@ export function createDetails({
       stones.castShadow = true;
       stones.receiveShadow = true;
 
-      // Additive blending plus a per-instance colour is how six lanterns get six
+      // Additive blending plus a per-instance colour is how many lanterns get
       // independent brightnesses out of one draw call: InstancedMesh has no
       // per-instance alpha, but an additive black instance contributes nothing.
       // Sized to sit inside the fire box's frame (slabs at 1.42 and 1.80) and
@@ -511,7 +641,7 @@ export function createDetails({
       const _s = new THREE.Vector3(1, 1, 1);
 
       for (let i = 0; i < lanternCount; i++) {
-        const [x, z] = usable[i];
+        const { x, z } = spots[i];
         const h = heightAt(x, z);
         // A stone lantern that has stood in a meadow for a century is not plumb.
         _e.set(R.range(rng, -0.045, 0.045), rng() * TAU, R.range(rng, -0.045, 0.045));
@@ -585,62 +715,18 @@ export function createDetails({
     group.add(mesh);
   }
 
-  /* ── 4. the pilgrim path and its torii ───────────────────────── */
+  /* ── 4. path network ribbons, overlook terrace, torii ────────── */
 
   {
-    // — packed-earth ribbon, draped on the terrain column by column. Three
-    // columns (left edge, crown, right edge) so the surface twists with a
-    // cross-slope and crowns slightly instead of sagging between quads.
-    const N = 260;
-    const pos = [], col = [], idx = [], edge = [];
-    const p = new THREE.Vector3(), tn = new THREE.Vector3();
+    // Shared material + grit shader for every packed-earth ribbon.
     const base = new THREE.Color(0xb59d76);   // dry packed earth, light enough to read against the grass
-    for (let i = 0; i <= N; i++) {
-      const t = i / N;
-      PATH_CURVE.getPointAt(t, p);
-      PATH_CURVE.getTangentAt(t, tn);
-      const l = Math.hypot(tn.x, tn.z) || 1;
-      const nx = -tn.z / l, nz = tn.x / l;
-      // INDEPENDENT widths per side - one symmetric width is what read as a
-      // ruled band with two straight edges.
-      const wL = PATH.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
-      const wR = PATH.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
-      const cols = [
-        [p.x + nx * wL, p.z + nz * wL, 0.08, 1],
-        [p.x, p.z, 0.16, 0],                 // the crown rides a touch higher
-        [p.x - nx * wR, p.z - nz * wR, 0.08, 1],
-      ];
-      for (let c = 0; c < 3; c++) {
-        const [cx, cz, lift, edg] = cols[c];
-        edge.push(edg);
-        pos.push(cx, heightAt(cx, cz) + lift, cz);
-        // worn lighter along the crown, darker at the verges
-        const v = (c === 1 ? 1.06 : 0.86) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
-        col.push(base.r * v, base.g * v, base.b * v);
-      }
-      if (i < N) {
-        // Winding chosen so the faces point UP — the trap that has now bitten
-        // this project four times (ocean disc, corolla, bird wings, and this
-        // ribbon): with the default FrontSide material a downward-wound strip
-        // simply does not render, silently.
-        const a = i * 3, b = a + 3;
-        idx.push(a, b, a + 1, a + 1, b, b + 1);
-        idx.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
-      }
-    }
-    const pathGeo = new THREE.BufferGeometry();
-    pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    pathGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    pathGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(edge, 1));
-    pathGeo.setIndex(idx);
-    pathGeo.computeVertexNormals();
     const pathMat = new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 1.0, metalness: 0,
       // Wins the depth fight against the terrain it hugs on steeper ground.
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     });
     // Gritty speckle so the packed earth reads as trodden grit, not paint.
-    // World-position keyed — the ribbon has no UVs.
+    // World-position keyed — the ribbons have no UVs.
     pathMat.onBeforeCompile = (shader) => {
       shader.vertexShader = 'attribute float aPathEdge;\nvarying float vPathEdge;\nvarying vec3 vPathW;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>',
@@ -671,17 +757,77 @@ export function createDetails({
       );
     };
     pathMat.customProgramCacheKey = () => 'sakurajima-path-v3';
-    disposables.push(pathGeo, pathMat);
-    const path = new THREE.Mesh(pathGeo, pathMat);
-    path.name = 'pilgrim-path';
-    path.receiveShadow = true;
-    group.add(path);
+    disposables.push(pathMat);
 
-    // — the overlook terrace at the cliff rim: the path has a destination —
+    const p = new THREE.Vector3(), tn = new THREE.Vector3();
+    const N = 260;
+
+    // One ribbon geometry per route — same lateral fbm widths, aPathEdge cutout,
+    // and world-space grit as the old single pilgrim path.
+    for (const route of _routes) {
+      const pos = [], col = [], idx = [], edge = [];
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        // Closed curves: t=1 wraps to the start. Open: getPointAt(1) is fine.
+        if (route.closed) {
+          route.curve.getPointAt(t >= 1 ? 0 : t, p);
+          route.curve.getTangentAt(t >= 1 ? 0 : Math.min(t, 0.9999), tn);
+        } else {
+          route.curve.getPointAt(t, p);
+          route.curve.getTangentAt(Math.min(t, 0.9999), tn);
+        }
+        const l = Math.hypot(tn.x, tn.z) || 1;
+        const nx = -tn.z / l, nz = tn.x / l;
+        // INDEPENDENT widths per side — one symmetric width is what read as a
+        // ruled band with two straight edges.
+        const wL = PATHS.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
+        const wR = PATHS.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
+        const cols = [
+          [p.x + nx * wL, p.z + nz * wL, 0.08, 1],
+          [p.x, p.z, 0.16, 0],                 // the crown rides a touch higher
+          [p.x - nx * wR, p.z - nz * wR, 0.08, 1],
+        ];
+        for (let c = 0; c < 3; c++) {
+          const [cx, cz, lift, edg] = cols[c];
+          edge.push(edg);
+          pos.push(cx, heightAt(cx, cz) + lift, cz);
+          // worn lighter along the crown, darker at the verges
+          const v = (c === 1 ? 1.06 : 0.86) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
+          col.push(base.r * v, base.g * v, base.b * v);
+        }
+        if (i < N) {
+          // Winding chosen so the faces point UP — the trap that has now bitten
+          // this project four times (ocean disc, corolla, bird wings, and this
+          // ribbon): with the default FrontSide material a downward-wound strip
+          // simply does not render, silently.
+          const a = i * 3, b = a + 3;
+          idx.push(a, b, a + 1, a + 1, b, b + 1);
+          idx.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+        }
+      }
+      const pathGeo = new THREE.BufferGeometry();
+      pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      pathGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      pathGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(edge, 1));
+      pathGeo.setIndex(idx);
+      pathGeo.computeVertexNormals();
+      disposables.push(pathGeo);
+      const path = new THREE.Mesh(pathGeo, pathMat);
+      path.name = `path-${route.name}`;
+      path.receiveShadow = true;
+      group.add(path);
+    }
+
+    // — the overlook terrace at the cliff rim: the torii climb's destination —
     {
       const SEG2 = 28;
       const tp = [], tc = [], ti = [];
-      const [cx0, cz0] = PATH.points[0];
+      // Terrace centres on the END of the torii route (west rim).
+      const toriiRoute = _routes.find((r) => r.name === 'torii');
+      const [cx0, cz0] = toriiRoute
+        ? [toriiRoute.points[toriiRoute.points.length - 1][0],
+           toriiRoute.points[toriiRoute.points.length - 1][1]]
+        : [-88 * LAND_SCALE, 0];
       const cy0 = heightAt(cx0, cz0);
       tp.push(cx0, cy0 + 0.14, cz0);
       tc.push(base.r * 1.05, base.g * 1.05, base.b * 1.05);
@@ -708,37 +854,43 @@ export function createDetails({
       group.add(terrace);
     }
 
-    // — the torii along the route —
-    const toriiGeo = makeToriiGeometry();
-    const toriiBump = makeWoodBump(seed);
-    toriiBump.repeat.set(1.5, 1);
-    const toriiMat = new THREE.MeshStandardMaterial({
-      vertexColors: true, roughness: 0.72, metalness: 0,
-      bumpMap: toriiBump, bumpScale: 0.22,
-    });
-    disposables.push(toriiBump);
-    disposables.push(toriiGeo, toriiMat);
-    const torii = new THREE.InstancedMesh(toriiGeo, toriiMat, PATH.toriiAt.length);
-    torii.name = 'torii';
-    torii.castShadow = true;
-    torii.receiveShadow = true;
-    const _m = new THREE.Matrix4();
-    const _q = new THREE.Quaternion();
-    const _e = new THREE.Euler();
-    const _p = new THREE.Vector3();
-    const _s = new THREE.Vector3(1, 1, 1);
-    PATH.toriiAt.forEach((t, i) => {
-      PATH_CURVE.getPointAt(t, p);
-      PATH_CURVE.getTangentAt(t, tn);
-      // Local +X across the walking direction — the posts flank the path.
-      _e.set(0, Math.atan2(tn.x, tn.z), 0);
-      _q.setFromEuler(_e);
-      _m.compose(_p.set(p.x, heightAt(p.x, p.z) - 0.06, p.z), _q, _s);
-      torii.setMatrixAt(i, _m);
-    });
-    torii.instanceMatrix.needsUpdate = true;
-    torii.computeBoundingSphere();
-    group.add(torii);
+    // — torii only on the 'torii' climb, oriented across the path —
+    const toriiRoute = _routes.find((r) => r.name === 'torii');
+    const toriiFracs = toriiRoute?.toriiAt || [];
+    if (toriiRoute && toriiFracs.length > 0) {
+      const toriiGeo = makeToriiGeometry();
+      const toriiBump = makeWoodBump(seed);
+      toriiBump.repeat.set(1.5, 1);
+      const toriiMat = new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: 0.72, metalness: 0,
+        bumpMap: toriiBump, bumpScale: 0.22,
+      });
+      disposables.push(toriiBump);
+      disposables.push(toriiGeo, toriiMat);
+      const torii = new THREE.InstancedMesh(toriiGeo, toriiMat, toriiFracs.length);
+      torii.name = 'torii';
+      torii.castShadow = true;
+      torii.receiveShadow = true;
+      const _m = new THREE.Matrix4();
+      const _q = new THREE.Quaternion();
+      const _e = new THREE.Euler();
+      const _p = new THREE.Vector3();
+      const _s = new THREE.Vector3(1, 1, 1);
+      toriiFracs.forEach((t, i) => {
+        const tt = Math.min(Math.max(t, 0), 0.9999);
+        toriiRoute.curve.getPointAt(tt, p);
+        toriiRoute.curve.getTangentAt(tt, tn);
+        // Local +X across the walking direction — posts flank the path so you
+        // walk UNDER the gate (perpendicular to the local tangent).
+        _e.set(0, Math.atan2(tn.x, tn.z), 0);
+        _q.setFromEuler(_e);
+        _m.compose(_p.set(p.x, heightAt(p.x, p.z) - 0.06, p.z), _q, _s);
+        torii.setMatrixAt(i, _m);
+      });
+      torii.instanceMatrix.needsUpdate = true;
+      torii.computeBoundingSphere();
+      group.add(torii);
+    }
   }
 
   /* ── update ──────────────────────────────────────────────────── */

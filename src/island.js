@@ -493,7 +493,10 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       const dAng = Math.abs(Math.atan2(Math.sin(a - Math.PI), Math.cos(a - Math.PI)));
       const cw = sstep(0.85, 0.45, dAng);      // 1 due west, 0 past ~±49°
       if (cw > 0.002) {
-        const rim = 8.0 * HEIGHT_SCALE + 2.2 * fbm2(x * 0.020 + 9.3, z * 0.020 - 4.1, 3);
+        // Rim rehaussé (8 -> 12.5·H) : la montée aux torii doit GRIMPER —
+        // avec la prairie à ~8, un rebord à ~11 donnait 2.8 u de dénivelé,
+        // une promenade, pas une ascension. À ~17.5 le belvédère domine.
+        const rim = 12.5 * HEIGHT_SCALE + 2.2 * fbm2(x * 0.020 + 9.3, z * 0.020 - 4.1, 3);
         const lift = sstep(0.34, 0.50, d);     // land swells toward the rim from inland
         const plateau = mix(y, Math.max(y, rim), lift);
         const face = sstep(0.545, 0.585, d);   // then falls off the face into deep water
