@@ -137,8 +137,11 @@ export function createWindUniforms( opts = {} ) {
 		uWindStrength:{ value: opts.strength !== undefined ? opts.strength : 1.0 },
 		uWindFreq:    { value: opts.frequency !== undefined ? opts.frequency : 0.85 },
 		uGustScale:   { value: opts.gustScale !== undefined ? opts.gustScale : 0.045 },
-		uBarkSway:    { value: opts.barkSway !== undefined ? opts.barkSway : 0.16 },
-		uBlossomSway: { value: opts.blossomSway !== undefined ? opts.blossomSway : 0.30 }
+		// Amplitudes doublees : a 0.16 le balancement etait imperceptible a
+		// cote de l'herbe qui ondule (« l'herbe reagit au vent mais pas les
+		// arbres ? »). Toujours multipliees par uWindStrength : accalmie = repos.
+		uBarkSway:    { value: opts.barkSway !== undefined ? opts.barkSway : 0.34 },
+		uBlossomSway: { value: opts.blossomSway !== undefined ? opts.blossomSway : 0.58 }
 	};
 
 }
@@ -178,7 +181,7 @@ const ARCHETYPES = {
 		heightRange:  [ 9.0, 13.0 ],
 		trunkLen:     [ 2.6, 3.6 ],
 		trunkRadius:  [ 0.24, 0.34 ],
-		maxDepth: 5, budget: 118,
+		maxDepth: 5, budget: 165,
 		taperPow: 1.30, endTaper: 0.66, rootFlare: 0.42, flareLobes: 5, flareAmt: 0.16,
 		flexScale: 1.0, leaderProb: 0.5, asym: 0.0,
 		floorY: 0.35,
@@ -204,7 +207,7 @@ const ARCHETYPES = {
 		heightRange:  [ 6.5, 9.5 ],
 		trunkLen:     [ 2.8, 3.8 ],
 		trunkRadius:  [ 0.19, 0.27 ],
-		maxDepth: 3, budget: 132,
+		maxDepth: 4, budget: 185,
 		taperPow: 1.15, endTaper: 0.70, rootFlare: 0.30, flareLobes: 4, flareAmt: 0.10,
 		flexScale: 1.35, leaderProb: 0.25, asym: 0.0,
 		floorY: 0.18,
@@ -230,7 +233,7 @@ const ARCHETYPES = {
 		heightRange:  [ 5.5, 8.5 ],
 		trunkLen:     [ 1.8, 2.8 ],
 		trunkRadius:  [ 0.22, 0.32 ],
-		maxDepth: 4, budget: 88,
+		maxDepth: 4, budget: 125,
 		taperPow: 1.45, endTaper: 0.62, rootFlare: 0.55, flareLobes: 5, flareAmt: 0.22,
 		flexScale: 1.2, leaderProb: 0.6, asym: 0.55,
 		floorY: 0.30,
@@ -256,7 +259,7 @@ const ARCHETYPES = {
 		heightRange:  [ 2.8, 4.6 ],
 		trunkLen:     [ 1.8, 2.6 ],
 		trunkRadius:  [ 0.055, 0.085 ],
-		maxDepth: 3, budget: 34,
+		maxDepth: 3, budget: 48,
 		taperPow: 1.10, endTaper: 0.72, rootFlare: 0.12, flareLobes: 3, flareAmt: 0.05,
 		flexScale: 1.6, leaderProb: 0.75, asym: 0.0,
 		floorY: 0.25,
@@ -282,7 +285,7 @@ const ARCHETYPES = {
 		heightRange:  [ 9.5, 14.0 ],
 		trunkLen:     [ 1.2, 1.9 ],
 		trunkRadius:  [ 0.40, 0.58 ],
-		maxDepth: 5, budget: 150,
+		maxDepth: 5, budget: 210,
 		taperPow: 1.60, endTaper: 0.70, rootFlare: 0.85, flareLobes: 6, flareAmt: 0.26,
 		flexScale: 0.8, leaderProb: 0.35, asym: 0.12,
 		floorY: 0.30,
@@ -1371,7 +1374,7 @@ export function createSakuraForest( options = {} ) {
 		// wGrad : heart & cliff rim grow larger; beach edge stays modest.
 		// scale feeds spacing (canopyRadius) and low-branch exclusion — not mesh-only.
 		const scale = rng.range( 0.84, 1.20 ) * ( flags.high ? 0.82 : 1.0 )
-			* ( 0.82 + 0.55 * wGrad );
+			* ( 0.82 + 0.55 * wGrad ) * 1.5;   // +50 % global (consigne joueur)
 		const spacing = Math.max( o.minSpacing, proto.canopyRadius * scale * 0.60 );
 		if ( tooClose( x, z, spacing * ( 1 - relax * 0.45 ) ) ) continue;
 

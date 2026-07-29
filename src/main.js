@@ -310,7 +310,7 @@ async function boot() {
     // Once the branch structure actually built, the default blossom load left
     // the island looking like an orchard in March. The blossom is the subject —
     // it should hide most of the branch it grows on.
-    blossomDensity: q.label === 'ultra' ? 2.2 : q.label === 'high' ? 1.8 : 1.2,
+    blossomDensity: q.label === 'ultra' ? 3.0 : q.label === 'high' ? 2.3 : 1.5,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     // Nothing calls getBlossomSamples (petals use forest.emitters) - keeping the
     // sample cloud held ~330 MB of dead heap at 13.7M blossoms.
@@ -341,9 +341,10 @@ async function boot() {
     slopeAt: world.slopeAt,
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds are
     // carved into the heightfield, so their beds pass every test grass does
-    // apply — gentle slope, right altitude — and the pools fill with submerged
-    // blades. The pilgrim path is packed earth for the same reason.
-    exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
+    // apply. La sente n'est PLUS une exclusion dure : shortZone y garde une
+    // herbe rase et clairsemée entre les passages (consigne joueur).
+    exclude: (x, z) => world.inWater(x, z),
+    shortZone: (x, z) => isOnPath(x, z, 0.25),
     wind: world.wind,
   });
   scene.add(world.grass.mesh);

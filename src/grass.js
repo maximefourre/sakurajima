@@ -159,6 +159,7 @@ const DEFAULTS = {
 	slopeAt: null,         // optional: (x, z) -> 1 - normal.y   (see slopeMode)
 	slopeMode: 'normal',   // 'normal' (1 - n.y) | 'radians'
 	exclude: null,         // optional: (x, z) -> bool, true = no grass here
+	shortZone: null,       // optional: (x, z) -> bool, true = herbe rase clairsemée (la sente)
 
 	// --- blade shape -------------------------------------------------------------
 	bladeHeight: 1.17,     // ×1.5 sur demande joueur — le shiba nage dedans
@@ -723,6 +724,15 @@ export function createGrass( options = {} ) {
 		// bed of a pond is, geometrically, a gentle hollow in the meadow.
 		if ( CFG.exclude && CFG.exclude( x, z ) ) continue;
 
+		// (2bis) la SENTE : pas une exclusion dure — une herbe rase et
+		// clairsemée y survit entre les passages (consigne joueur : le chemin
+		// doit merger avec la prairie, pas la trouer).
+		let shortK = 1;
+		if ( CFG.shortZone && CFG.shortZone( x, z ) ) {
+			if ( rand() > 0.12 ) continue;
+			shortK = 0.30;
+		}
+
 		// (3) height band: above the beach, below the rocky upland
 		const h = heightAt( x, z );
 		const shore = CFG.beachY + ( valueNoise2D( x * 0.05, z * 0.05, ( nSeed ^ 0x51ed ) >>> 0 ) - 0.5 ) * 2 * CFG.shoreWobble;
@@ -762,8 +772,8 @@ export function createGrass( options = {} ) {
 		aNX[ i ] = nx; aNY[ i ] = ny; aNZ[ i ] = nz;
 		aYaw[ i ] = rand() * Math.PI * 2;
 
-		// taller grass inside thick clumps
-		aHS[ i ] = THREE.MathUtils.clamp( 0.62 + 0.55 * p + 0.42 * ( rand() - 0.5 ), 0.6, 1.6 );
+		// taller grass inside thick clumps; rase sur la sente (shortK)
+		aHS[ i ] = THREE.MathUtils.clamp( 0.62 + 0.55 * p + 0.42 * ( rand() - 0.5 ), 0.6, 1.6 ) * shortK;
 		aWD[ i ] = 0.78 + 0.50 * rand();
 		aPH[ i ] = rand() * Math.PI * 2;
 		aST[ i ] = 0.65 + 0.80 * rand();

@@ -636,9 +636,12 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     // seabed, so shallow water reads turquoise over sand and dark further out
     cA.lerp(C_SEABED, sstep(-1.2, -6.5, h));
 
-    // Rock takes over on slopes, exactly where grass gives up.
-    cRock.copy(C_ROCK).lerp(C_ROCKD, sstep(0.55, 0.92, slope + cn * 0.05));
-    cA.lerp(cRock, sstep(WORLD.grassMaxSlope - 0.16, WORLD.grassMaxSlope + 0.12, slope + cn * 0.06));
+    // Rock takes over on slopes, exactly where grass gives up — the REAL
+    // grass (grass.js slopeMax 0.38), pas le vieux WORLD.grassMaxSlope 0.62 :
+    // toute la bande 0.38-0.62 (dont la FACE de la falaise ouest, pente
+    // ~0.45) restait peinte en vert sans un brin dessus (capture joueur).
+    cRock.copy(C_ROCK).lerp(C_ROCKD, sstep(0.48, 0.85, slope + cn * 0.05));
+    cA.lerp(cRock, sstep(0.30, 0.52, slope + cn * 0.06));
 
     // Terrain colour is altitude + slope only (meadow / sand / rock) — no
     // special bed tint.

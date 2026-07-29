@@ -415,6 +415,30 @@ montée aux torii à midi, lanternes allumées et torii sous la Voie lactée à
 
 ---
 
+## Session « polish sente + forêt monumentale » du 29/07 (fin d'après-midi)
+
+Rafale de retouches sur retours joueur, dans l'ordre :
+- **Sente foulée** : les « patchs verts en plein chemin » étaient le TERRAIN
+  transperçant le ruban entre deux échantillons (drapé 3 colonnes à +0.08).
+  → 5 colonnes, rehausse, empilement déterministe des routes au carrefour
+  (liftBias par route) + liserés neutralisés aux départs (edgeK) pour une
+  fusion propre. Extrémités ouvertes FUSELÉES ; terrasse effilochée via
+  aPathEdge radial.
+- **Herbe rase sur la sente** (grass.js `shortZone`) : plus une exclusion
+  dure — densité 12 %, brins courts. Fleurs sauvages exclues du chemin.
+- **Torii** : calés sur la hauteur du chemin au centre, piliers allongés
+  (−1.8 sous la base), portique ×1.35.
+- **Forêt monumentale** : arbres ×1.5, branches +40 %, blossomDensity 3.0
+  ultra, pétales 15500 + tapis 9500 ultra.
+- **Vent** : balancement des arbres ×2 (uBarkSway 0.34 / uBlossomSway 0.58) ;
+  bourrasques à pétales (décollage du tapis plus facile, portage ×2 en squall).
+- **Falaise rocheuse** : la couleur roche était calée sur WORLD.grassMaxSlope
+  (0.62) alors que l'herbe réelle meurt à 0.38 → la bande 0.38-0.62 (la FACE
+  de la falaise) restait verte et nue. Seuils réalignés (0.30→0.52).
+Attention perf : ultra s'est alourdi — ~23 fps sur les vues chargées.
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

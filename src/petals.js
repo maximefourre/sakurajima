@@ -206,10 +206,13 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
 
         if (aMode > 0.5) {
           // SETTLED: lies on the ground until a gust lifts it, then resettles.
-          float lift = smoothstep(0.55, 1.6, gust);
+          // Seuil abaisse : une vraie bourrasque (gust > ~1) souleve un TAPIS
+          // de petales d'un coup (consigne joueur : de temps en temps, une
+          // grosse bourrasque qui remplit l'air).
+          float lift = smoothstep(0.40, 1.15, gust);
           float hop  = lift * (0.6 + 1.8 * sk_noise3(vec3(base.xz * 0.3, uTime * 0.35 + phase)));
           worldPos = base + vec3(0.0, max(0.04, hop), 0.0);
-          worldPos += windForce(base, uTime) * lift * 1.4;
+          worldPos += windForce(base, uTime) * lift * (1.4 + 1.6 * smoothstep(1.0, 2.2, gust));
           airborne = lift;
         } else {
           // AIRBORNE: detach and GLIDE. A petal does not rain straight down
@@ -236,7 +239,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
           // Wind carry still accumulates over the whole life on top of the
           // launch, so long-lived petals end far downwind.
           vec3 w = windForce(vec3(base.x, fallY, base.z), uTime);
-          vec3 drift = vec3(ld.x, 0.0, ld.y) * launch + w * uDrift * life;
+          vec3 drift = vec3(ld.x, 0.0, ld.y) * launch + w * uDrift * life * (1.0 + 0.9 * smoothstep(1.0, 2.2, gust));
 
           // Spiral and wander fade IN over the first quarter of the life, so
           // the crown sheds a coherent stream instead of a pre-scattered cloud.

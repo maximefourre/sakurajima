@@ -570,6 +570,9 @@ export function createDetails({
         if (h < WORLD.beachTop + 0.5 || h > WORLD.grassTop - 1.5) continue;
         if (slopeAt && slopeAt(x, z) > 0.34) continue;
         if (wet(x, z)) continue;
+        // Pas de fleurs sur la terre battue — la sente porte une herbe rase
+        // (grass.js shortZone), pas des corolles intactes en plein passage.
+        if (isOnPath(x, z, 0.4)) continue;
 
         if (normalAt) normalAt(x, z, _n); else _n.set(0, 1, 0);
         _n.lerp(UP, 0.45).normalize();
@@ -810,6 +813,13 @@ export function createDetails({
           tap = smoothstep(0, 0.035, t);
           if (route.name === 'plage') tap *= 1 - smoothstep(0.94, 1, t);
         }
+        // Au CARREFOUR les rubans se superposent : chaque route a son étage
+        // (liftBias) pour un empilement déterministe, et les liserés
+        // (verdissement + effilochage) sont neutralisés à l'approche du
+        // départ — sinon chaque ruban dessinait sa frange verte par-dessus la
+        // terre de l'autre (« ils mergent pas naturellement », capture).
+        const liftBias = route.name === 'etangs' ? 0 : route.name === 'torii' ? 0.05 : 0.10;
+        const edgeK = route.closed ? 1 : smoothstep(0.015, 0.06, t);
         const wk = 0.02 + 0.98 * tap;
         const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
         const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
@@ -827,8 +837,8 @@ export function createDetails({
         ];
         for (let c = 0; c < 5; c++) {
           const [cx, cz, lift, edg] = cols[c];
-          edge.push(edg);
-          pos.push(cx, heightAt(cx, cz) + lift, cz);
+          edge.push(edg * edgeK);
+          pos.push(cx, heightAt(cx, cz) + lift + liftBias, cz);
           // worn lighter along the crown, darker at the verges
           const v = (edg < 0.25 ? 1.06 : 0.86 + 0.14 * (1 - edg)) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
           col.push(base.r * v, base.g * v, base.b * v);
