@@ -381,6 +381,10 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     carpetGeo.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(aTintAge, 2));
 
     const carpetUniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]);
+    carpetUniforms.uTime = { value: 0 };
+    // (x, z, vitesse 0..1) du shiba : les petales tombes fremissent et
+    // s'envolent un peu quand il passe en courant (consigne joueur).
+    carpetUniforms.uPlayer = { value: new THREE.Vector3(0, 0, 0) };
     // Lighting slots shared BY REFERENCE with the airborne material.
     carpetUniforms.uSunDir   = uniforms.uSunDir;
     carpetUniforms.uSunColor = uniforms.uSunColor;
@@ -398,6 +402,9 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       vertexShader: /* glsl */ `
         attribute vec2 aTintAge;
 
+        uniform float uTime;
+        uniform vec3  uPlayer;
+
         varying vec2  vUv;
         varying vec3  vNormalW;
         varying float vTint;
@@ -413,6 +420,19 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
           // instanceMatrix is declared by three's prefix on any InstancedMesh.
           vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
           vNormalW = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * normal));
+
+          // REMOUS : pres du shiba lance, les petales se soulevent et
+          // s'ecartent — un sillage de course dans le tapis. uPlayer.z est la
+          // vitesse normalisee : a l'arret, rien ne bouge.
+          float pd = distance(wp.xz, uPlayer.xy);
+          float stir = (1.0 - smoothstep(0.3, 2.8, pd)) * uPlayer.z;
+          if (stir > 0.001) {
+            float flut = 0.5 + 0.5 * sin(uTime * 8.0 + wp.x * 3.7 + wp.z * 2.9);
+            wp.y += stir * flut * 0.85;
+            vec2 away = wp.xz - uPlayer.xy;
+            float al = max(length(away), 0.001);
+            wp.xz += (away / al) * stir * 0.55;
+          }
 
           // NOTE: must be named mvPosition -- the fog_vertex chunk reads it.
           vec4 mvPosition = viewMatrix * wp;
@@ -508,8 +528,11 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       // against the light instead of forming one specular sheet.
       _e.set(R.range(crng, -0.35, 0.35), 0, R.range(crng, -0.35, 0.35));
       _q.setFromAxisAngle(UPV, crng() * Math.PI * 2).multiply(_tq.setFromEuler(_e));
-      const s = R.skew(crng, 0.16, 0.44, 1.6);
-      _m.compose(_p.set(x, h + R.range(crng, 0.02, 0.05), z), _q, _s.set(s, s, s));
+      // Poses SUR l'herbe (0.06-0.42 au-dessus du sol) et plus grands : a
+      // +0.02 sous une herbe de 1.2, le tapis entier etait invisible
+      // (« actuellement 0 en fait », consigne joueur).
+      const s = R.skew(crng, 0.30, 0.66, 1.6);
+      _m.compose(_p.set(x, h + R.range(crng, 0.06, 0.42), z), _q, _s.set(s, s, s));
       cMesh.setMatrixAt(placed, _m);
 
       // The fringe fell first: older (browner, duller) toward the disc edge.
@@ -525,7 +548,12 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
 
   const _sun = new THREE.Vector3();
 
+  function setPlayer(x, z, speedN) {
+    if (carpetMat) carpetMat.uniforms.uPlayer.value.set(x, z, speedN);
+  }
+
   function update(t, phase) {
+    if (carpetMat) carpetMat.uniforms.uTime.value = t;
     // Wind uniforms are shared by reference and already updated by wind.update().
     if (!phase) return;
     // keyDir/keyColor resolve to sun by day and moon by night, so petals stay
@@ -556,5 +584,5 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     carpet?.dispose();
   }
 
-  return { mesh, carpet, update, dispose, count: COUNT, carpetCount: carpet ? carpet.count : 0 };
+  return { mesh, carpet, update, setPlayer, dispose, count: COUNT, carpetCount: carpet ? carpet.count : 0 };
 }

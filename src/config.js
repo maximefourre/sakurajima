@@ -139,7 +139,7 @@ export const QUALITY = {
     grassBlades: Math.round(45000 * AREA_SOFT),
     grassRadius: Math.round(70 * LAND_SCALE),
     petals: Math.round(2400 * AREA_SOFT),
-    fallenPetals: Math.round(1300 * AREA_SOFT),
+    fallenPetals: Math.round(3200 * AREA_SOFT),
     trees: Math.round(56 * AREA_SOFT),
     uniqueTrees: 10,
     rocks: Math.round(35 * AREA_SOFT),
@@ -153,7 +153,7 @@ export const QUALITY = {
     grassBlades: Math.round(200000 * AREA_SOFT),
     grassRadius: Math.round(105 * LAND_SCALE),
     petals: Math.round(7600 * AREA_SOFT),
-    fallenPetals: Math.round(3600 * AREA_SOFT),
+    fallenPetals: Math.round(9500 * AREA_SOFT),
     trees: Math.round(190 * AREA_SOFT),
     uniqueTrees: 18,
     rocks: Math.round(74 * AREA_SOFT),
@@ -167,7 +167,9 @@ export const QUALITY = {
     grassBlades: Math.round(560000 * AREA_SOFT),
     grassRadius: Math.round(130 * LAND_SCALE),
     petals: Math.round(15500 * AREA_SOFT),
-    fallenPetals: Math.round(9500 * AREA_SOFT),
+    // ~147k au sol en ultra : sous un hanami, le sol est JONCHÉ — 53k étalés
+    // sur 1900 arbres lisaient comme rien du tout (consigne joueur).
+    fallenPetals: Math.round(26000 * AREA_SOFT),
     trees: Math.round(330 * AREA_SOFT),
     uniqueTrees: 28,
     rocks: Math.round(110 * AREA_SOFT),

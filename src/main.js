@@ -365,9 +365,9 @@ async function boot() {
     wind: world.wind,
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
-    // Same contract as grass: keeps the fallen-petal carpet out of the ponds
-    // and off the packed earth of the pilgrim path.
-    exclude: (x, z) => world.inWater(x, z) || isOnPath(x, z),
+    // Eau seulement : les pétales tombés ONT leur place sur la terre battue
+    // (c'est là qu'on court dedans — consigne joueur).
+    exclude: (x, z) => world.inWater(x, z),
   });
   scene.add(world.petals.mesh);
   if (world.petals.carpet) scene.add(world.petals.carpet);
@@ -510,6 +510,9 @@ function frame() {
   // this frame's position, and unconditional: it applies in both camera modes —
   // in follow mode you swim through it, in orbit mode you watch him wade.
   world.grass.setPlayer?.(world.shiba.position, dt);
+  // Le tapis de pétales frémit au passage : vitesse normalisée du shiba.
+  world.petals.setPlayer?.(world.shiba.position.x, world.shiba.position.z,
+    Math.min(1, world.shiba.speed / 14.8));
 
   if (world.camMode === 'follow') {
     updateFollowCamera(dt);
