@@ -800,19 +800,37 @@ export function createDetails({
         // Plancher relevé (0.55 → 0.78) : avec l'ancien, le ruban s'amincissait
         // par endroits à la moitié de sa largeur nominale et l'exclusion
         // d'herbe (calée sur l'axe) laissait une berge de « vide » vert.
-        const wL = PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
-        const wR = PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
+        // FUSELAGE des extrémités ouvertes : un chemin ne s'arrête pas net en
+        // dalle (capture joueur), il s'amincit et se dissout. Le départ de
+        // chaque route ouverte pince sur ~3.5 % ; la route de la plage meurt
+        // aussi en pointe dans le sable. La fin de la montée aux torii reste
+        // pleine : elle se fond dans la terrasse.
+        let tap = 1;
+        if (!route.closed) {
+          tap = smoothstep(0, 0.035, t);
+          if (route.name === 'plage') tap *= 1 - smoothstep(0.94, 1, t);
+        }
+        const wk = 0.02 + 0.98 * tap;
+        const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
+        const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
+        // 5 colonnes et rehausse franche : à 3 colonnes posées à +0.08, les
+        // triangles du TERRAIN (pas ~2-3 u) gonflaient au travers du ruban
+        // entre deux échantillons — les « patchs verts anguleux en plein
+        // chemin » de la capture joueur. Plus de colonnes = le ruban épouse le
+        // travers ; plus haut = le terrain ne le transperce plus.
         const cols = [
-          [p.x + nx * wL, p.z + nz * wL, 0.08, 1],
-          [p.x, p.z, 0.16, 0],                 // the crown rides a touch higher
-          [p.x - nx * wR, p.z - nz * wR, 0.08, 1],
+          [p.x + nx * wL, p.z + nz * wL, 0.16, 1],
+          [p.x + nx * wL * 0.5, p.z + nz * wL * 0.5, 0.24, 0.5],
+          [p.x, p.z, 0.30, 0],
+          [p.x - nx * wR * 0.5, p.z - nz * wR * 0.5, 0.24, 0.5],
+          [p.x - nx * wR, p.z - nz * wR, 0.16, 1],
         ];
-        for (let c = 0; c < 3; c++) {
+        for (let c = 0; c < 5; c++) {
           const [cx, cz, lift, edg] = cols[c];
           edge.push(edg);
           pos.push(cx, heightAt(cx, cz) + lift, cz);
           // worn lighter along the crown, darker at the verges
-          const v = (c === 1 ? 1.06 : 0.86) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
+          const v = (edg < 0.25 ? 1.06 : 0.86 + 0.14 * (1 - edg)) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
           col.push(base.r * v, base.g * v, base.b * v);
         }
         if (i < N) {
@@ -820,9 +838,10 @@ export function createDetails({
           // this project four times (ocean disc, corolla, bird wings, and this
           // ribbon): with the default FrontSide material a downward-wound strip
           // simply does not render, silently.
-          const a = i * 3, b = a + 3;
-          idx.push(a, b, a + 1, a + 1, b, b + 1);
-          idx.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+          const a = i * 5, b = a + 5;
+          for (let c = 0; c < 4; c++) {
+            idx.push(a + c, b + c, a + c + 1, a + c + 1, b + c, b + c + 1);
+          }
         }
       }
       const pathGeo = new THREE.BufferGeometry();
@@ -849,15 +868,21 @@ export function createDetails({
            toriiRoute.points[toriiRoute.points.length - 1][1]]
         : [-88 * LAND_SCALE, 0];
       const cy0 = heightAt(cx0, cz0);
-      tp.push(cx0, cy0 + 0.14, cz0);
+      const te = [];
+      tp.push(cx0, cy0 + 0.22, cz0);
       tc.push(base.r * 1.05, base.g * 1.05, base.b * 1.05);
+      te.push(0);
       for (let s2 = 0; s2 <= SEG2; s2++) {
         const a2 = (s2 / SEG2) * Math.PI * 2;
         const rr = 3.6 * (0.80 + 0.35 * fbm2(Math.cos(a2) * 2.1 + 5.0, Math.sin(a2) * 2.1, 2));
         const px2 = cx0 + Math.cos(a2) * rr, pz2 = cz0 + Math.sin(a2) * rr;
-        tp.push(px2, heightAt(px2, pz2) + 0.08, pz2);
+        tp.push(px2, heightAt(px2, pz2) + 0.14, pz2);
         const v2 = 0.86 * (0.92 + 0.16 * fbm2(px2 * 0.21, pz2 * 0.21, 2));
         tc.push(base.r * v2, base.g * v2, base.b * v2);
+        // Le pourtour porte aPathEdge = 1 : le shader effiloche et verdit le
+        // rebord de la terrasse comme un bord de sente — un disque net posé
+        // dans l'herbe lisait comme une dalle (« le chemin s'arrête net »).
+        te.push(1);
         // Winding matches the ocean disc's proven fan (centre, next, current):
         // faces point UP. The winding trap has bitten this repo four times.
         if (s2 < SEG2) ti.push(0, s2 + 2, s2 + 1);
@@ -865,10 +890,11 @@ export function createDetails({
       const terrGeo = new THREE.BufferGeometry();
       terrGeo.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
       terrGeo.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3));
+      terrGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(te, 1));
       terrGeo.setIndex(ti);
       terrGeo.computeVertexNormals();
       disposables.push(terrGeo);
-      const terrace = new THREE.Mesh(terrGeo, pathMat);   // aPathEdge absent -> reads 0, no cutout
+      const terrace = new THREE.Mesh(terrGeo, pathMat);
       terrace.name = 'overlook-terrace';
       terrace.receiveShadow = true;
       group.add(terrace);
