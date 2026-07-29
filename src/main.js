@@ -22,7 +22,7 @@ import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
 import { createShiba } from './shiba.js';
-import { createDetails, isOnPath, initPath } from './details.js';
+import { createDetails, isOnPath, initPath, pathProximity, PATH_SURFACE_LIFT } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -285,10 +285,10 @@ async function boot() {
   // isOnPath against every route.
   initPath();
 
-  // groundAt is the mover surface (dog, follow camera). Today it is just the
-  // terrain; kept as a wrapper so later systems can override a column without
-  // forking every caller.
-  world.groundAt = (x, z) => world.heightAt(x, z);
+  // groundAt is the mover surface (dog, follow camera): the terrain PLUS la
+  // surface de terre battue de la sente — sans quoi les pattes du shiba
+  // traversent le ruban (il marchait sur le terrain SOUS le chemin).
+  world.groundAt = (x, z) => world.heightAt(x, z) + PATH_SURFACE_LIFT * pathProximity(x, z);
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });

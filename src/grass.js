@@ -726,11 +726,15 @@ export function createGrass( options = {} ) {
 
 		// (2bis) la SENTE : pas une exclusion dure — une herbe rase et
 		// clairsemée y survit entre les passages (consigne joueur : le chemin
-		// doit merger avec la prairie, pas la trouer).
-		let shortK = 1;
+		// doit merger avec la prairie, pas la trouer). Les touffes sont
+		// ENRACINÉES SUR LA SURFACE de terre battue (+pathLift), pas sur le
+		// terrain dessous — sinon elles naissent dans l'épaisseur du ruban et
+		// « on dirait qu'elles sont cachées dans le sol ».
+		let shortK = 1, pathLiftY = 0;
 		if ( CFG.shortZone && CFG.shortZone( x, z ) ) {
 			if ( rand() > 0.12 ) continue;
-			shortK = 0.30;
+			shortK = 0.45;
+			pathLiftY = 0.13;
 		}
 
 		// (3) height band: above the beach, below the rocky upland
@@ -767,7 +771,7 @@ export function createGrass( options = {} ) {
 		const i = placed ++;
 
 		aX[ i ] = x;
-		aY[ i ] = h - CFG.rootSink;
+		aY[ i ] = h - CFG.rootSink + pathLiftY;
 		aZ[ i ] = z;
 		aNX[ i ] = nx; aNY[ i ] = ny; aNZ[ i ] = nz;
 		aYaw[ i ] = rand() * Math.PI * 2;

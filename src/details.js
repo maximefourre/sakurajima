@@ -218,6 +218,39 @@ export function isOnPath(x, z, extra = 0.25) {
 }
 
 /**
+ * Proximité à l'axe d'une route, 0 (hors sente) → 1 (au coeur). Sert au sol
+ * composite des MOVERS : le shiba marche SUR la surface de terre battue
+ * (terrain + ~pathSurfaceLift·proximité), pas sur le terrain en dessous —
+ * sinon ses pattes traversent le ruban (capture joueur). Lisse au bord.
+ */
+export const PATH_SURFACE_LIFT = 0.13;
+export function pathProximity(x, z) {
+  if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return 0;
+  const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((x - _pMinX) / P_CELL)));
+  const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((z - _pMinZ) / P_CELL)));
+  let best2 = Infinity;
+  for (let dz = -1; dz <= 1; dz++) {
+    const rz = cz + dz;
+    if (rz < 0 || rz >= P_NZ) continue;
+    for (let dx = -1; dx <= 1; dx++) {
+      const rx = cx + dx;
+      if (rx < 0 || rx >= P_NX) continue;
+      const bucket = _pGrid[rz * P_NX + rx];
+      if (!bucket) continue;
+      for (let k = 0; k < bucket.length; k++) {
+        const p = _samples[bucket[k]];
+        const ddx = x - p.x, ddz = z - p.z;
+        const d2 = ddx * ddx + ddz * ddz;
+        if (d2 < best2) best2 = d2;
+      }
+    }
+  }
+  if (best2 === Infinity) return 0;
+  const halfW = PATHS.width * 0.5;
+  return clamp(1 - (Math.sqrt(best2) - halfW * 0.5) / (halfW * 0.7), 0, 1);
+}
+
+/**
  * Lantern feet along every route (plus the overlook terrace pair). Pure so the
  * invariant bench can re-run the same placement without building meshes.
  *
@@ -818,7 +851,11 @@ export function createDetails({
         // (verdissement + effilochage) sont neutralisés à l'approche du
         // départ — sinon chaque ruban dessinait sa frange verte par-dessus la
         // terre de l'autre (« ils mergent pas naturellement », capture).
-        const liftBias = route.name === 'etangs' ? 0 : route.name === 'torii' ? 0.05 : 0.10;
+        // Étages resserrés : à +0.16/0.40 le ruban devenait un PLATELAGE posé
+        // sur l'herbe — les pattes du shiba passaient dessous et l'herbe rase
+        // disparaissait dedans (captures joueur). Le chien marche désormais
+        // sur la surface via pathProximity (sol composite des movers).
+        const liftBias = route.name === 'etangs' ? 0 : route.name === 'torii' ? 0.03 : 0.06;
         const edgeK = route.closed ? 1 : smoothstep(0.015, 0.06, t);
         const wk = 0.02 + 0.98 * tap;
         const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
@@ -829,11 +866,11 @@ export function createDetails({
         // chemin » de la capture joueur. Plus de colonnes = le ruban épouse le
         // travers ; plus haut = le terrain ne le transperce plus.
         const cols = [
-          [p.x + nx * wL, p.z + nz * wL, 0.16, 1],
-          [p.x + nx * wL * 0.5, p.z + nz * wL * 0.5, 0.24, 0.5],
-          [p.x, p.z, 0.30, 0],
-          [p.x - nx * wR * 0.5, p.z - nz * wR * 0.5, 0.24, 0.5],
-          [p.x - nx * wR, p.z - nz * wR, 0.16, 1],
+          [p.x + nx * wL, p.z + nz * wL, 0.07, 1],
+          [p.x + nx * wL * 0.5, p.z + nz * wL * 0.5, 0.11, 0.5],
+          [p.x, p.z, 0.14, 0],
+          [p.x - nx * wR * 0.5, p.z - nz * wR * 0.5, 0.11, 0.5],
+          [p.x - nx * wR, p.z - nz * wR, 0.07, 1],
         ];
         for (let c = 0; c < 5; c++) {
           const [cx, cz, lift, edg] = cols[c];
