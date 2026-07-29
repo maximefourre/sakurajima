@@ -37,7 +37,7 @@ import { SEED, WORLD, CAMERA, QUALITY, RIVER } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
-import { createRiver, BRANCHES } from '../src/river.js';
+import { createRiver, BRANCHES, widthKAt } from '../src/river.js';
 import { createIsland } from '../src/island.js';
 import { initPath } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
@@ -60,32 +60,37 @@ const island = createIsland({ seed: SEED, quality: { label: 'low', rocks: 8 }, c
 say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier low)`);
 river.build(island.heightAt);
 
-/* ── 1. profil d'eau monotone par branche (politique tidale : l'embouchure
- *       peut finir sous seaLevel+0.05, jamais remonter) ─────────────────── */
+/* ── 1. l'eau épouse son lit : jamais dessous, remontées locales douces ────
+ *      (politique v4 : plus de profil monotone global — l'eau suit le
+ *       terrain lissé, contenue localement ; cf. river.js build()) ───────── */
 {
-  const EPS = 1e-3;
-  let allMono = true, worst = 0, worstAt = '';
+  let aboveBed = true, worstUnder = 0, underAt = '';
+  let gentle = true, worstRise = 0, riseAt = '';
   for (let b = 0; b < BRANCHES.length; b++) {
     const br = BRANCHES[b];
-    // Point de départ : l'argmax pour le tronc, la zone épinglée pour une
-    // branche — en aval de quoi la descente est garantie par le clamp final.
-    let start = 0;
-    if (b === 0) {
-      for (let i = 1; i <= br.N; i++) if (br.profile[i] > br.profile[start]) start = i;
-    } else {
-      // stations épinglées = celles qui collent au tronc ; le clamp démarre
-      // après. Approximation sûre : premier indice où le profil cesse de
-      // suivre exactement une valeur constante par morceaux du tronc — on
-      // prend simplement le max local initial.
-      for (let i = 1; i <= br.N; i++) if (br.profile[i] > br.profile[start]) start = i; else break;
-    }
-    for (let i = start + 1; i <= br.N; i++) {
-      const rise = br.profile[i] - br.profile[i - 1];
-      if (rise > EPS) { allMono = false; if (rise > worst) { worst = rise; worstAt = `branche ${b}, station ${i}`; } }
+    for (let i = 0; i <= br.N; i++) {
+      if (!br.fade || br.fade[i] < 0.5) continue;
+      // Zone d'épinglage de jonction (b>0, t<0.30) : l'eau y est celle du
+      // tronc, le lit sondé celui de la branche, et le ruban de la branche
+      // n'y démarre même pas — hors sujet (même exemption que le 3bis).
+      if (b > 0 && i / br.N < 0.30) continue;
+      const bedC = island.heightAt(br.sx[i], br.sz[i]);
+      const under = bedC - br.profile[i];
+      if (under > 0.02 && under > worstUnder) { worstUnder = under; underAt = `b${b} i${i}`; aboveBed = false; }
+      if (i > 0 && br.fade[i - 1] >= 0.5) {
+        const rise = br.profile[i] - br.profile[i - 1];
+        // Un FILET collé au lit (< 0.25 u d'eau) qui remonte, c'est le lit
+        // qui grimpe — un rapide, pas une fuite. Seule une nappe profonde
+        // qui monte est pathologique (build borne à 0.12/station).
+        const film = br.profile[i] - bedC < 0.25;
+        if (!film && rise > 0.25 && rise > worstRise) { worstRise = rise; riseAt = `b${b} i${i}`; gentle = false; }
+      }
     }
   }
-  check('profil monotone (jamais remonter en aval)', allMono,
-    allMono ? `${BRANCHES.length} branches` : `remontée de ${worst.toFixed(3)} à ${worstAt}`);
+  check('surface jamais sous son lit (fade>0.5)', aboveBed,
+    aboveBed ? `${BRANCHES.length} branches` : `sous le lit de ${worstUnder.toFixed(2)} u à ${underAt}`);
+  check('nappe profonde : remontées ≤ 0.25 u/station', gentle,
+    gentle ? '' : `+${worstRise.toFixed(2)} u à ${riseAt}`);
 }
 
 /* ── 2. trois embouchures distinctes ─────────────────────────────────────── */
@@ -139,7 +144,7 @@ river.build(island.heightAt);
   check('carve continu à la jonction (sauts < 1.5 u)', smooth, `pire saut ${worstJump.toFixed(2)} u`);
 }
 
-/* ── 3bis. contention : l'eau passe sous la berge la plus basse ──────────── */
+/* ── 3bis. contention LOCALE : sous la crête de digue, OU filet plancher ── */
 {
   const _t9 = new THREE.Vector3();
   let contained = true, worst = 0, where = '';
@@ -147,29 +152,31 @@ river.build(island.heightAt);
     const br = BRANCHES[b];
     for (let i = 1; i < br.N; i++) {
       if (!br.fade || br.fade[i] < 0.5) continue;
-      // Zone d'épinglage de jonction (b>0, t<0.30) : exemptée du clamp par
-      // conception — l'eau y est celle du tronc et les sondes « berges »
-      // tombent dans le chenal mouillé voisin, pas sur de vraies berges.
+      // Zone d'épinglage de jonction (b>0, t<0.30) : l'eau y est celle du
+      // tronc et les sondes « berges » tombent dans le chenal voisin.
       if (b > 0 && i / br.N < 0.30) continue;
       br.curve.getTangentAt(i / br.N, _t9);
       const nx = -_t9.z, nz = _t9.x;
       const l = Math.hypot(nx, nz) || 1;
-      // Même sémantique que le clamp : la CRÊTE de digue par côté (max du sol
-      // le long du rayon de berge), pas le sol à un offset unique.
+      // Même sémantique que build(), sur EXACTEMENT les mêmes rayons :
+      // crête de digue par côté = max du sol le long du rayon de berge.
+      const wHalf = RIVER.width * 0.5 * widthKAt(b, i / br.N);
+      const bankW = RIVER.bankWidth * (b === 0 ? 1 : br.widthK);
       let crestL = -Infinity, crestR = -Infinity;
       for (let k2 = 0; k2 < 5; k2++) {
-        const d = 6.9 + 0.5 + (14.9 * 0.85 - 0.5) * (k2 / 4);
+        const d = wHalf + 0.5 + (bankW * 0.85 - 0.5) * (k2 / 4);
         const gl2 = island.heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
         const gr2 = island.heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
         if (gl2 > crestL) crestL = gl2;
         if (gr2 > crestR) crestR = gr2;
       }
-      const lim = Math.max(Math.min(crestL, crestR) - 0.10, 0.03 + 0.001);
-      const excess = br.profile[i] - lim - 0.02;
-      if (excess > 0.15 && excess > worst) { worst = excess; where = `b${b} i${i}`; contained = false; }
+      const bedC = island.heightAt(br.sx[i], br.sz[i]);
+      const lim = Math.max(Math.min(crestL, crestR) - 0.10, bedC + 0.15, WORLD.seaLevel + 0.03);
+      const excess = br.profile[i] - lim;
+      if (excess > 0.20 && excess > worst) { worst = excess; where = `b${b} i${i}`; contained = false; }
     }
   }
-  check('eau contenue sous la berge la plus basse (fade>0.5)', contained,
+  check('contention locale (crête de digue ou filet plancher)', contained,
     contained ? '' : `dépassement ${worst.toFixed(2)} u à ${where}`);
 }
 

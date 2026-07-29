@@ -277,6 +277,39 @@ clamp). INVARIANTS: 9 pass, 0 fail.
 
 ---
 
+## Session « rivière v4 » du 29/07 — abandon du monotone global
+
+La v3 a tenu une soirée : captures du joueur = **trous** (tranchée de sable
+sèche en plein cours) ET **eau volante** persistante. Diagnostic — les deux
+symptômes sortaient du même axiome faux, le profil « jamais-remonter » :
+
+- Le lit (carve RELATIF au terrain) **ondule**. Un profil d'eau monotone
+  au-dessus d'un lit qui remonte passe forcément SOUS le lit : toute selle
+  basse propageait son niveau à tout l'aval → tronçons à sec. Aucun clamp ne
+  répare ça : **le monotone global est insoluble, il fallait le supprimer.**
+- Le ruban s'arrêtait à largeur fixe et reculait « juste avant » la berge →
+  bord pendu au-dessus du bol creusé.
+
+**v4 (recherche : Waterways/Godot, Unreal Water, Simonschreibt)** — l'eau
+épouse le terrain, tout est LOCAL, aucune propagation :
+1. Par station : `surface = lit + 0.72·depth`, plafonnée `min(crêtes) − 0.10`,
+   **plancher `lit + 0.12` (le plancher gagne)** → un trou est impossible par
+   construction. Remontée de nappe bornée à 0.12/station (plancher conservé :
+   un lit qui grimpe porte un film de rapide, écumé par la cascade fwidth).
+2. Ruban : bisection jusqu'à la **vraie ligne d'eau** puis bord poussé 0.30
+   DANS la berge + **jupe** (4 colonnes/station, rabat −1.35 u) qui comble les
+   creux entre stations → un bord volant est impossible par construction.
+3. Banc d'essai réécrit : « jamais sous son lit », « remontées de nappe
+   bornées », contention locale sur les MÊMES rayons que build (`widthKAt`
+   exporté lecture seule). **INVARIANTS: 10 pass, 0 fail.**
+
+Vérifié en scène : bief du pont plein et contenu, 14 sondes de chenal sans
+trou (profondeurs 0.17–3.13 u), delta 3 bras, haut cours propre. Leçon à ne
+pas re-payer : quand deux bugs opposés (eau dessous / eau dessus) résistent à
+trois clamps, c'est l'axiome commun qui est faux, pas les seuils.
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

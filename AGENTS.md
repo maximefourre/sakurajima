@@ -19,7 +19,7 @@ pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
   (versionner l'id `ADV-...`), avec table de suivi remplie par Claude au
   traitement.
 - Après chaque chantier Grok : `git diff` relu par Claude, `node --check`,
-  `test/invariants.html` (8 pass), vérification visuelle navigateur, PUIS
+  `test/invariants.html` (10 pass), vérification visuelle navigateur, PUIS
   commit.
 
 ## Lancer
@@ -76,11 +76,17 @@ ponds.isInPond || river.isInRiver`.
   (`_fieldDistB[b]/_fieldTB[b]`), min pris À LA REQUÊTE — le triplet
   (dist, t, b) vient de la même branche, sinon `widthKAt` saute aux frontières
   de Voronoï. API externe stable : `carveRiver`, `isInRiver`, `waterYAt(t)`
-  (= tronc) ; `BRANCHES` exporté en LECTURE SEULE pour test/invariants.html.
+  (= tronc) ; `BRANCHES` et `widthKAt` exportés en LECTURE SEULE pour
+  test/invariants.html.
   `build()` est idempotent (possède ses rubans/pont, remplace et dispose) ; la
   factory expose `dispose()` et **`bridgeInfo`** (placement FINAL du pont,
-  shift compris) après build. Le profil d'eau est clampé jamais-remonter en
-  fin de build (politique tidale : l'embouchure peut finir sous seaLevel+0.05).
+  shift compris) après build. **Profil d'eau v4 : l'eau ÉPOUSE le terrain**
+  (modèle Waterways) — par station : lit + 0.72·depth, plafonné à la crête de
+  digue locale − 0.10, PLANCHER lit + 0.12 (le plancher gagne), remontée
+  bornée à 0.12/station, lissage 1-2-1, embouchure fondue vers seaLevel+0.05.
+  AUCUNE propagation amont→aval : le « jamais-remonter » v1–v3 passait l'eau
+  SOUS le lit dès que celui-ci remontait (trous de sable sec). Le ruban marche
+  jusqu'à la vraie ligne d'eau (bisection) + jupe enterrée sous les berges.
   Jonction : stations d'un distributaire dans le chenal du tronc épinglées sur
   l'eau du tronc ; ruban démarrant à >0.55·width de l'axe du tronc (sinon
   double-blend). La jonction doit être où l'eau du tronc ≈ niveau de la mer.
@@ -124,8 +130,9 @@ ponds.isInPond || river.isInRiver`.
 ## Vérification type
 
 1. **`test/invariants.html`** (via serve.py) : la console doit finir par
-   `INVARIANTS: 8 pass, 0 fail` — profil monotone, 3 embouchures, continuité
-   de jonction, build idempotent, chemin→culée réelle, far plane, nuages.
+   `INVARIANTS: 10 pass, 0 fail` — eau jamais sous son lit, remontées de nappe
+   bornées, 3 embouchures, continuité de jonction, contention locale (crête de
+   digue), build idempotent, chemin→culée réelle, far plane, nuages.
 2. Visuel — midi (`__sk.world.dayTime = 0.5`) : mer jusqu'à l'horizon sans
    ligne rasoir, ombres présentes (si absentes → near-plane, piège sky.js).
    Delta vu du SE en hauteur : 3 bras distincts. Nuit (0.97) : lune basse au

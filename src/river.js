@@ -78,8 +78,10 @@ export { BRANCHES };
  * where its path still overlaps the trunk and narrows to its own share as it
  * diverges — so the carve has no step at the junction. The ramp starts at the
  * junction (the branch's second control point, t ≈ 0.2 of its own arc).
+ * Exporté en LECTURE pour test/invariants.html : le check de contention doit
+ * sonder les crêtes de digue sur EXACTEMENT les mêmes rayons que build().
  */
-function widthKAt(b, t) {
+export function widthKAt(b, t) {
   // The trunk is born narrow — a spring, not a canal: 0.35 of full width at
   // the source, its own width by t = 0.10 (~55 world units downstream).
   if (b === 0) return 0.35 + 0.65 * smoothstep(0.0, 0.10, t);
@@ -362,19 +364,25 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
   const pos = [], uv = [], idx = [], fade = [];
   const p = new THREE.Vector3(), tan = new THREE.Vector3();
 
-  // Find the WATERLINE on one side of a station: march outward and stop where
-  // the carved ground breaks the surface. A fixed half-width plane on a reach
-  // that runs along a hillside must either bury its uphill edge or hang its
-  // downhill edge in the air — this is the downhill half of that bug.
+  // Find the WATERLINE on one side of a station: march outward, bisect the
+  // exact spot where the carved ground breaks the surface, then push the edge
+  // a little PAST it so it sits inside the rising bank. The old version backed
+  // OFF before the breach: the edge stopped short of the ground and hung in
+  // the air over the bowl — the flying edge the player kept photographing.
   const wettedHalfWidth = (x, z, dx, dz, wMax, waterY) => {
     if (!heightAt) return wMax;
-    for (let k = 1; k <= 6; k++) {
-      if (heightAt(x + dx * wMax * (k / 6), z + dz * wMax * (k / 6)) > waterY - 0.04) {
-        // back off to just before the breach, then tuck a little into the bank
-        return Math.max(wMax * (k - 0.5) / 6, wMax * 0.18) + 0.12;
-      }
+    const gAt = (d) => heightAt(x + dx * d, z + dz * d);
+    let lo = 0, hi = wMax, found = false;
+    for (let k = 1; k <= 12; k++) {
+      const d = wMax * (k / 12);
+      if (gAt(d) > waterY - 0.04) { lo = wMax * ((k - 1) / 12); hi = d; found = true; break; }
     }
-    return wMax;
+    if (!found) return wMax;
+    for (let k = 0; k < 3; k++) {
+      const mid = (lo + hi) * 0.5;
+      if (gAt(mid) > waterY - 0.04) hi = mid; else lo = mid;
+    }
+    return Math.max((lo + hi) * 0.5 + 0.30, wMax * 0.14);
   };
 
   for (let i = 0; i <= N; i++) {
@@ -388,9 +396,9 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     // The channel widens as it reaches the sea. An estuary that stays exactly as
     // wide as the upper reach reads as a canal.
     const flare = faded ? 1 + 0.6 * (1 - fadeAtB(b, t)) : 1;
-    // Cap the flare so the ribbon never leaves the carved corridor: past
-    // width/2 + 0.45*bankWidth the bowl has climbed back over the waterline.
-    const w = Math.min(W * wob * flare, W + RIVER.bankWidth * 0.45) * widthKAt(b, t);
+    // Cap the flare at the carved corridor's edge — the waterline march below
+    // is what actually decides where the sheet stops.
+    const w = Math.min(W * wob * flare, W + RIVER.bankWidth * 0.9) * widthKAt(b, t);
     const y = waterYAtB(b, t);
     const ux = nx / len, uz = nz / len;
     const wL = wettedHalfWidth(p.x, p.z, ux, uz, w, y);
@@ -402,15 +410,29 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     if (b > 0) f *= Math.pow(Math.min(1, i / RAMP), 2.0);
     else f *= smoothstep(0.0, 0.06, t);   // the trunk seeps in from between the spring rocks
 
-    pos.push(p.x + ux * wL, y, p.z + uz * wL);
-    pos.push(p.x - ux * wR, y, p.z - uz * wR);
+    // 4 colonnes par station : [jupe G, bord G, bord D, jupe D]. La jupe est
+    // un rabat qui plonge sous la berge : entre deux stations le ruban est
+    // droit mais le sol ne l'est pas, et sans elle chaque creux intermédiaire
+    // ouvrait un jour d'air sous le bord. Enterrée = masquée par le terrain
+    // opaque ; exposée = fine bande d'eau de rive que l'écume de ligne d'eau
+    // éclaircit déjà. Le matériau est DoubleSide : pas de piège de winding.
+    const exL = p.x + ux * wL, ezL = p.z + uz * wL;
+    const exR = p.x - ux * wR, ezR = p.z - uz * wR;
+    pos.push(exL + ux * 0.45, y - 1.35, ezL + uz * 0.45);
+    pos.push(exL, y, ezL);
+    pos.push(exR, y, ezR);
+    pos.push(exR - ux * 0.45, y - 1.35, ezR - uz * 0.45);
+    uv.push(0, t * 26);
     uv.push(0, t * 26);
     uv.push(1, t * 26);
-    fade.push(f, f);
+    uv.push(1, t * 26);
+    fade.push(f, f, f, f);
 
     if (i < N) {
-      const a = i * 2;
-      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      const a = i * 4;
+      for (let c = 0; c < 3; c++) {
+        idx.push(a + c, a + c + 1, a + c + 4, a + c + 1, a + c + 5, a + c + 4);
+      }
     }
   }
 
@@ -434,10 +456,10 @@ const RIVER_VERT = /* glsl */ `
     vUv = uv;
     vFade = aFade;
     vec4 wp = modelMatrix * vec4(position, 1.0);
-    // A living surface: two travelling micro-swells plus fine chop. Total
-    // amplitude stays well under the bank-clamp margin, so the sheet never
-    // lifts over its banks; vWorld.y feeds the fragment depth, so colour,
-    // alpha and the waterline foam all breathe with it.
+    // A living surface: two travelling micro-swells plus fine chop. The edges
+    // are tucked into the banks and skirted, so the bob never opens a gap;
+    // vWorld.y feeds the fragment depth, so colour, alpha and the waterline
+    // foam all breathe with it.
     wp.y += (sin(wp.x * 0.55 + uTime * 1.7) + sin(wp.z * 0.47 - uTime * 2.3)) * 0.045
           + sin((wp.x + wp.z) * 1.3 + uTime * 3.1) * 0.02;
     vWorld = wp.xyz;
@@ -787,9 +809,9 @@ export function createRiver({ wind } = {}) {
 
   /**
    * Called once the terrain exists. Samples the carved bed along the
-   * centreline, forces the result to be monotonically descending (a river never
-   * flows uphill, but a noisy heightfield sampled along a curve will happily
-   * suggest it does), then builds the water surface and the bridge on top.
+   * centreline and lifts a water surface that FOLLOWS it — smoothed along the
+   * flow, locally capped under each levee crest — then builds the ribbons and
+   * the bridge on top.
    */
   /**
    * Nearest sample on the TRUNK only. Used to pin a distributary's water level
@@ -818,41 +840,59 @@ export function createRiver({ wind } = {}) {
       uniforms.uMapStep = terrainU.uMapStep;
       uniforms.uMapRes = terrainU.uMapRes;
     }
-    // Trunk first: the distributaries seed their water level from its profile.
+    // Trunk first: a distributary pins its junction water to the trunk's.
+    //
+    // v4 — l'eau ÉPOUSE le terrain (modèle Waterways/Godot), par station et
+    // LOCALEMENT ; il n'y a PLUS de profil monotone global. Les v1–v3
+    // clampaient un « jamais-remonter » : toute selle basse propageait son
+    // niveau vers l'aval — dès que le lit remontait, l'eau passait DESSOUS
+    // (tronçon de sable sec) ; et le plafond de crête, propagé, drainait des
+    // biefs entiers en flaques. Un profil monotone au-dessus d'un lit qui
+    // ondule est insoluble. Politique v4, par station, sans propagation :
+    //   surface = lit + 0.72·depth, plafonnée à (crête de digue la plus
+    //   basse − 0.10), PLANCHER lit + 0.14 — le plancher gagne : la
+    //   continuité du fil d'eau prime, et là où la crête est dégénérée le
+    //   ruban se rétrécit à la vraie ligne d'eau (marche dans
+    //   buildWaterRibbon) avec une jupe enterrée.
+    // Les descentes raides restent (cascades — l'écume fwidth les blanchit) ;
+    // les remontées résiduelles sont adoucies par le lissage 1-2-1, pas
+    // interdites par un clamp global.
     for (let b = 0; b < BRANCHES.length; b++) {
       const br = BRANCHES[b];
       const N = br.N;
       br.profile = new Float32Array(N + 1);
 
-      // Bed height at each station, lifted to a water surface just below the banks.
       const bed = new Float32Array(N + 1);
+      const lvCeil = new Float32Array(N + 1);
+      const _tanC = new THREE.Vector3();
       for (let i = 0; i <= N; i++) {
         bed[i] = heightAt(br.sx[i], br.sz[i]);
-        br.profile[i] = bed[i] + RIVER.depth * 0.72;
+        // Crête de digue PAR CÔTÉ : le max du sol le long du rayon de berge.
+        // Sur un travers de pente c'est le rebord du bol creusé avant que le
+        // versant ne retombe — c'est lui qui contient la nappe, pas le sol à
+        // un offset unique.
+        br.curve.getTangentAt(i / N, _tanC);
+        const nx = -_tanC.z, nz = _tanC.x;
+        const l = Math.hypot(nx, nz) || 1;
+        const wHalf = RIVER.width * 0.5 * widthKAt(b, i / N);
+        const bankW = RIVER.bankWidth * (b === 0 ? 1 : br.widthK);
+        let crestL = -Infinity, crestR = -Infinity;
+        for (let k2 = 0; k2 < 5; k2++) {
+          const d = wHalf + 0.5 + (bankW * 0.85 - 0.5) * (k2 / 4);
+          const gl2 = heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
+          const gr2 = heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
+          if (gl2 > crestL) crestL = gl2;
+          if (gr2 > crestR) crestR = gr2;
+        }
+        lvCeil[i] = Math.max(Math.min(crestL, crestR) - 0.10, WORLD.seaLevel + 0.03);
+        br.profile[i] = Math.max(Math.min(bed[i] + RIVER.depth * 0.72, lvCeil[i]), bed[i] + 0.14);
       }
 
-      // Enforce monotonic descent from source to mouth.
-      //
-      // Trunk: guard against a badly-placed source — if the path happens to
-      // begin lower than points downstream, a naive "never rise" pass
-      // propagates that low value along the whole river and flattens it into
-      // a single submerged plane. Seed the descent from the HIGHEST station.
-      //
-      // Distributary: the seed is the JUNCTION — while the branch still runs
-      // inside the trunk's channel its surface IS the trunk's, station by
-      // station. Anything else puts a visible step in the water where the
-      // delta splits.
-      let src = 0;
+      // Jonction : tant que la branche court dans le chenal du tronc, sa
+      // surface EST celle du tronc, station par station — tout autre choix
+      // met une marche visible dans l'eau au split du delta.
       let pinnedTo = -1;
-      if (b === 0) {
-        for (let i = 1; i <= N; i++) if (br.profile[i] > br.profile[src]) src = i;
-        // A trunk whose highest station is not (near) its first is misauthored:
-        // everything upstream of the argmax keeps its bed level and RISES in
-        // the flow direction, which no downstream pass can repair.
-        if (src > Math.ceil(N * 0.05)) {
-          console.warn(`[river] trunk source is not the highest station (argmax at ${src}/${N}) — path likely misauthored`);
-        }
-      } else {
+      if (b > 0) {
         for (let i = 0; i <= N; i++) {
           const nt = nearestOnTrunk(br.sx[i], br.sz[i]);
           if (nt.dist < RIVER.width * 0.9) {
@@ -860,55 +900,12 @@ export function createRiver({ wind } = {}) {
             pinnedTo = i;
           } else break;
         }
-        src = Math.max(0, pinnedTo);
       }
-      // Clamp the surface under its OWN banks, station by station. The profile
-      // is bed + 0.72*depth, but the carve's pow(u, 1.7) bowl drops the ground
-      // at the ribbon's edge to roughly bed + 0.18*depth — so the ribbon edge
-      // hung in the air over its own bed. Sample the carved ground just outside
-      // the ribbon on both sides and keep the water at least 0.12 below the
-      // higher one, floored near sea level (an estuary arm is sea standing in).
-      // Only ever LOWERS a station, so the never-rise clamp below still holds;
-      // pinned junction stations are exempt — matching the trunk outranks it.
-      const clampStart = b === 0 ? 0 : pinnedTo + 1;
-      const _tanC = new THREE.Vector3();
-      const bankClampPass = () => {
-        for (let i = clampStart; i <= N; i++) {
-          br.curve.getTangentAt(i / N, _tanC);
-          const nx = -_tanC.z, nz = _tanC.x;
-          const l = Math.hypot(nx, nz) || 1;
-          // CONTAINMENT. A horizontal sheet only holds if BOTH banks stand
-          // above it — but the bank that matters is each side's LEVEE CREST:
-          // the HIGHEST ground along the bank ray, not the ground at one
-          // fixed offset. On a symmetric reach the crest is the natural bank
-          // top, so deep water survives; on a cross-slope reach it is the
-          // carved bowl's rim before the hillside falls away, so the water
-          // drops to a contained thread instead of pouring over the low side
-          // (the floating pane the player kept photographing) — and instead
-          // of draining to puddles, which is what clamping under the ground
-          // at a single far offset did.
-          const wHalf = RIVER.width * 0.5 * widthKAt(b, i / N);
-          const bankW = RIVER.bankWidth * (b === 0 ? 1 : br.widthK);
-          let crestL = -Infinity, crestR = -Infinity;
-          for (let k2 = 0; k2 < 5; k2++) {
-            const d = wHalf + 0.5 + (bankW * 0.85 - 0.5) * (k2 / 4);
-            const gl2 = heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
-            const gr2 = heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
-            if (gl2 > crestL) crestL = gl2;
-            if (gr2 > crestR) crestR = gr2;
-          }
-          const ceilY = Math.max(Math.min(crestL, crestR) - 0.10, WORLD.seaLevel + 0.03);
-          if (br.profile[i] > ceilY) br.profile[i] = ceilY;
-        }
-      };
-      bankClampPass();
-      for (let i = src + 1; i <= N; i++) {
-        if (br.profile[i] > br.profile[i - 1]) br.profile[i] = br.profile[i - 1];
-      }
-      // Smooth the steps out so the surface does not read as a staircase —
-      // re-pinning the junction stations after each pass so smoothing cannot
-      // detach the join from the trunk.
-      for (let pass = 0; pass < 3; pass++) {
+
+      // Lissage le long du flux (re-épinglage jonction à chaque passe), puis
+      // re-clamp LOCAL : le lissage peut relever une station au-dessus de sa
+      // crête ou l'enfoncer sous son lit.
+      for (let pass = 0; pass < 4; pass++) {
         for (let i = 1; i < N; i++) {
           br.profile[i] = (br.profile[i - 1] + br.profile[i] * 2 + br.profile[i + 1]) * 0.25;
         }
@@ -917,35 +914,26 @@ export function createRiver({ wind } = {}) {
           br.profile[i] = waterYAt(nt.t);
         }
       }
-      bankClampPass();   // smoothing can re-lift a station above its bank
-      // The mouth must meet the sea.
+      for (let i = pinnedTo + 1; i <= N; i++) {
+        br.profile[i] = Math.max(Math.min(br.profile[i], lvCeil[i]), bed[i] + 0.12);
+      }
+
+      // Remontée bornée : une nappe PROFONDE qui monte vers l'aval est une
+      // fuite visible (l'eau ne coule pas vers le haut) — on borne la montée
+      // à 0.12/station EN GARDANT le plancher : là où le lit grimpe plus
+      // vite, le filet reste collé au lit (film de rapide, blanchi par
+      // l'écume cascade) au lieu de passer dessous. Le plancher casse toute
+      // propagation vers l'aval : le désastre v1–v3 (eau sous le sable) ne
+      // peut pas revenir.
+      for (let i = Math.max(1, pinnedTo + 1); i <= N; i++) {
+        br.profile[i] = Math.max(Math.min(br.profile[i], br.profile[i - 1] + 0.12), bed[i] + 0.12);
+      }
+
+      // L'embouchure rejoint la mer.
       const M = b === 0 ? 24 : 14;
       for (let i = N - M; i <= N; i++) {
         const a = (i - (N - M)) / M;
         br.profile[i] = br.profile[i] * (1 - a) + (WORLD.seaLevel + 0.05) * a;
-      }
-
-      // Final invariant, ENFORCED rather than hoped for: downstream of the
-      // seed the surface never rises. It runs after smoothing, junction
-      // re-pinning and the sea blend because each of those can locally lift a
-      // station (the blend pulls low mouth stations UP toward seaLevel+0.05).
-      // Tidal policy: the clamp wins — the last stations may end slightly
-      // BELOW seaLevel+0.05, which reads as the sea standing into the mouth.
-      // Pinned junction stations are exempt: matching the trunk exactly
-      // outranks local monotonicity, and the trunk itself is monotone.
-      // The bank clamp above may have LOWERED stations upstream of the original
-      // argmax, so the highest station can have moved — recompute it, or the
-      // final clamp leaves a millimetric rise upstream of the old seed.
-      let clampSeed;
-      if (b === 0) {
-        clampSeed = 0;
-        for (let i = 1; i <= N; i++) if (br.profile[i] > br.profile[clampSeed]) clampSeed = i;
-      } else {
-        clampSeed = Math.max(0, pinnedTo);
-      }
-      const clampFrom = Math.max(1, clampSeed + 1);
-      for (let i = clampFrom; i <= N; i++) {
-        if (br.profile[i] > br.profile[i - 1]) br.profile[i] = br.profile[i - 1];
       }
 
       // Where does the river stop being a river?
