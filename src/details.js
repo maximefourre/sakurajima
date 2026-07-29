@@ -761,19 +761,19 @@ export function createDetails({
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 0.80, 0.62), mottle * 0.35);
           // 2. le coeur COMPACTE par les pas, un peu plus clair et lisse ;
           diffuseColor.rgb *= 1.0 + 0.10 * smoothstep(0.5, 0.0, vPathEdge);
-          // 3. les bords qui VERDISSENT vers l'herbe avant de s'effilocher —
-          //    la couleur converge vers la pelouse AVANT la decoupe, donc la
-          //    frontiere fond au lieu de trancher. L'ancien seuil mordait
-          //    jusqu'au centre (iles vertes en plein chemin, dechire).
-          float fray = pvn(q * 3.1) * 0.55 + pvn(q * 9.5) * 0.45;
-          float verge = smoothstep(0.38, 0.95, vPathEdge + (fray - 0.5) * 0.35);
-          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.74, 0.83, 0.55), verge);
-          float cut = vPathEdge + (fray - 0.5) * 0.50;
-          if (cut > 0.80) discard;
+          // 3. un LISERE de bord seulement : verdissement doux et effilochage
+          //    FIN, confines au dernier quart du demi-ruban. Les versions
+          //    larges (amplitude 0.5, frequences basses) envoyaient des
+          //    langues vertes jusqu'au coeur — lues comme des trous.
+          float fray = pvn(q * 7.0) * 0.5 + pvn(q * 18.0) * 0.5;
+          float verge = smoothstep(0.66, 0.97, vPathEdge + (fray - 0.5) * 0.20);
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.80, 0.86, 0.62), verge * 0.6);
+          float cut = vPathEdge + (fray - 0.5) * 0.26;
+          if (cut > 0.90) discard;
         }`
       );
     };
-    pathMat.customProgramCacheKey = () => 'sakurajima-path-v4';
+    pathMat.customProgramCacheKey = () => 'sakurajima-path-v5';
     disposables.push(pathMat);
 
     const p = new THREE.Vector3(), tn = new THREE.Vector3();
@@ -904,15 +904,14 @@ export function createDetails({
         // walk UNDER the gate (perpendicular to the local tangent).
         _e.set(0, Math.atan2(tn.x, tn.z), 0);
         _q.setFromEuler(_e);
-        // Base calée sous le PIED LE PLUS BAS des deux poteaux (sur un dévers,
-        // poser au centre laissait le poteau aval flotter). L'ancrage profond
-        // vient des piliers allongés (−1.8 sous la base), pas d'un enfoncement
-        // du portique entier — qui noyait la traverse basse.
-        const cy = Math.cos(_e.y), sy = Math.sin(_e.y);
-        const hwT = 2.6;
-        const gA = heightAt(p.x + cy * hwT, p.z - sy * hwT);
-        const gB = heightAt(p.x - cy * hwT, p.z + sy * hwT);
-        const baseY = Math.min(gA, gB, heightAt(p.x, p.z)) - 0.12;
+        // Base calée sur le CHEMIN AU CENTRE : la caler sur le pied le plus
+        // bas enterrait le portique côté amont (encore « trop bas », capture
+        // joueur). Les piliers descendent 1.8·s sous la base — c'est EUX qui
+        // rattrapent le dévers côté aval. Et le portique est grandi ×1.35 :
+        // un torii se traverse tête haute, il domine le marcheur.
+        const sT = 1.35;
+        const baseY = heightAt(p.x, p.z) - 0.10;
+        _s.set(sT, sT, sT);
         _m.compose(_p.set(p.x, baseY, p.z), _q, _s);
         torii.setMatrixAt(i, _m);
       });
