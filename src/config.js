@@ -190,7 +190,7 @@ export const DEFAULT_QUALITY = 'ultra';
  * toute la géographie.
  */
 export const PATHS = {
-  width: 3.2,
+  width: 4.8,         // élargi 3.2 → 4.8 (consigne joueur : chemin trop maigre)
   lanternEvery: 30,   // unités monde d'arc entre deux lanternes
   routes: [
     { name: 'torii',

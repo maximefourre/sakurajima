@@ -190,9 +190,11 @@ export function initPath() {
 /**
  * True if (x,z) lies within (PATHS.width/2 + extra) of any route axis.
  * Buckets are sized for extra up to 6 (tree exclusion uses 4; lanterns use ~3.2).
- * Default extra=1.3 keeps the historical grass/petal verge (half-width + 1.3).
+ * Default extra=0.25: grass grows right up to the ribbon's edge — the old
+ * 1.3-unit verge read as a band of bald green « vide » flanking the dirt
+ * (player complaint). Blades slightly overhanging the edge hide the seam.
  */
-export function isOnPath(x, z, extra = 1.3) {
+export function isOnPath(x, z, extra = 0.25) {
   if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return false;
   const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((x - _pMinX) / P_CELL)));
   const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((z - _pMinZ) / P_CELL)));
@@ -748,7 +750,13 @@ export function createDetails({
         {
           vec2 q = vPathW.xz;
           float grit = pvn(q * 6.5) * 0.55 + pvn(q * 21.0) * 0.45;
-          diffuseColor.rgb *= 0.90 + 0.20 * grit;
+          float mottle = pvn(q * 1.9 + 7.3);
+          // Contraste double (0.90+0.20 -> 0.78+0.34) et marbrure basse
+          // frequence tiree vers la terre brune : a 20 pour cent le grain
+          // disparaissait au tone mapping et le ruban lisait comme de la
+          // peinture beige (capture joueur : texture mal appliquee).
+          diffuseColor.rgb *= 0.78 + 0.34 * grit;
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.90, 0.80, 0.66), mottle * 0.38);
           // Ragged border: the outer rim is EATEN by world-position noise -
           // opaque cutout, so depth still writes and nothing needs sorting.
           float bite = pvn(q * 3.4) * 0.6 + pvn(q * 11.0) * 0.4;
@@ -780,8 +788,11 @@ export function createDetails({
         const nx = -tn.z / l, nz = tn.x / l;
         // INDEPENDENT widths per side — one symmetric width is what read as a
         // ruled band with two straight edges.
-        const wL = PATHS.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
-        const wR = PATHS.width * 0.5 * (0.55 + 0.80 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
+        // Plancher relevé (0.55 → 0.78) : avec l'ancien, le ruban s'amincissait
+        // par endroits à la moitié de sa largeur nominale et l'exclusion
+        // d'herbe (calée sur l'axe) laissait une berge de « vide » vert.
+        const wL = PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
+        const wR = PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
         const cols = [
           [p.x + nx * wL, p.z + nz * wL, 0.08, 1],
           [p.x, p.z, 0.16, 0],                 // the crown rides a touch higher
@@ -884,7 +895,15 @@ export function createDetails({
         // walk UNDER the gate (perpendicular to the local tangent).
         _e.set(0, Math.atan2(tn.x, tn.z), 0);
         _q.setFromEuler(_e);
-        _m.compose(_p.set(p.x, heightAt(p.x, p.z) - 0.06, p.z), _q, _s);
+        // Enfoncé FRANCHEMENT : base calée sous le PIED LE PLUS BAS des deux
+        // poteaux (sur un dévers, poser au centre − 0.06 laissait le poteau
+        // aval flotter — capture joueur), puis descendue de 0.45 de plus.
+        const cy = Math.cos(_e.y), sy = Math.sin(_e.y);
+        const hwT = 2.6;
+        const gA = heightAt(p.x + cy * hwT, p.z - sy * hwT);
+        const gB = heightAt(p.x - cy * hwT, p.z + sy * hwT);
+        const baseY = Math.min(gA, gB, heightAt(p.x, p.z)) - 0.45;
+        _m.compose(_p.set(p.x, baseY, p.z), _q, _s);
         torii.setMatrixAt(i, _m);
       });
       torii.instanceMatrix.needsUpdate = true;
