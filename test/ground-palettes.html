@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — palettes sol / végétation / étangs</title>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+} }
+</script>
+<style>
+  html,body{margin:0;min-height:100%;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{padding:10px 14px;line-height:1.8;max-width:56em}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+/*
+ * Construction-time autumn ground / vegetation / pond palette contracts.
+ * Summary line (greppable):
+ *   GROUND: N pass, M fail
+ *
+ * Builds low-quality spring + autumn worlds from the same seed and checks:
+ *   - ocean / pond / margin / lotus / grass / flower pigments
+ *   - unknown season falls back to spring
+ *   - placement counts do not drift with season
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
+window.addEventListener('unhandledrejection', e => {
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+});
+
+import * as THREE from 'three';
+import { QUALITY } from '../src/config.js';
+import { seedNoise } from '../src/noise.js';
+import { createWind } from '../src/wind.js';
+import { createIsland } from '../src/island.js';
+import { createPonds } from '../src/ponds.js';
+import { createGrass } from '../src/grass.js';
+import { createDetails } from '../src/details.js';
+
+const SEED = 1337;
+const q = QUALITY.low;
+
+let pass = 0, fail = 0;
+function check(name, cond, detail = '') {
+  if (cond) {
+    pass++;
+    say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok');
+  } else {
+    fail++;
+    say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad');
+    console.error(`FAIL — ${name} ${detail}`);
+  }
+}
+
+function hexOf(c) {
+  return '#' + c.getHexString();
+}
+
+function nearColor(c, hex, eps = 2e-3) {
+  const t = new THREE.Color(hex);
+  return Math.abs(c.r - t.r) <= eps
+    && Math.abs(c.g - t.g) <= eps
+    && Math.abs(c.b - t.b) <= eps;
+}
+
+function nearTriplet(v, rgb, eps = 2e-3) {
+  return Math.abs(v.x - rgb[0]) <= eps
+    && Math.abs(v.y - rgb[1]) <= eps
+    && Math.abs(v.z - rgb[2]) <= eps;
+}
+
+function firstFlowerMesh(details, name) {
+  return details.group.children.find((c) => c.name === `flowers-${name}`) || null;
+}
+
+function sampleGeoColor(mesh, index = 0) {
+  const attr = mesh.geometry.getAttribute('color');
+  const c = new THREE.Color();
+  c.fromBufferAttribute(attr, index);
+  return c;
+}
+
+function meanTint(grass) {
+  const chunk = grass.chunks[0]?.hi;
+  if (!chunk) return null;
+  const tint = chunk.geometry.getAttribute('aTint') || chunk.geometry.getAttribute('instanceColor');
+  // InstancedMesh path: look at material-less custom attributes on geometry
+  let attr = chunk.geometry.getAttribute('aTint');
+  if (!attr) {
+    // Fallback: scan userData or instance attributes
+    for (const key of Object.keys(chunk.geometry.attributes)) {
+      if (/tint/i.test(key)) { attr = chunk.geometry.attributes[key]; break; }
+    }
+  }
+  if (!attr) {
+    // grass stores tints as InstancedBufferAttribute — find 3-component non-position
+    for (const [key, a] of Object.entries(chunk.geometry.attributes)) {
+      if (a.itemSize === 3 && key !== 'position' && key !== 'normal' && key !== 'color') {
+        attr = a; break;
+      }
+    }
+  }
+  if (!attr || !attr.count) return null;
+  const n = Math.min(attr.count, 64);
+  const c = new THREE.Color(0, 0, 0);
+  for (let i = 0; i < n; i++) {
+    c.r += attr.getX(i);
+    c.g += attr.getY(i);
+    c.b += attr.getZ(i);
+  }
+  c.r /= n; c.g /= n; c.b /= n;
+  return c;
+}
+
+function buildPair(season) {
+  seedNoise(SEED);
+  const wind = createWind();
+  const ponds = createPonds({ seed: SEED, wind, quality: q, heightAt: null, season });
+  const island = createIsland({
+    seed: SEED,
+    quality: q,
+    carve: (x, z, h) => ponds.carvePonds(x, z, h),
+    season,
+  });
+  ponds.attach({ heightAt: island.heightAt });
+  const grass = createGrass({
+    seed: SEED,
+    count: 1800,
+    bounds: { size: 80 },
+    heightAt: island.heightAt,
+    slopeAt: island.slopeAt,
+    exclude: (x, z) => ponds.isInPond(x, z),
+    wind,
+    season,
+  });
+  const details = createDetails({
+    seed: SEED,
+    quality: q,
+    heightAt: island.heightAt,
+    slopeAt: island.slopeAt,
+    normalAt: island.normalAt,
+    inWater: (x, z) => ponds.isInPond(x, z),
+    wind,
+    season,
+  });
+  return { wind, ponds, island, grass, details, season };
+}
+
+say('modules chargés', 'ok');
+
+const spring = buildPair('spring');
+const autumn = buildPair('autumn');
+const unknown = buildPair('winter');
+
+/* ── ocean day pigments (via update daylight=1) ── */
+spring.island.update(0, { daylight: 1 });
+autumn.island.update(0, { daylight: 1 });
+unknown.island.update(0, { daylight: 1 });
+
+const sDeep = spring.island.waterUniforms.uDeep.value;
+const sShal = spring.island.waterUniforms.uShallow.value;
+const sFoam = spring.island.waterUniforms.uFoam.value;
+const aDeep = autumn.island.waterUniforms.uDeep.value;
+const aShal = autumn.island.waterUniforms.uShallow.value;
+const aFoam = autumn.island.waterUniforms.uFoam.value;
+const uDeep = unknown.island.waterUniforms.uDeep.value;
+
+check('océan spring deep inchangé', nearColor(sDeep, 0x0d3c55), hexOf(sDeep));
+check('océan spring shallow inchangé', nearColor(sShal, 0x37a7ab), hexOf(sShal));
+check('océan spring foam inchangé', nearColor(sFoam, 0xf2f8f6), hexOf(sFoam));
+check('océan autumn deep #173743', nearColor(aDeep, 0x173743), hexOf(aDeep));
+check('océan autumn shallow #578775', nearColor(aShal, 0x578775), hexOf(aShal));
+check('océan autumn foam #eee4cf', nearColor(aFoam, 0xeee4cf), hexOf(aFoam));
+check('océan saison inconnue → spring', nearColor(uDeep, 0x0d3c55), hexOf(uDeep));
+
+/* ── terrain palette via colorAt meadow-ish sample ── */
+const meadow = { x: 14, z: -38 };
+const springGround = spring.island.colorAt(meadow.x, meadow.z, new THREE.Color());
+const autumnGround = autumn.island.colorAt(meadow.x, meadow.z, new THREE.Color());
+check('terrain autumn ≠ spring au même point',
+  springGround.r !== autumnGround.r
+  || springGround.g !== autumnGround.g
+  || springGround.b !== autumnGround.b,
+  `spring ${hexOf(springGround)} autumn ${hexOf(autumnGround)}`);
+
+/* ── pond water pigments ── */
+const pwS = spring.ponds.group; // access via water mesh material
+function pondWaterUniforms(world) {
+  const mesh = world.ponds.group.getObjectByName('pond-water');
+  return mesh?.material?.uniforms || null;
+}
+const sw = pondWaterUniforms(spring);
+const aw = pondWaterUniforms(autumn);
+check('étang spring shallow', sw && nearColor(sw.uShallow.value, 0x3f6b52), sw ? hexOf(sw.uShallow.value) : 'missing');
+check('étang spring deep', sw && nearColor(sw.uDeep.value, 0x0a2019), sw ? hexOf(sw.uDeep.value) : 'missing');
+check('étang spring silt', sw && nearColor(sw.uSilt.value, 0x5f5336), sw ? hexOf(sw.uSilt.value) : 'missing');
+check('étang autumn shallow #626d47', aw && nearColor(aw.uShallow.value, 0x626d47), aw ? hexOf(aw.uShallow.value) : 'missing');
+check('étang autumn deep #18261d', aw && nearColor(aw.uDeep.value, 0x18261d), aw ? hexOf(aw.uDeep.value) : 'missing');
+check('étang autumn silt #684d32', aw && nearColor(aw.uSilt.value, 0x684d32), aw ? hexOf(aw.uSilt.value) : 'missing');
+
+/* ── margin reed/pad uniforms ── */
+function marginUniforms(world) {
+  const reed = world.ponds.group.getObjectByName('reeds')
+    || world.ponds.group.children.find((c) => /reed/i.test(c.name || ''));
+  const pad = world.ponds.group.getObjectByName('pads')
+    || world.ponds.group.children.find((c) => /pad/i.test(c.name || ''));
+  const mesh = reed || pad || world.ponds.group.children.find((c) => c.material?.uniforms?.uReedDark);
+  return mesh?.material?.uniforms || null;
+}
+const sm = marginUniforms(spring);
+const am = marginUniforms(autumn);
+check('marges spring uReedDark', sm?.uReedDark && nearTriplet(sm.uReedDark.value, [0.24, 0.36, 0.16]),
+  sm?.uReedDark ? `${sm.uReedDark.value.x.toFixed(4)},${sm.uReedDark.value.y.toFixed(4)},${sm.uReedDark.value.z.toFixed(4)}` : 'missing');
+check('marges spring uReedLight', sm?.uReedLight && nearTriplet(sm.uReedLight.value, [0.42, 0.50, 0.20]));
+check('marges spring uPadDark', sm?.uPadDark && nearTriplet(sm.uPadDark.value, [0.18, 0.34, 0.19]));
+check('marges spring uPadLight', sm?.uPadLight && nearTriplet(sm.uPadLight.value, [0.30, 0.44, 0.20]));
+check('marges autumn uReedDark', am?.uReedDark && nearTriplet(am.uReedDark.value, [0.1651, 0.1356, 0.0284]),
+  am?.uReedDark ? `${am.uReedDark.value.x.toFixed(4)},${am.uReedDark.value.y.toFixed(4)},${am.uReedDark.value.z.toFixed(4)}` : 'missing');
+check('marges autumn uReedLight', am?.uReedLight && nearTriplet(am.uReedLight.value, [0.4233, 0.2831, 0.0545]));
+check('marges autumn uPadDark', am?.uPadDark && nearTriplet(am.uPadDark.value, [0.0497, 0.0823, 0.0242]));
+check('marges autumn uPadLight', am?.uPadLight && nearTriplet(am.uPadLight.value, [0.1384, 0.1620, 0.0395]));
+
+/* ── lotus palette (stem / petal base sample) ── */
+function lotusMesh(world) {
+  return world.ponds.group.getObjectByName('lotus')
+    || world.ponds.group.children.find((c) => /lotus/i.test(c.name || ''));
+}
+const sLotus = lotusMesh(spring);
+const aLotus = lotusMesh(autumn);
+// Stem is authored first in makeLotusGeometry — sample early vertices for stem hex.
+const sStem = sLotus ? sampleGeoColor(sLotus, 0) : null;
+const aStem = aLotus ? sampleGeoColor(aLotus, 0) : null;
+check('lotus spring stem', sStem && nearColor(sStem, 0x476b33), sStem ? hexOf(sStem) : 'missing');
+check('lotus autumn stem #596333', aStem && nearColor(aStem, 0x596333), aStem ? hexOf(aStem) : 'missing');
+
+/* ── grass palette (mean tint) ── */
+const sGrass = meanTint(spring.grass);
+const aGrass = meanTint(autumn.grass);
+const springMid = new THREE.Color(0x63a24b);
+const autumnMid = new THREE.Color(0x6f7434);
+function dist(a, b) {
+  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+}
+check('herbe spring proche mid spring',
+  sGrass && dist(sGrass, springMid) < dist(sGrass, autumnMid),
+  sGrass ? hexOf(sGrass) : 'missing');
+check('herbe autumn proche mid autumn',
+  aGrass && dist(aGrass, autumnMid) < dist(aGrass, springMid),
+  aGrass ? hexOf(aGrass) : 'missing');
+
+/* ── flower petal/heart pairs ── */
+const sDaisy = firstFlowerMesh(spring.details, 'daisy');
+const aDaisy = firstFlowerMesh(autumn.details, 'daisy');
+const sButter = firstFlowerMesh(spring.details, 'buttercup');
+const aButter = firstFlowerMesh(autumn.details, 'buttercup');
+// Stem quads occupy the first 8 verts; petals/heart follow. Match any vertex
+// against the expected petal hex so heart samples cannot false-fail.
+function hasColorNear(mesh, hex, eps = 0.08) {
+  if (!mesh) return false;
+  const attr = mesh.geometry.getAttribute('color');
+  if (!attr) return false;
+  const target = new THREE.Color(hex);
+  const c = new THREE.Color();
+  for (let i = 0; i < attr.count; i++) {
+    c.fromBufferAttribute(attr, i);
+    if (Math.abs(c.r - target.r) <= eps
+      && Math.abs(c.g - target.g) <= eps
+      && Math.abs(c.b - target.b) <= eps) return true;
+  }
+  return false;
+}
+function firstNearHex(mesh, hex, eps = 0.08) {
+  if (!mesh) return null;
+  const attr = mesh.geometry.getAttribute('color');
+  const target = new THREE.Color(hex);
+  const c = new THREE.Color();
+  for (let i = 0; i < attr.count; i++) {
+    c.fromBufferAttribute(attr, i);
+    if (Math.abs(c.r - target.r) <= eps
+      && Math.abs(c.g - target.g) <= eps
+      && Math.abs(c.b - target.b) <= eps) return c.clone();
+  }
+  return sampleGeoColor(mesh, Math.min(attr.count - 1, 12));
+}
+const sDaisyPetal = firstNearHex(sDaisy, 0xfbf7ee);
+const aDaisyPetal = firstNearHex(aDaisy, 0xe8dfc5);
+const aButterPetal = firstNearHex(aButter, 0xd6a43b);
+check('fleur spring daisy petal', hasColorNear(sDaisy, 0xfbf7ee),
+  sDaisyPetal ? hexOf(sDaisyPetal) : 'missing');
+check('fleur autumn daisy petal #e8dfc5', hasColorNear(aDaisy, 0xe8dfc5),
+  aDaisyPetal ? hexOf(aDaisyPetal) : 'missing');
+check('fleur autumn buttercup petal #d6a43b', hasColorNear(aButter, 0xd6a43b),
+  aButterPetal ? hexOf(aButterPetal) : 'missing');
+
+/* ── deterministic placement / counts ── */
+check('herbe count spring === autumn', spring.grass.count === autumn.grass.count,
+  `${spring.grass.count} vs ${autumn.grass.count}`);
+check('herbe count unknown === spring', unknown.grass.count === spring.grass.count,
+  `${unknown.grass.count} vs ${spring.grass.count}`);
+
+const flowerNames = ['daisy', 'buttercup', 'clover', 'harebell'];
+let flowerCountsOk = true;
+const flowerDetail = [];
+for (const name of flowerNames) {
+  const sc = firstFlowerMesh(spring.details, name)?.count ?? -1;
+  const ac = firstFlowerMesh(autumn.details, name)?.count ?? -1;
+  flowerDetail.push(`${name}:${sc}/${ac}`);
+  if (sc !== ac || sc < 0) flowerCountsOk = false;
+}
+check('fleurs counts spring === autumn', flowerCountsOk, flowerDetail.join(' '));
+
+const sLotusCount = sLotus?.count ?? -1;
+const aLotusCount = aLotus?.count ?? -1;
+check('lotus count spring === autumn', sLotusCount === aLotusCount && sLotusCount >= 0,
+  `${sLotusCount} vs ${aLotusCount}`);
+
+const sKoi = spring.ponds.group.getObjectByName('koi');
+const aKoi = autumn.ponds.group.getObjectByName('koi');
+const sKoiN = sKoi?.count ?? -1;
+const aKoiN = aKoi?.count ?? -1;
+check('koi count spring === autumn', sKoiN === aKoiN && sKoiN >= 0, `${sKoiN} vs ${aKoiN}`);
+
+const summary = `GROUND: ${pass} pass, ${fail} fail`;
+say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+console.log(summary);
+document.title = summary;
+</script>
+</body>
+</html>

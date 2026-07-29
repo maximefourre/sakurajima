@@ -280,13 +280,13 @@ async function boot() {
   world.wind = createWind();
 
   await step('relief de l’île');
-  world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null });
+  world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null, season: world.season });
   // Only the pond basins are composed INTO the island's heightfield, so the
   // terrain mesh and every heightAt() query agree on where the ground is by
   // construction rather than by coincidence. Carving after the fact would
   // leave the water floating over higher ground.
   const carve = (x, z, h) => world.ponds.carvePonds(x, z, h);
-  world.island = createIsland({ seed: SEED, quality: q, carve });
+  world.island = createIsland({ seed: SEED, quality: q, carve, season: world.season });
   scene.add(world.island.group);
 
   // island.js already bakes its heightfield onto a grid and interpolates it,
@@ -363,6 +363,7 @@ async function boot() {
     exclude: (x, z) => world.inWater(x, z),
     shortZone: (x, z) => isOnPath(x, z, 0.25),
     wind: world.wind,
+    season: world.season,
   });
   scene.add(world.grass.mesh);
 
@@ -420,6 +421,7 @@ async function boot() {
     normalAt: world.island.normalAt,
     inWater: world.inWater,
     wind: world.wind,
+    season: world.season,
   });
   scene.add(world.details.group);
 
