@@ -308,6 +308,21 @@ trou (profondeurs 0.17–3.13 u), delta 3 bras, haut cours propre. Leçon à ne
 pas re-payer : quand deux bugs opposés (eau dessous / eau dessus) résistent à
 trois clamps, c'est l'axiome commun qui est faux, pas les seuils.
 
+**Suite (même jour) — l'éventail du delta.** Capture du joueur au couchant :
+tabliers blancs volants au split. Diagnostic chiffré : 61 stations dont l'eau
+se tient jusqu'à +3.1 u au-dessus du « rebord bas » — mais ce rebord est la
+TRANCHÉE du bras voisin (trois chenaux creusent une auge commune) ; la marche
+de ligne d'eau ne trouvait jamais de sol qui remonte et laissait le bord pendu
+à pleine largeur, jupe de 1.35 u en étendard au-dessus du vide. Trois fixes :
+1. Bord **drapé** : quand aucune berge ne remonte sur tout le couloir, le bord
+   est posé au sol (sol+0.08) — l'eau verse le long de la pente au lieu de
+   flotter. 2. Jupe plongée sous le sol LOCAL (plus de profondeur fixe).
+3. `aSkirt` sur jupes et bords drapés : écume cascade (fwidth sature sur une
+   face verticale), spéculaire et fresnel coupés — sinon lignes blanches
+   géométriques à travers l'eau du voisin. La marche couvre désormais TOUT le
+   couloir creusé (le wobble de largeur raccourcissait la recherche et laissait
+   des bords en l'air sur berge saine).
+
 ---
 
 ## Reste à faire, dans l'ordre

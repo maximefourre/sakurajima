@@ -361,28 +361,31 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
   const N = b === 0 ? 240 : 90;
   const W = RIVER.width * 0.5;
   const RAMP = 8; // segments over which a distributary fades in at the junction
-  const pos = [], uv = [], idx = [], fade = [];
+  const pos = [], uv = [], idx = [], fade = [], skirt = [];
   const p = new THREE.Vector3(), tan = new THREE.Vector3();
 
   // Find the WATERLINE on one side of a station: march outward, bisect the
   // exact spot where the carved ground breaks the surface, then push the edge
-  // a little PAST it so it sits inside the rising bank. The old version backed
-  // OFF before the breach: the edge stopped short of the ground and hung in
-  // the air over the bowl — the flying edge the player kept photographing.
+  // a little PAST it so it sits inside the rising bank. Returns [dist, breach].
+  // breach=false means the ground NEVER rises back over the water along the
+  // whole corridor — the sheet is hanging over lower terrain (the delta fan,
+  // where three channels carve one shared trough and the « bank » of one arm
+  // is the trench of the next ; or a coastal shelf lip). The caller then
+  // DRAPES that edge onto the ground instead of leaving a flying table.
   const wettedHalfWidth = (x, z, dx, dz, wMax, waterY) => {
-    if (!heightAt) return wMax;
+    if (!heightAt) return [wMax, true];
     const gAt = (d) => heightAt(x + dx * d, z + dz * d);
     let lo = 0, hi = wMax, found = false;
     for (let k = 1; k <= 12; k++) {
       const d = wMax * (k / 12);
       if (gAt(d) > waterY - 0.04) { lo = wMax * ((k - 1) / 12); hi = d; found = true; break; }
     }
-    if (!found) return wMax;
+    if (!found) return [wMax, false];
     for (let k = 0; k < 3; k++) {
       const mid = (lo + hi) * 0.5;
       if (gAt(mid) > waterY - 0.04) hi = mid; else lo = mid;
     }
-    return Math.max((lo + hi) * 0.5 + 0.30, wMax * 0.14);
+    return [Math.max((lo + hi) * 0.5 + 0.30, wMax * 0.14), true];
   };
 
   for (let i = 0; i <= N; i++) {
@@ -392,17 +395,15 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     // Left-hand normal in the XZ plane.
     const nx = -tan.z, nz = tan.x;
     const len = Math.hypot(nx, nz) || 1;
-    const wob = fbm2(p.x * 0.03, p.z * 0.03, 2) * 0.28 + 1;
-    // The channel widens as it reaches the sea. An estuary that stays exactly as
-    // wide as the upper reach reads as a canal.
-    const flare = faded ? 1 + 0.6 * (1 - fadeAtB(b, t)) : 1;
-    // Cap the flare at the carved corridor's edge — the waterline march below
-    // is what actually decides where the sheet stops.
-    const w = Math.min(W * wob * flare, W + RIVER.bankWidth * 0.9) * widthKAt(b, t);
+    // La ligne d'eau EST le bord : on marche toujours sur TOUT le couloir
+    // creusé (pas une largeur wobbulée — l'organicité vient du terrain
+    // lui-même). Un wobble qui raccourcissait la marche laissait le bord
+    // en l'air dès que la berge remontait juste au-delà.
+    const wCorr = (W + RIVER.bankWidth * 0.9) * widthKAt(b, t);
     const y = waterYAtB(b, t);
     const ux = nx / len, uz = nz / len;
-    const wL = wettedHalfWidth(p.x, p.z, ux, uz, w, y);
-    const wR = wettedHalfWidth(p.x, p.z, -ux, -uz, w, y);
+    const [wL, brchL] = wettedHalfWidth(p.x, p.z, ux, uz, wCorr, y);
+    const [wR, brchR] = wettedHalfWidth(p.x, p.z, -ux, -uz, wCorr, y);
     let f = faded ? fadeAtB(b, t) : 1;
     // Squared so that, combined with the concave alpha curve in the fragment
     // shader (pow 0.55), the junction overlap stays as dim as before — two
@@ -410,23 +411,42 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     if (b > 0) f *= Math.pow(Math.min(1, i / RAMP), 2.0);
     else f *= smoothstep(0.0, 0.06, t);   // the trunk seeps in from between the spring rocks
 
-    // 4 colonnes par station : [jupe G, bord G, bord D, jupe D]. La jupe est
-    // un rabat qui plonge sous la berge : entre deux stations le ruban est
-    // droit mais le sol ne l'est pas, et sans elle chaque creux intermédiaire
-    // ouvrait un jour d'air sous le bord. Enterrée = masquée par le terrain
-    // opaque ; exposée = fine bande d'eau de rive que l'écume de ligne d'eau
-    // éclaircit déjà. Le matériau est DoubleSide : pas de piège de winding.
+    // 4 colonnes par station : [jupe G, bord G, bord D, jupe D].
+    // Bord : à la ligne d'eau quand la berge remonte (breach) ; DRAPÉ sur le
+    // sol (sol + 0.08) quand elle ne remonte jamais — l'eau verse alors le
+    // long de la pente dans le bras voisin ou vers la mer au lieu de rester
+    // une table de verre en l'air (l'éventail du delta, capture du joueur).
+    // Jupe : plonge sous le SOL LOCAL (et pas d'une profondeur fixe — sur une
+    // tranchée voisine profonde, 1.35 u ne suffisait pas), pour combler tout
+    // jour d'interpolation entre stations. Enterrée = masquée par le terrain
+    // opaque. Le matériau est DoubleSide : pas de piège de winding.
     const exL = p.x + ux * wL, ezL = p.z + uz * wL;
     const exR = p.x - ux * wR, ezR = p.z - uz * wR;
-    pos.push(exL + ux * 0.45, y - 1.35, ezL + uz * 0.45);
-    pos.push(exL, y, ezL);
-    pos.push(exR, y, ezR);
-    pos.push(exR - ux * 0.45, y - 1.35, ezR - uz * 0.45);
+    const eyL = (!brchL && heightAt) ? heightAt(exL, ezL) + 0.08 : y;
+    const eyR = (!brchR && heightAt) ? heightAt(exR, ezR) + 0.08 : y;
+    const skx = 0.45;
+    const gSkL = heightAt ? heightAt(exL + ux * skx, ezL + uz * skx) : eyL - 0.75;
+    const gSkR = heightAt ? heightAt(exR - ux * skx, ezR - uz * skx) : eyR - 0.75;
+    const syL = Math.max(Math.min(eyL - 0.8, gSkL - 0.6), eyL - 6.0);
+    const syR = Math.max(Math.min(eyR - 0.8, gSkR - 0.6), eyR - 6.0);
+    pos.push(exL + ux * skx, syL, ezL + uz * skx);
+    pos.push(exL, eyL, ezL);
+    pos.push(exR, eyR, ezR);
+    pos.push(exR - ux * skx, syR, ezR - uz * skx);
     uv.push(0, t * 26);
     uv.push(0, t * 26);
     uv.push(1, t * 26);
     uv.push(1, t * 26);
     fade.push(f, f, f, f);
+    // La jupe est marquée : le fragment y coupe écume et brillance. Une face
+    // quasi verticale déclenche l'écume cascade (fwidth), et dans l'éventail
+    // du delta les jupes d'un bras pendent DANS le chenal mouillé du voisin —
+    // sans ce flag elles dessinaient des lignes blanches géométriques à
+    // travers l'eau. La jupe bouche un jour, elle ne joue pas l'eau vive.
+    // Un bord DRAPÉ est marqué aussi (presque autant) : posé à sol+0.08 au
+    // fond de la tranchée d'un autre bras, sa profondeur ≈ 0 le peignait en
+    // « eau peu profonde » pâle sous l'eau du voisin — une couture claire.
+    skirt.push(1, brchL ? 0 : 0.85, brchR ? 0 : 0.85, 1);
 
     if (i < N) {
       const a = i * 4;
@@ -440,6 +460,7 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('aFade', new THREE.Float32BufferAttribute(fade, 1));
+  g.setAttribute('aSkirt', new THREE.Float32BufferAttribute(skirt, 1));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
@@ -447,14 +468,17 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
 
 const RIVER_VERT = /* glsl */ `
   attribute float aFade;
+  attribute float aSkirt;
   uniform float uTime;
   varying vec2 vUv;
   varying vec3 vWorld;
   varying float vFade;
+  varying float vSkirt;
   #include <fog_pars_vertex>
   void main() {
     vUv = uv;
     vFade = aFade;
+    vSkirt = aSkirt;
     vec4 wp = modelMatrix * vec4(position, 1.0);
     // A living surface: two travelling micro-swells plus fine chop. The edges
     // are tucked into the banks and skirted, so the bob never opens a gap;
@@ -488,6 +512,7 @@ const RIVER_FRAG = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vWorld;
   varying float vFade;
+  varying float vSkirt;
   #include <fog_pars_fragment>
 
   float terrainH(vec2 p) {
@@ -530,13 +555,13 @@ const RIVER_FRAG = /* glsl */ `
     // Cheap specular: perturb a flat-up normal by the ripple gradient.
     vec3 n = normalize(vec3((r2 - r1) * 0.9, 1.0, (r1 - r2) * 0.9));
     float spec = pow(max(dot(reflect(-uSunDir, n), normalize(cameraPosition - vWorld)), 0.0), 48.0);
-    col += uSunColor * spec * 0.55;
+    col += uSunColor * spec * 0.55 * (1.0 - vSkirt);
 
     // Sky reflection at grazing angles only - a flat sky fraction everywhere
     // is what reads as a paved road instead of water.
     vec3 viewDir = normalize(cameraPosition - vWorld);
     float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
-    col = mix(col, uSkyColor, fres * 0.22);
+    col = mix(col, uSkyColor, fres * 0.22 * (1.0 - vSkirt));
 
     // Mouth zone: as the banks fade the river is becoming SEA.
     float mouth = 1.0 - smoothstep(0.12, 0.55, vFade);
@@ -554,6 +579,13 @@ const RIVER_FRAG = /* glsl */ `
     // is view-invariant; raw fwidth would foam all distant water at grazing.
     float cascade = fwidth(vWorld.y) / max(fwidth(vWorld.x) + fwidth(vWorld.z), 1e-4);
     foam = max(foam, smoothstep(0.10, 0.30, cascade) * (0.55 + 0.35 * ripple));
+    // La JUPE ne mousse pas et ne brille pas : c'est un rabat qui bouche les
+    // jours sous les bords, pas de l'eau vive. Quasi verticale, elle sature
+    // l'écume cascade et le fresnel, et dans l'éventail du delta elle pend
+    // dans le chenal du bras voisin — laissée brillante, elle raye l'eau de
+    // lignes blanches géométriques.
+    foam *= 1.0 - vSkirt;
+    col = mix(col, uDeep, vSkirt * 0.55);
     col = mix(col, vec3(0.92, 0.95, 0.96), foam * 0.62);
 
     if (vFade < 0.004) discard;
@@ -563,6 +595,7 @@ const RIVER_FRAG = /* glsl */ `
     // here - centimetres of water over sand render nearly clear.
     float alpha = mix(0.26, 0.78, depthN);
     alpha = max(alpha, foam * 0.75);
+    alpha *= 1.0 - 0.35 * vSkirt;
     gl_FragColor = vec4(col, alpha * pow(vFade, 0.55));
     #include <fog_fragment>
   }

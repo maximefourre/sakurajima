@@ -86,7 +86,11 @@ ponds.isInPond || river.isInRiver`.
   bornée à 0.12/station, lissage 1-2-1, embouchure fondue vers seaLevel+0.05.
   AUCUNE propagation amont→aval : le « jamais-remonter » v1–v3 passait l'eau
   SOUS le lit dès que celui-ci remontait (trous de sable sec). Le ruban marche
-  jusqu'à la vraie ligne d'eau (bisection) + jupe enterrée sous les berges.
+  jusqu'à la vraie ligne d'eau (bisection) sur TOUT le couloir ; si la berge ne
+  remonte jamais (éventail du delta, rebord côtier), le bord est DRAPÉ au sol
+  (sol+0.08) au lieu de rester une table en l'air ; jupe plongée sous le sol
+  LOCAL. Jupes et bords drapés portent `aSkirt` : le fragment y coupe écume,
+  spéculaire et fresnel (sinon rayures blanches à travers l'eau du voisin).
   Jonction : stations d'un distributaire dans le chenal du tronc épinglées sur
   l'eau du tronc ; ruban démarrant à >0.55·width de l'axe du tronc (sinon
   double-blend). La jonction doit être où l'eau du tronc ≈ niveau de la mer.
