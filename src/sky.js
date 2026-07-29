@@ -294,6 +294,9 @@ const AUTUMN_HEMI_SKY_GRADE = new THREE.Color(0xaebbc5);
 const AUTUMN_HEMI_GROUND_GRADE = new THREE.Color(0x7b5430);
 const AUTUMN_FOG_GRADE = new THREE.Color(0xc9aa87);
 const AUTUMN_SKY_TINT = new THREE.Color(0xffd0a2);
+/** Cool moonlit night fill — lifts darker autumn albedos without warm grade. */
+const AUTUMN_NIGHT_HEMI_SKY = new THREE.Color(0x2c4f8f);
+const AUTUMN_NIGHT_HEMI_GROUND = new THREE.Color(0x141c32);
 const SKY_TINT_IDENTITY = new THREE.Color(0xffffff);
 // Peaks at ~23% of the noon sun — a cinematic bright night, not a black one.
 // The land has to stay READABLE at midnight or the whole night shift is wasted.
@@ -1197,7 +1200,8 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
       if (isAutumn) {
         turbidity += 0.35 * dayW + 0.45 * goldenW + 0.25 * twilightW;
         mieCoef *= 1 + 0.12 * dayW + 0.06 * goldenW;
-        tintStrength = Math.min(0.12, 0.05 * dayW + 0.07 * goldenW + 0.03 * twilightW);
+        // Cap .08 (was .12): stronger dome tint opened a sea/sky horizon seam.
+        tintStrength = Math.min(0.08, 0.05 * dayW + 0.07 * goldenW + 0.03 * twilightW);
       }
       skyU.turbidity && (skyU.turbidity.value = turbidity);
       skyU.rayleigh && (skyU.rayleigh.value = trackScalar(K_RAYLEIGH, u));
@@ -1239,7 +1243,9 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
 
     /* ── moon light ──────────────────────────────────────────────────────── */
     const moonGate = smooth(moonY, -0.02, 0.09);
-    const moonI = trackScalar(K_MOON_INTENSITY, u) * moonGate;
+    let moonI = trackScalar(K_MOON_INTENSITY, u) * moonGate;
+    // Autumn terrain/maple albedos are darker; cool moon fill only (nightW→0 by day).
+    if (isAutumn) moonI *= 1 + 0.32 * nightW;
     _moonColor.lerpColors(MOON_COLOR_LOW, MOON_COLOR_HIGH, smooth(moonY, 0.02, 0.30));
     moonLight.color.copy(_moonColor);
     moonLight.intensity = moonI;
@@ -1260,8 +1266,13 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
     if (isAutumn) {
       _hemiSky.lerp(AUTUMN_HEMI_SKY_GRADE, dayW * (0.10 + 0.08 * goldenW));
       _hemiGround.lerp(AUTUMN_HEMI_GROUND_GRADE, dayW * (0.30 + 0.12 * goldenW));
+      // Deep-night cool lift: dayW≈0 so warm grades are off; no orange contamination.
+      const nightLift = nightW * nightW;
+      _hemiSky.lerp(AUTUMN_NIGHT_HEMI_SKY, nightLift * 0.28);
+      _hemiGround.lerp(AUTUMN_NIGHT_HEMI_GROUND, nightLift * 0.62);
     }
-    const hemiI = trackScalar(K_HEMI_INTENSITY, u);
+    let hemiI = trackScalar(K_HEMI_INTENSITY, u);
+    if (isAutumn) hemiI *= 1 + 0.42 * nightW;
     hemiLight.color.copy(_hemiSky);
     hemiLight.groundColor.copy(_hemiGround);
     hemiLight.intensity = hemiI;
@@ -1336,7 +1347,9 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
     }
 
     /* ── camera response ─────────────────────────────────────────────────── */
-    renderer.toneMappingExposure = trackScalar(K_EXPOSURE, u);
+    let exposure = trackScalar(K_EXPOSURE, u);
+    if (isAutumn) exposure *= 1 + 0.10 * nightW;
+    renderer.toneMappingExposure = exposure;
 
     const bloomS = trackScalar(K_BLOOM_STRENGTH, u);
     if (bloomPass) {
@@ -1387,6 +1400,8 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
      ══════════════════════════════════════════════════════════════════════════ */
 
   function render() {
+    renderer.info.autoReset = false;
+    renderer.info.reset();
     if (api.composer) api.composer.render();
     else renderer.render(scene, camera);
   }

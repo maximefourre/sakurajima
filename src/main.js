@@ -548,6 +548,10 @@ function frame() {
     controls.update();
   }
 
+  // EffectComposer runs several renderer.render passes; with autoReset the HUD
+  // only sees the last fullscreen blit (1 draw / ~0 tris). Reset once per frame.
+  renderer.info.autoReset = false;
+  renderer.info.reset();
   if (world.sky.composer) world.sky.composer.render();
   else renderer.render(scene, camera);
 

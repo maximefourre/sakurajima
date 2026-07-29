@@ -101,6 +101,11 @@ function sample(skyBundle, dayTime) {
     hemiSky: phase.skyColor.clone(),
     hemiGround: phase.groundColor.clone(),
     fog: phase.fogColor.clone(),
+    key: phase.keyColor.clone(),
+    ambient: phase.ambient,
+    moonIntensity: phase.moonIntensity,
+    keyIntensity: phase.keyIntensity,
+    exposure: phase.exposure,
     fogDensity: skyBundle.scene.fog?.isFogExp2 ? skyBundle.scene.fog.density : null,
     turbidity: skyU.turbidity?.value ?? null,
     mie: skyU.mieCoefficient?.value ?? null,
@@ -173,9 +178,13 @@ check('autumn midi tint #ffd0a2',
   aNoon.tint && distColor(aNoon.tint, tintTarget) < 1e-3,
   aNoon.tint ? hexOf(aNoon.tint) : 'missing uSkyTint');
 
-check('autumn midi tint strength > 0 et ≤ .12',
-  aNoon.tintStrength != null && aNoon.tintStrength > 0 && aNoon.tintStrength <= 0.12 + 1e-6,
+check('autumn midi tint strength > 0 et ≤ .08',
+  aNoon.tintStrength != null && aNoon.tintStrength > 0 && aNoon.tintStrength <= 0.08 + 1e-6,
   `got ${aNoon.tintStrength}`);
+
+check('autumn golden tint strength > 0 et ≤ .08',
+  aGold.tintStrength != null && aGold.tintStrength > 0 && aGold.tintStrength <= 0.08 + 1e-6,
+  `got ${aGold.tintStrength}`);
 
 check('autumn golden tint ≥ midi tint',
   aGold.tintStrength != null && aNoon.tintStrength != null
@@ -210,9 +219,9 @@ check('nuit profonde autumn ≈ spring sun (coeffs ~0)',
   distColor(aNight.sun, sNight.sun) < 2e-3,
   `spring ${hexOf(sNight.sun)} autumn ${hexOf(aNight.sun)}`);
 
-check('nuit profonde autumn ≈ spring fog',
-  distColor(aNight.fog, sNight.fog) < 2e-3,
-  `spring ${hexOf(sNight.fog)} autumn ${hexOf(aNight.fog)}`);
+check('nuit profonde autumn fog reste bleu (pas de grade chaud)',
+  aNight.fog.b + 1e-4 >= aNight.fog.r && aNight.fog.b + 1e-4 >= aNight.fog.g * 0.85,
+  hexOf(aNight.fog));
 
 check('nuit profonde autumn tint strength ~0',
   aNight.tintStrength != null && aNight.tintStrength < 0.01,
@@ -222,6 +231,32 @@ check('nuit profonde autumn turbidity ≈ spring',
   aNight.turbidity != null && sNight.turbidity != null
     && near(aNight.turbidity, sNight.turbidity, 5e-3),
   `spring ${sNight.turbidity} autumn ${aNight.turbidity}`);
+
+/* ── NIGHT-1 regression: cool moonlit fill so darker autumn albedos stay readable ── */
+function luma(c) {
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
+function nightFill(s) {
+  // Approximate land illumination from hemi bounce + key (moon) + exposure.
+  // Observable phase outputs only — no source-text assertions.
+  return (s.ambient * luma(s.hemiGround) * 1.35
+    + s.ambient * luma(s.hemiSky) * 0.45
+    + s.keyIntensity * luma(s.key) * 0.22) * s.exposure;
+}
+const sFill = nightFill(sNight);
+const aFill = nightFill(aNight);
+check('nuit profonde autumn fill > spring (lisibilité momiji)',
+  aFill > sFill * 1.18,
+  `spring ${sFill.toFixed(4)} autumn ${aFill.toFixed(4)}`);
+check('nuit profonde autumn key reste froid (b ≥ r)',
+  aNight.key.b + 1e-4 >= aNight.key.r,
+  hexOf(aNight.key));
+check('nuit profonde autumn hemiGround non-chaud vs spring',
+  (aNight.hemiGround.r - aNight.hemiGround.b) <= (sNight.hemiGround.r - sNight.hemiGround.b) + 0.02,
+  `spring ${hexOf(sNight.hemiGround)} autumn ${hexOf(aNight.hemiGround)}`);
+check('nuit profonde autumn moonIntensity ≥ spring',
+  aNight.moonIntensity + 1e-6 >= sNight.moonIntensity,
+  `spring ${sNight.moonIntensity} autumn ${aNight.moonIntensity}`);
 
 /* ── twilight glow selected once (autumn cooler orange, spring hot) ── */
 const springGlow = new THREE.Color(0xff7a33);
