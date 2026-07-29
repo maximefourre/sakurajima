@@ -104,7 +104,9 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     aOrigin[i * 4 + 3] = spawnH;
 
     aSeedA[i * 4 + 0] = rng() * Math.PI * 2;          // phase
-    aSeedA[i * 4 + 1] = R.range(rng, 0.22, 0.85);     // tumble rate — a petal flutters, it does not spin like a top
+    // 0.22-0.85 lisait ENCORE trop vite en jeu (trois plaintes joueur) : un
+    // pétale de cerisier plane, il tourne à peine. Divisé par ~2.3.
+    aSeedA[i * 4 + 1] = R.range(rng, 0.10, 0.36);     // tumble rate
     // Size: a real petal is ~1.5cm. Rendering it at true scale makes it
     // invisible past a few metres, so this is deliberately exaggerated — but
     // only to roughly 10-25cm. Any larger and they read as confetti, not blossom.
@@ -112,7 +114,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     aSeedA[i * 4 + 3] = rng();                        // lifetime offset
 
     aSeedB[i * 4 + 0] = R.range(rng, 0.4, 2.6);       // spiral radius
-    aSeedB[i * 4 + 1] = R.range(rng, 0.25, 1.1);      // spiral rate
+    // Divisé par 2 : l'orbite serrée à 1.1 rad/s lisait comme un tourbillon.
+    aSeedB[i * 4 + 1] = R.range(rng, 0.12, 0.55);     // spiral rate
     aSeedB[i * 4 + 2] = R.range(rng, 0.15, 1.0);      // tumble axis tilt
     // Tint heavily biased to the pale end: somei yoshino blossom is nearly
     // white, with only a blush of pink. A uniform distribution reads as plastic.
@@ -204,7 +207,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         if (aMode > 0.5) {
           // SETTLED: lies on the ground until a gust lifts it, then resettles.
           float lift = smoothstep(0.55, 1.6, gust);
-          float hop  = lift * (0.6 + 1.8 * sk_noise3(vec3(base.xz * 0.3, uTime * 0.7 + phase)));
+          float hop  = lift * (0.6 + 1.8 * sk_noise3(vec3(base.xz * 0.3, uTime * 0.35 + phase)));
           worldPos = base + vec3(0.0, max(0.04, hop), 0.0);
           worldPos += windForce(base, uTime) * lift * 1.4;
           airborne = lift;

@@ -559,11 +559,13 @@ export function createShiba({
   group.add(prints.mesh);
 
   /* ── state ─────────────────────────────────────────────────── */
-  const position = new THREE.Vector3(18 * LAND_SCALE, 0, 44 * LAND_SCALE);
+  // Apparition SUR le chemin : le carrefour du réseau (config PATHS, point
+  // commun des trois routes), museau tourné vers la montée aux torii.
+  const position = new THREE.Vector3(6 * LAND_SCALE, 0, -30 * LAND_SCALE);
   position.y = heightAt(position.x, position.z);
 
   const state = {
-    heading: Math.PI * 0.9,
+    heading: -1.2,
     speed: 0,
     moving: false,
     running: false,
