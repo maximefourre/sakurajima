@@ -513,3 +513,28 @@ trop coincées dans l'herbe. »
   screenshot. Le HUD horloge peut rester en retard (throttlé), foi aux uniforms.
 - Grok CLI déconnecté (auth.json absent) → chantier codé par Claude sur brief
   écrit ; relancer `grok login` avant le prochain chantier.
+
+## 2026-07-29 — Prairie sans jaune, couronnes en grain fin (soir)
+
+Consigne joueur : « encore des feuilles au sol qui ne viennent pas d'un
+cerisier » (= les fleurs sauvages jaunes) ; fleurs des ARBRES ÷2 en taille,
+×2 en nombre.
+
+- **details.js** `FLOWERS` : palette passée en tons hanami — buttercup
+  0xf5c93f/0xd99a1e (jaune/or) → 0xf2cfdd/0xdd9db8 (roses), cœur daisy
+  0xe8c25c (or) → 0xf2e3cf (crème). Le jaune à hauteur d'herbe lisait comme
+  des feuilles mortes sur le tapis rose. Distribution/poids inchangés.
+- **sakura.js** : blossom.size ÷2 sur les 5 archétypes (≈7-13 cm monde),
+  blossomDensity main.js ×2 (ultra 3.6→7.2, high 2.8→5.6, low 1.9→3.8).
+  Mesuré ultra : **48.0 M fleurs** (23.5 M avant).
+- **PIÈGE PAYÉ — mur GC du bake blossoms** : le bake monde poussait ~150 M
+  de doubles dans des tableaux JS ordinaires (`push` par bucket). Au-delà de
+  ~16 M d'instances le tas V8 (~2 Go) part en GC-thrash : boot ultra passé de
+  ~40 s à PLUSIEURS MINUTES de thread bloqué (onglet «gelé», CDP timeout).
+  Correctif : deux passes — comptage par bucket (`Int32Array`), puis écriture
+  au curseur dans des `Float32Array` pré-alloués, branchés tels quels dans les
+  `InstancedBufferAttribute` (zéro copie). Boot ultra revenu ≈ 40 s.
+- Vérif : node --check ×3, invariants 7/7, visuel midi (prairie zéro jaune,
+  pâquerettes crème + boutons roses + campanules mauves ; couronnes = masses
+  de petites corolles individuées). fps ultra à confirmer sur machine cible :
+  48 M de quads instanciés, si trop lourd le seul knob est blossomDensity.

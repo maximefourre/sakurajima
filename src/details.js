@@ -323,14 +323,17 @@ export let lanternSpots = [];
 /* ── art direction ───────────────────────────────────────────────
  * Four species, weighted. The white daisy is the workhorse and reads at the
  * longest range; the others are accents. Deep violet is only 8% of the mix —
- * it is there to be found, not to be seen. */
+ * it is there to be found, not to be seen.
+ * The whole palette stays in hanami tones (white/pink/mauve, warm-cream hearts):
+ * anything gold or yellow at grass height reads as dead leaves against the
+ * sakura petal carpet (user call, 29/07). */
 // Sizes are frankly larger than life. A real daisy is 3 cm across, which at this
 // world scale is four millimetres of corolla hidden among 55 cm grass blades —
 // present in the buffer, invisible on screen. Blown up to roughly the size of a
 // small poppy they read as flowers from where the dog actually walks.
 const FLOWERS = [
-  { name: 'daisy',   weight: 0.44, petal: 0xfbf7ee, heart: 0xe8c25c, petals: 8, size: 0.155, height: [0.42, 0.66] },
-  { name: 'buttercup', weight: 0.27, petal: 0xf5c93f, heart: 0xd99a1e, petals: 5, size: 0.130, height: [0.34, 0.54] },
+  { name: 'daisy',   weight: 0.44, petal: 0xfbf7ee, heart: 0xf2e3cf, petals: 8, size: 0.155, height: [0.42, 0.66] },
+  { name: 'buttercup', weight: 0.27, petal: 0xf2cfdd, heart: 0xdd9db8, petals: 5, size: 0.130, height: [0.34, 0.54] },
   { name: 'clover',  weight: 0.21, petal: 0xe9b6cd, heart: 0xf0d7e2, petals: 6, size: 0.118, height: [0.28, 0.46] },
   { name: 'harebell', weight: 0.08, petal: 0x8f7fd0, heart: 0xcfc6f0, petals: 5, size: 0.140, height: [0.46, 0.72] },
 ];

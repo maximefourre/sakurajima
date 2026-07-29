@@ -178,6 +178,9 @@ function ensureWindUniforms( u ) {
  * blossom), with blossomDensity raised in main.js so the crown stays full
  * through NUMBER of flowers rather than size of quad. Spread tightened a
  * touch so a cluster reads as a clump of small flowers.
+ * Second pass same day, same direction: halved AGAIN (≈7–13 cm world) with
+ * blossomDensity doubled in main.js — the crown must be a mass of small
+ * flowers, matching the fine grain of the ground carpet (user call).
  */
 const ARCHETYPES = {
 
@@ -205,7 +208,7 @@ const ARCHETYPES = {
 		radial:       [ 10, 7, 5, 4, 3 ],
 		barkBase: 0x3b2f29, barkTip: 0x6f5a4c, barkDead: 0x6d675e,
 		blossom: {
-			density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.15, 0.25 ], spread: 0.19,
+			density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.075, 0.125 ], spread: 0.19,
 			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.02
 		}
 	},
@@ -231,7 +234,7 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 4, 3 ],
 		barkBase: 0x39302c, barkTip: 0x6a5344, barkDead: 0x69635b,
 		blossom: {
-			density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.13, 0.21 ], spread: 0.13,
+			density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.065, 0.105 ], spread: 0.13,
 			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
 		}
 	},
@@ -257,7 +260,7 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 5, 4, 3 ],
 		barkBase: 0x342b26, barkTip: 0x6b5a4e, barkDead: 0x7c766c,
 		blossom: {
-			density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.13, 0.22 ], spread: 0.14,
+			density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.065, 0.11 ], spread: 0.14,
 			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
 		}
 	},
@@ -283,7 +286,7 @@ const ARCHETYPES = {
 		radial:       [ 7, 5, 4, 3 ],
 		barkBase: 0x4a3226, barkTip: 0x7b5340, barkDead: 0x6f685d,
 		blossom: {
-			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.11, 0.18 ], spread: 0.10,
+			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.055, 0.09 ], spread: 0.10,
 			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
 		}
 	},
@@ -309,7 +312,7 @@ const ARCHETYPES = {
 		radial:       [ 12, 8, 6, 5, 4, 3 ],
 		barkBase: 0x2f2823, barkTip: 0x6a5c50, barkDead: 0x847d72,
 		blossom: {
-			density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.16, 0.26 ], spread: 0.18,
+			density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.08, 0.13 ], spread: 0.18,
 			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
 		}
 	}
@@ -1520,15 +1523,38 @@ export function createSakuraForest( options = {} ) {
 	for ( const r of placements ) totalBlossoms += prototypes[ r.protoIndex ].blossom.count;
 
 	const chunkN = Math.max( 1, o.blossomChunks | 0 );
-	const buckets = [];
-	for ( let i = 0; i < chunkN * chunkN; i ++ ) {
+	const spanX = Math.max( 1e-3, maxX - minX );
+	const spanZ = Math.max( 1e-3, maxZ - minZ );
 
-		buckets.push( { off: [], col: [], par: [], leaf: [] } );
+	// Two passes with preallocated typed arrays. Growing plain JS arrays here
+	// (150M+ pushes of doubles at ultra) put ~2 GB on the V8 heap and past
+	// ~16M blossoms the boot went from tens of seconds to minutes of GC thrash.
+	const bucketOf = new Int32Array( placements.length );
+	const bucketCount = new Int32Array( chunkN * chunkN );
+	for ( let r = 0; r < placements.length; r ++ ) {
+
+		const rec = placements[ r ];
+		const bx = THREE.MathUtils.clamp( Math.floor( ( rec.position.x - minX ) / spanX * chunkN ), 0, chunkN - 1 );
+		const bz = THREE.MathUtils.clamp( Math.floor( ( rec.position.z - minZ ) / spanZ * chunkN ), 0, chunkN - 1 );
+		bucketOf[ r ] = bz * chunkN + bx;
+		bucketCount[ bucketOf[ r ] ] += prototypes[ rec.protoIndex ].blossom.count;
 
 	}
 
-	const spanX = Math.max( 1e-3, maxX - minX );
-	const spanZ = Math.max( 1e-3, maxZ - minZ );
+	const buckets = [];
+	for ( let i = 0; i < chunkN * chunkN; i ++ ) {
+
+		const c = bucketCount[ i ];
+		buckets.push( {
+			off: new Float32Array( c * 3 ),
+			col: new Float32Array( c * 3 ),
+			par: new Float32Array( c * 4 ),
+			leaf: new Float32Array( c ),
+			n: 0
+		} );
+
+	}
+
 	const tmp = new THREE.Vector3();
 
 	for ( let r = 0; r < placements.length; r ++ ) {
@@ -1541,26 +1567,29 @@ export function createSakuraForest( options = {} ) {
 		scl.set( rec.scale, rec.scale, rec.scale );
 		mat4.compose( rec.position, rec.quaternion, scl );
 
-		const bx = THREE.MathUtils.clamp( Math.floor( ( rec.position.x - minX ) / spanX * chunkN ), 0, chunkN - 1 );
-		const bz = THREE.MathUtils.clamp( Math.floor( ( rec.position.z - minZ ) / spanZ * chunkN ), 0, chunkN - 1 );
-		const bucket = buckets[ bz * chunkN + bx ];
+		const bucket = buckets[ bucketOf[ r ] ];
+		let w = bucket.n;
 
-		for ( let i = 0; i < bl.count; i ++ ) {
+		for ( let i = 0; i < bl.count; i ++, w ++ ) {
 
 			tmp.set( bl.offsets[ i * 3 ], bl.offsets[ i * 3 + 1 ], bl.offsets[ i * 3 + 2 ] )
 				.applyMatrix4( mat4 );
-			bucket.off.push( tmp.x, tmp.y, tmp.z );
-			bucket.col.push( bl.colors[ i * 3 ], bl.colors[ i * 3 + 1 ], bl.colors[ i * 3 + 2 ] );
-			bucket.par.push(
-				bl.params[ i * 4 ] * rec.scale,
-				// decorrelate the phase per tree so neighbours never pulse together
-				THREE.MathUtils.euclideanModulo( bl.params[ i * 4 + 1 ] + r * 0.6180339887, 1 ),
-				bl.params[ i * 4 + 2 ],
-				bl.params[ i * 4 + 3 ]
-			);
-			bucket.leaf.push( bl.leaf[ i ] );
+			bucket.off[ w * 3 ] = tmp.x;
+			bucket.off[ w * 3 + 1 ] = tmp.y;
+			bucket.off[ w * 3 + 2 ] = tmp.z;
+			bucket.col[ w * 3 ] = bl.colors[ i * 3 ];
+			bucket.col[ w * 3 + 1 ] = bl.colors[ i * 3 + 1 ];
+			bucket.col[ w * 3 + 2 ] = bl.colors[ i * 3 + 2 ];
+			bucket.par[ w * 4 ] = bl.params[ i * 4 ] * rec.scale;
+			// decorrelate the phase per tree so neighbours never pulse together
+			bucket.par[ w * 4 + 1 ] = THREE.MathUtils.euclideanModulo( bl.params[ i * 4 + 1 ] + r * 0.6180339887, 1 );
+			bucket.par[ w * 4 + 2 ] = bl.params[ i * 4 + 2 ];
+			bucket.par[ w * 4 + 3 ] = bl.params[ i * 4 + 3 ];
+			bucket.leaf[ w ] = bl.leaf[ i ];
 
 		}
+
+		bucket.n = w;
 
 	}
 
@@ -1587,10 +1616,10 @@ export function createSakuraForest( options = {} ) {
 		geo.setAttribute( 'position', quadPos );
 		geo.setAttribute( 'uv', quadUv );
 		geo.setIndex( quadIdx );
-		geo.setAttribute( 'aOffset', new THREE.InstancedBufferAttribute( new Float32Array( bkt.off ), 3 ) );
-		geo.setAttribute( 'aColor',  new THREE.InstancedBufferAttribute( new Float32Array( bkt.col ), 3 ) );
-		geo.setAttribute( 'aParams', new THREE.InstancedBufferAttribute( new Float32Array( bkt.par ), 4 ) );
-		geo.setAttribute( 'aLeaf',   new THREE.InstancedBufferAttribute( new Float32Array( bkt.leaf ), 1 ) );
+		geo.setAttribute( 'aOffset', new THREE.InstancedBufferAttribute( bkt.off, 3 ) );
+		geo.setAttribute( 'aColor',  new THREE.InstancedBufferAttribute( bkt.col, 3 ) );
+		geo.setAttribute( 'aParams', new THREE.InstancedBufferAttribute( bkt.par, 4 ) );
+		geo.setAttribute( 'aLeaf',   new THREE.InstancedBufferAttribute( bkt.leaf, 1 ) );
 		geo.instanceCount = n;
 
 		// CRITICAL: the auto bounding sphere would only cover the unit quad, so the

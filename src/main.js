@@ -310,7 +310,10 @@ async function boot() {
     // Once the branch structure actually built, the default blossom load left
     // the island looking like an orchard in March. The blossom is the subject —
     // it should hide most of the branch it grows on.
-    blossomDensity: q.label === 'ultra' ? 3.6 : q.label === 'high' ? 2.8 : 1.9,
+    // Doubled tier by tier with the ÷2 blossom size (second small-flowers
+    // pass). ~48M instances at ultra: only viable since the world-space bake
+    // preallocates typed arrays — growing JS arrays hit a GC wall past ~16M.
+    blossomDensity: q.label === 'ultra' ? 7.2 : q.label === 'high' ? 5.6 : 3.8,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     // Nothing calls getBlossomSamples (petals use forest.emitters) - keeping the
     // sample cloud held ~330 MB of dead heap at 13.7M blossoms.
