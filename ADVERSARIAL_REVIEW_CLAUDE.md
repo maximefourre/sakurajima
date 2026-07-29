@@ -318,3 +318,38 @@ Next steps:
 - 3. Remplacer le basculement hi/lo de l’herbe par une vraie transition.
 - 4. Désactiver la copie sampleCloud inutilisée.
 - 5. Normaliser le smoothstep inversé, puis rejouer node --check, les 8 invariants et les parcours visuels pont/berges/LOD.
+
+---
+
+# Revue ADV-2026-07-29-A920146 — passe finale automne momiji
+
+## Suivi de traitement
+
+| Champ | Valeur |
+|---|---|
+| Identifiant unique | `ADV-2026-07-29-A920146` |
+| Date de la revue | 29/07/2026 |
+| Plage auditée | `2874276..a920146` |
+| Statut | **Traité** |
+| Verdict statique | Aucun finding ; revue de branche propre |
+| Relecture visuelle | Approuvée après correctifs `e0eb773` et `a920146` |
+
+### Findings et résolutions
+
+| Finding | Statut | Résolution |
+|---|---|---|
+| Nuits autumn trop sombres | Traité | `e0eb773` rééquilibre le profil nocturne autumn ; lune, étoiles et lisibilité du sol restent préservées sans filtre orange nocturne. |
+| Couture mer/ciel à la jonction dorée | Traité | `e0eb773` harmonise l'horizon publié, le brouillard et le ciel ; la couture observée à la golden hour est supprimée. |
+| Compteurs HUD du compositeur invalides | Traité | `a920146` corrige les compteurs affichés et leur état de validation ; le HUD ultra reste cohérent pendant la matrice. |
+| Revue statique de la plage auditée | Traité | Aucun finding de code retenu sur `2874276..a920146`. Les suites exactes et la relecture visuelle sont consignées dans `REPRISE.md`. |
+
+### Vérification et provenance
+
+Les suites finales sont : `SEASON 8/0`, `FOLIAGE spring 5/0`,
+`FOLIAGE autumn 5/0`, `GROUND 34/0`, `ATMOSPHERE 37/0` et
+`INVARIANTS 7/0`. La matrice couvre `spring|autumn × low|high|ultra`, avec
+les contrôles de midi, de nuit et de golden hour autumn ultra.
+
+Grok CLI était non authentifié et `codex-rescue` a échoué au démarrage du
+modèle ; les implémentations et relectures de fallback déléguées ont été
+utilisées à la place, ce qui est enregistré explicitement ici.

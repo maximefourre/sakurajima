@@ -538,3 +538,43 @@ cerisier » (= les fleurs sauvages jaunes) ; fleurs des ARBRES ÷2 en taille,
   pâquerettes crème + boutons roses + campanules mauves ; couronnes = masses
   de petites corolles individuées). fps ultra à confirmer sur machine cible :
   48 M de quads instanciés, si trop lourd le seul knob est blossomDensity.
+
+## Session « automne momiji — clôture » du 29/07/2026
+
+Travail finalisé dans le worktree `feature/autumn-momiji` :
+`/Users/fourreto/Projects/vibecode/sakurajima/.worktrees/autumn-momiji`.
+Le printemps reste le défaut. Le résolveur `season` applique la priorité
+URL → `localStorage` → `spring`, et le sélecteur persiste le choix puis
+recharge la scène afin que toutes les données de construction restent
+cohérentes.
+
+- **Forêt et feuilles** : les couronnes momiji remplacent les fleurs dans le
+  pipeline partagé, avec silhouette maple et nervures dans les shaders ;
+  dominantes déterministes rouge, orange, jaune et vert, palettes ombre/
+  milieu/soleil interpolées en linéaire. Les mêmes profils alimentent les
+  feuilles en vol et le tapis, avec la silhouette et la couleur autumn
+  partagées, sans seconde forêt ni draw call supplémentaire.
+- **Environnement** : profil autumn appliqué au sol, à l'herbe, aux fleurs,
+  aux étangs/lotus et aux pigments de l'océan, sans déplacer les scatters.
+  Le ciel, la lumière et le brouillard sont réchauffés le jour et à la golden
+  hour ; la lune, le dôme nocturne et les étoiles restent bleus. Le brouillard
+  et le ciel partagent l'horizon publié, sans couture mer/ciel.
+- **Correctifs visuels finaux** : `e0eb773` corrige les nuits autumn trop
+  sombres et la couture mer/ciel ; `a920146` corrige les compteurs HUD invalides
+  du compositeur. La relecture visuelle ciblée est approuvée.
+- **Validation exacte** : `SEASON: 8 pass, 0 fail` ; `FOLIAGE spring: 5 pass,
+  0 fail` ; `FOLIAGE autumn: 5 pass, 0 fail` ; `GROUND: 34 pass, 0 fail` ;
+  `ATMOSPHERE: 37 pass, 0 fail` ; `INVARIANTS: 7 pass, 0 fail`.
+- **Matrice visuelle** : les six combinaisons `spring|autumn × low|high|ultra`
+  ont été parcourues, à midi et de nuit ; autumn ultra a aussi été vérifié à
+  la golden hour. Les contrôles ont couvert silhouettes, dominantes, chute et
+  tapis, terrain/étangs, horizon, ciel nocturne, lanternes, chemins, torii,
+  ombres et absence d'arbres sur l'eau ou les chemins.
+- **Performance** : observation comparative à qualité égale — une forêt, un
+  mesh aérien et un tapis dans les deux saisons ; `keepFoliageSamples` reste
+  désactivé et les dominantes n'ajoutent ni matériau ni draw call. Aucun pic
+  continu n'a été observé dans le HUD ultra/profiler pendant la matrice.
+- **Outils** : Grok CLI était non authentifié et `codex-rescue` a échoué au
+  démarrage du modèle ; les implémentations et revues de repli déléguées ont
+  donc été utilisées. Ces limitations sont consignées pour éviter de présenter
+  la provenance des passes comme une exécution réussie de ces outils.
