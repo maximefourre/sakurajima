@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DAY_LENGTH, START_TIME, WIND, LAND_SCALE } from './config.js';
+import { SEASON_QUERY_PARAM, SEASON_STORAGE_KEY, isSeason, resolveSeason } from './season.js';
 import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
 import { createIsland } from './island.js';
@@ -109,8 +110,19 @@ const initialTier = (() => {
   return DEFAULT_QUALITY;
 })();
 
+/**
+ * Season is resolved the same way as quality, before any construction: valid
+ * ?season=, then the persisted choice, then spring. Switching seasons reloads —
+ * forest, foliage, terrain palettes and atmosphere are build-time data.
+ */
+const initialSeason = resolveSeason({
+  search: location.search,
+  storage: typeof localStorage !== 'undefined' ? localStorage : null,
+});
+
 const world = {
   quality: initialTier,
+  season: initialSeason,
   dayTime: START_TIME,
   daySpeed: 1,
   paused: false,
@@ -120,6 +132,8 @@ const world = {
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
+
+document.documentElement.dataset.season = world.season;
 
 function applyDPR() {
   const cap = QUALITY[world.quality].dprCap;
@@ -602,6 +616,20 @@ $('s-quality').onclick = (e) => {
 // which silently desynced from any other resolved tier.
 for (const b of $('s-quality').children) {
   b.setAttribute('aria-pressed', String(b.dataset.q === world.quality));
+}
+
+$('s-season').onclick = (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const value = btn.dataset.season;
+  if (!isSeason(value) || value === world.season) return;
+  try { localStorage.setItem(SEASON_STORAGE_KEY, value); } catch { /* private mode */ }
+  const url = new URL(location.href);
+  url.searchParams.set(SEASON_QUERY_PARAM, value);
+  location.assign(url);
+};
+for (const b of $('s-season').children) {
+  b.setAttribute('aria-pressed', String(b.dataset.season === world.season));
 }
 
 addEventListener('keydown', (e) => {

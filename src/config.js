@@ -184,6 +184,10 @@ export const QUALITY = {
 
 export const DEFAULT_QUALITY = 'ultra';
 
+/** Valid seasons and their UI labels. Quality budgets stay out of this table. */
+export const SEASONS = Object.freeze({ spring: 'printemps', autumn: 'automne' });
+export const DEFAULT_SEASON = 'spring';
+
 /**
  * Le réseau de chemins de terre. Trois routes partant d'un carrefour en
  * lisière de la prairie : la MONTÉE AUX TORII (reprend les lacets éprouvés
