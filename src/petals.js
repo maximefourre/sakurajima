@@ -32,6 +32,40 @@ import { streamFor, R, clamp } from './noise.js';
 import { NOISE_GLSL } from './noise.js';
 import { WIND_GLSL } from './wind.js';
 
+/**
+ * Silhouette partagée par les deux passes (air + tapis). Deux formes sur le
+ * même quad : un pétale seul (shape 0) ou la COROLLE entière à cinq pétales
+ * (shape 1) — la même rosette abs(cos(2.5·theta)) que les fleurs d'arbre de
+ * sakura.js, pour que ce qui vole et ce qui jonche soit la même fleur que ce
+ * qui est accroché aux branches.
+ */
+const SAKURA_SHAPE_GLSL = /* glsl */ `
+  float sakuraAlpha(vec2 p, float shape) {
+    if (shape < 0.5) {
+      // Un petale seul. La largeur s'effile vers la base, maximale aux deux
+      // tiers ; l'echancrure du bout est le detail qui lit sakura, pas feuille.
+      float y = p.y * 0.5 + 0.5;
+      float w = 0.92 * sqrt(max(0.0, 1.0 - pow(abs(p.y), 1.7)));
+      w *= mix(0.55, 1.0, smoothstep(0.0, 0.45, y));
+      float notch = smoothstep(0.62, 1.0, y) * 0.55 * (1.0 - smoothstep(0.0, 0.42, abs(p.x)));
+      float d = abs(p.x) - (w - notch);
+      return 1.0 - smoothstep(-0.06, 0.03, d);
+    }
+    // La corolle entiere : cinq lobes en abs(cos(2.5*theta)) — exactement la
+    // math du fragment blossom de sakura.js, echancrure au sommet de chaque
+    // lobe comprise. Le quad fait 0.5 x 0.72 : p.y est re-normalise pour que
+    // la fleur soit RONDE (diametre = largeur du quad), pas etiree a l'aspect
+    // du petale.
+    vec2 q = vec2(p.x, p.y * 1.44);
+    float r = length(q);
+    float theta = atan(q.y, q.x);
+    float lob = abs(cos(2.5 * theta));
+    float R = 0.52 + 0.40 * pow(lob, 0.6);
+    R -= 0.14 * smoothstep(0.90, 1.0, lob);
+    return 1.0 - smoothstep(R - 0.06, R + 0.03, r);
+  }
+`;
+
 /** One petal: a small quad, bent along its length so it is never perfectly flat. */
 function makePetalGeometry() {
   const W = 0.5, H = 0.72, SEG = 3;
@@ -49,7 +83,7 @@ function makePetalGeometry() {
   return g;
 }
 
-export function createPetals({ seed, quality, canopies = [], wind, heightAt, slopeAt = null, exclude = null }) {
+export function createPetals({ seed, quality, canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null }) {
   const COUNT = quality.petals;
   const rng = streamFor(seed, 'petals');
 
@@ -60,6 +94,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
   const aSeedA  = new Float32Array(COUNT * 4); // phase, tumbleRate, size, lifeOffset
   const aSeedB  = new Float32Array(COUNT * 4); // spiralR, spiralRate, axisTilt, tint
   const aMode   = new Float32Array(COUNT);     // 0 = airborne, 1 = settled on ground
+  const aShape  = new Float32Array(COUNT);     // 0 = pétale seul, 1 = corolle entière
 
   const half = WORLD.size * 0.5;
   const SETTLED_FRACTION = 0.09;
@@ -103,14 +138,22 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     aOrigin[i * 4 + 2] = z;
     aOrigin[i * 4 + 3] = spawnH;
 
+    // 12 % de COROLLES entières : le somei-yoshino lâche parfois la fleur
+    // complète, pas seulement des pétales (« des fleurs de cerisier, pas
+    // juste un truc rose », consigne joueur). Plus grosses qu'un pétale,
+    // elles planent plus qu'elles ne virevoltent.
+    const flower = rng() < 0.12 ? 1 : 0;
+    aShape[i] = flower;
+
     aSeedA[i * 4 + 0] = rng() * Math.PI * 2;          // phase
     // 0.22-0.85 lisait ENCORE trop vite en jeu (trois plaintes joueur) : un
     // pétale de cerisier plane, il tourne à peine. Divisé par ~2.3.
-    aSeedA[i * 4 + 1] = R.range(rng, 0.10, 0.36);     // tumble rate
+    aSeedA[i * 4 + 1] = R.range(rng, 0.10, 0.36) * (flower ? 0.65 : 1); // tumble rate
     // Size: a real petal is ~1.5cm. Rendering it at true scale makes it
     // invisible past a few metres, so this is deliberately exaggerated — but
-    // only to roughly 10-25cm. Any larger and they read as confetti, not blossom.
-    aSeedA[i * 4 + 2] = R.skew(rng, 0.18, 0.5, 2.0);
+    // kept under ~17cm (réduit ×0.67 le 29/07 : « plus mais moins grosses »,
+    // le nombre compense dans config.js). Any larger reads as confetti.
+    aSeedA[i * 4 + 2] = R.skew(rng, 0.12, 0.34, 2.0) * (flower ? 1.5 : 1);
     aSeedA[i * 4 + 3] = rng();                        // lifetime offset
 
     aSeedB[i * 4 + 0] = R.range(rng, 0.4, 2.6);       // spiral radius
@@ -128,6 +171,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
   geo.setAttribute('aSeedA',  new THREE.InstancedBufferAttribute(aSeedA, 4));
   geo.setAttribute('aSeedB',  new THREE.InstancedBufferAttribute(aSeedB, 4));
   geo.setAttribute('aMode',   new THREE.InstancedBufferAttribute(aMode, 1));
+  geo.setAttribute('aShape',  new THREE.InstancedBufferAttribute(aShape, 1));
 
   const uniforms = THREE.UniformsUtils.merge([
     THREE.UniformsLib.fog,
@@ -159,6 +203,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       attribute vec4  aSeedA;   // phase, tumbleRate, size, lifeOffset
       attribute vec4  aSeedB;   // spiralR, spiralRate, axisTilt, tint
       attribute float aMode;    // 0 airborne, 1 settled
+      attribute float aShape;   // 0 petale seul, 1 corolle entiere
 
       uniform float uFallSpeed;
       uniform float uDrift;
@@ -168,6 +213,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       varying vec3  vNormalW;
       varying float vTint;
       varying float vEdge;      // 1 when broadside to camera, 0 when edge-on
+      varying float vShape;
 
       ${NOISE_GLSL}
       ${WIND_GLSL}
@@ -187,6 +233,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       void main() {
         vUv   = uv;
         vTint = aSeedB.w;
+        vShape = aShape;
 
         float phase   = aSeedA.x;
         float tumbleR = aSeedA.y;
@@ -301,28 +348,29 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       varying vec3  vNormalW;
       varying float vTint;
       varying float vEdge;
+      varying float vShape;
+
+      ${SAKURA_SHAPE_GLSL}
 
       #include <fog_pars_fragment>
 
       void main() {
-        // ── petal silhouette, drawn procedurally: no texture, crisp at any zoom ──
+        // ── silhouette procédurale (pétale ou corolle), crisp at any zoom ──
         vec2 p = vUv * 2.0 - 1.0;
-
-        // Width tapers toward the base, widest about two thirds up.
-        float y = p.y * 0.5 + 0.5;                       // 0 base -> 1 tip
-        float w = 0.92 * sqrt(max(0.0, 1.0 - pow(abs(p.y), 1.7)));
-        w *= mix(0.55, 1.0, smoothstep(0.0, 0.45, y));
-
-        // The notch at the tip — the detail that reads as "sakura" and not "leaf".
-        float notch = smoothstep(0.62, 1.0, y) * 0.55 * (1.0 - smoothstep(0.0, 0.42, abs(p.x)));
-        float d = abs(p.x) - (w - notch);
-        float alpha = 1.0 - smoothstep(-0.06, 0.03, d);
+        float alpha = sakuraAlpha(p, vShape);
         if (alpha < 0.02) discard;
 
         // ── colour ────────────────────────────────────────────────
         vec3 base = mix(uPaleColor, uDeepColor, vTint);
-        // Slightly deeper toward the base of the petal, like the real flower.
-        base = mix(base * 0.88, base, smoothstep(0.0, 0.7, y));
+        if (vShape < 0.5) {
+          // Slightly deeper toward the base of the petal, like the real flower.
+          base = mix(base * 0.88, base, smoothstep(0.0, 0.7, p.y * 0.5 + 0.5));
+        } else {
+          // Coeur nettement plus rose (les étamines) fondu vers des bords
+          // pâles — LE détail qui fait lire « fleur de cerisier ».
+          float r = length(vec2(p.x, p.y * 1.44));
+          base = mix(uDeepColor * vec3(0.98, 0.72, 0.80), base, smoothstep(0.10, 0.38, r));
+        }
 
         // A petal is a thin membrane, not an opaque solid. Straight Lambert is
         // wrong for it: the shadowed side of a real petal stays pale because
@@ -376,9 +424,13 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     // slight instance tilt catches the light on the convex side.
     carpetGeo.rotateX(-Math.PI / 2);
 
-    // Per instance: x = pink tint (same axis as airborne), y = age 0..1.
-    const aTintAge = new Float32Array(CARPET_COUNT * 2);
-    carpetGeo.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(aTintAge, 2));
+    // Per instance: x = pink tint (same axis as airborne), y = age 0..1,
+    // z = part de soleil 0..1 (0 = sous la couronne — voir le fragment).
+    const aTintAge = new Float32Array(CARPET_COUNT * 3);
+    carpetGeo.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(aTintAge, 3));
+    // 0 = pétale seul, 1 = corolle entière (voir SAKURA_SHAPE_GLSL).
+    const aShapeC = new Float32Array(CARPET_COUNT);
+    carpetGeo.setAttribute('aShape', new THREE.InstancedBufferAttribute(aShapeC, 1));
 
     const carpetUniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]);
     carpetUniforms.uTime = { value: 0 };
@@ -390,9 +442,11 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     carpetUniforms.uSunColor = uniforms.uSunColor;
     carpetUniforms.uAmbient  = uniforms.uAmbient;
     carpetUniforms.uGlow     = uniforms.uGlow;
-    // Slightly desaturated against the airborne pinks — yesterday's blossom.
-    carpetUniforms.uPaleColor = { value: new THREE.Color('#f6ecec') };
-    carpetUniforms.uDeepColor = { value: new THREE.Color('#e6bcc8') };
+    // Plus rosé que les pâles aériens : au sol, sans le contre-jour qui fait
+    // flasher les pétales en vol, un quasi-blanc lisait « paillettes », pas
+    // « hanami » (constat écran du 29/07).
+    carpetUniforms.uPaleColor = { value: new THREE.Color('#f5dfe4') };
+    carpetUniforms.uDeepColor = { value: new THREE.Color('#efb3c4') };
 
     carpetMat = new THREE.ShaderMaterial({
       uniforms: carpetUniforms,
@@ -400,7 +454,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       side: THREE.DoubleSide,
 
       vertexShader: /* glsl */ `
-        attribute vec2 aTintAge;
+        attribute vec3 aTintAge;
+        attribute float aShape;
 
         uniform float uTime;
         uniform vec3  uPlayer;
@@ -409,6 +464,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         varying vec3  vNormalW;
         varying float vTint;
         varying float vAge;
+        varying float vShade;
+        varying float vShape;
 
         #include <fog_pars_vertex>
 
@@ -416,6 +473,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
           vUv   = uv;
           vTint = aTintAge.x;
           vAge  = aTintAge.y;
+          vShade = aTintAge.z;
+          vShape = aShape;
 
           // instanceMatrix is declared by three's prefix on any InstancedMesh.
           vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
@@ -454,29 +513,40 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         varying vec3  vNormalW;
         varying float vTint;
         varying float vAge;
+        varying float vShade;
+        varying float vShape;
+
+        ${SAKURA_SHAPE_GLSL}
 
         #include <fog_pars_fragment>
 
         void main() {
-          // Same procedural sakura silhouette as the airborne petals.
+          // Same procedural sakura silhouettes as the airborne pass.
           vec2 p = vUv * 2.0 - 1.0;
-          float y = p.y * 0.5 + 0.5;
-          float w = 0.92 * sqrt(max(0.0, 1.0 - pow(abs(p.y), 1.7)));
-          w *= mix(0.55, 1.0, smoothstep(0.0, 0.45, y));
-          float notch = smoothstep(0.62, 1.0, y) * 0.55 * (1.0 - smoothstep(0.0, 0.42, abs(p.x)));
-          float d = abs(p.x) - (w - notch);
-          float alpha = 1.0 - smoothstep(-0.06, 0.03, d);
+          float alpha = sakuraAlpha(p, vShape);
           if (alpha < 0.45) discard;
 
           vec3 base = mix(uPaleColor, uDeepColor, vTint);
-          base = mix(base * 0.90, base, smoothstep(0.0, 0.7, y));
+          if (vShape < 0.5) {
+            base = mix(base * 0.90, base, smoothstep(0.0, 0.7, p.y * 0.5 + 0.5));
+          } else {
+            // Coeur rose soutenu (étamines), bords pâles.
+            float r = length(vec2(p.x, p.y * 1.44));
+            base = mix(uDeepColor * vec3(0.98, 0.72, 0.80), base, smoothstep(0.10, 0.38, r));
+          }
           // Age: bruise toward ivory-brown, the pink going first.
           base = mix(base, vec3(0.87, 0.80, 0.72) * (0.75 + 0.25 * base.r), vAge * 0.55);
 
           vec3 n = normalize(vNormalW);
           float wrap = dot(n, uSunDir) * 0.5 + 0.5;
-          vec3 col = base * (uAmbient + uSunColor * wrap * 0.55);
-          col += uSunColor * uGlow * 0.10 * base;
+          // vShade : part de soleil bakee au placement (distance au tronc,
+          // avec un peu de lumiere tachetee). Le ShaderMaterial ne recoit
+          // pas la shadow map : sans ce facteur, tout le tapis brulait en
+          // blanc, meme a l'ombre de son propre arbre — il ne restait que
+          // des paillettes. Rose a l'ombre, etincelant a la lisiere.
+          vec3 col = base * (uAmbient * (0.75 + 0.25 * vShade)
+                           + uSunColor * wrap * 0.55 * mix(0.15, 1.0, vShade));
+          col += uSunColor * uGlow * 0.10 * base * vShade;
 
           gl_FragColor = vec4(col, 1.0);
 
@@ -528,16 +598,29 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       // against the light instead of forming one specular sheet.
       _e.set(R.range(crng, -0.35, 0.35), 0, R.range(crng, -0.35, 0.35));
       _q.setFromAxisAngle(UPV, crng() * Math.PI * 2).multiply(_tq.setFromEuler(_e));
-      // Poses SUR l'herbe (0.06-0.42 au-dessus du sol) et plus grands : a
-      // +0.02 sous une herbe de 1.2, le tapis entier etait invisible
-      // (« actuellement 0 en fait », consigne joueur).
-      const s = R.skew(crng, 0.30, 0.66, 1.6);
-      _m.compose(_p.set(x, h + R.range(crng, 0.06, 0.42), z), _q, _s.set(s, s, s));
+      // 40 % de corolles entières parmi les pétales : c'est ce mélange qui
+      // lit « hanami » et pas « confettis » (consigne joueur).
+      const flower = crng() < 0.40 ? 1 : 0;
+      // Tailles réduites ×0.6 le 29/07 (« plus mais moins grosses ») — les
+      // corolles un peu plus larges qu'un pétale seul.
+      const s = R.skew(crng, 0.18, 0.40, 1.6) * (flower ? 1.4 : 1);
+      // Perchés sur le HAUT de l'herbe (~1.2 de haut) : à 0.06-0.42 ils
+      // lisaient « coincés DANS l'herbe » (consigne joueur). Sur la terre
+      // battue des chemins, herbe rase : posés au sol.
+      const perch = (onPath && onPath(x, z)) ? R.range(crng, 0.02, 0.10)
+                                             : R.range(crng, 0.25, 0.70);
+      _m.compose(_p.set(x, h + perch, z), _q, _s.set(s, s, s));
       cMesh.setMatrixAt(placed, _m);
+      aShapeC[placed] = flower;
 
       // The fringe fell first: older (browner, duller) toward the disc edge.
-      aTintAge[placed * 2 + 0] = R.skew(crng, 0, 1, 2.4);
-      aTintAge[placed * 2 + 1] = clamp((rr / rad) * 0.6 + crng() * 0.45, 0, 1);
+      // Skew 1.7 (était 2.4) : plus de roses moyens, moins de quasi-blancs.
+      aTintAge[placed * 3 + 0] = R.skew(crng, 0, 1, 1.7);
+      aTintAge[placed * 3 + 1] = clamp((rr / rad) * 0.6 + crng() * 0.45, 0, 1);
+      // Part de soleil : l'intérieur du disque est sous la couronne, la
+      // lisière au soleil ; le jitter fait la lumière tachetée des trouées.
+      const st = clamp(((rr / rad) - 0.72) / 0.30, 0, 1);
+      aTintAge[placed * 3 + 2] = clamp(st * st * (3 - 2 * st) + (crng() - 0.5) * 0.3, 0, 1);
       placed++;
     }
     cMesh.count = placed;

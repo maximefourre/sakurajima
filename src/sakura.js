@@ -168,9 +168,16 @@ function ensureWindUniforms( u ) {
  * magenta, and with the weeping and veteran trees carried furthest because they
  * are the ones the eye picks out of a grove.
  *
- * Cluster counts, petal size and spread are up with them. Blossom is instanced
+ * Cluster counts and density are up with them. Blossom is instanced
  * and costs almost nothing per flower, so filling the crown is cheap; leaving
  * gaps in it is what made the island read as an orchard in March.
+ *
+ * SIZE went the other way (29/07): at the ×1.5–2 tree scale, the old 0.46
+ * quads came out near a full metre across — up close the crown read as pink
+ * blobs, not flowers. Halved (≈15–25 cm world, a stylised but readable
+ * blossom), with blossomDensity raised in main.js so the crown stays full
+ * through NUMBER of flowers rather than size of quad. Spread tightened a
+ * touch so a cluster reads as a clump of small flowers.
  */
 const ARCHETYPES = {
 
@@ -198,7 +205,7 @@ const ARCHETYPES = {
 		radial:       [ 10, 7, 5, 4, 3 ],
 		barkBase: 0x3b2f29, barkTip: 0x6f5a4c, barkDead: 0x6d675e,
 		blossom: {
-			density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.28, 0.46 ], spread: 0.22,
+			density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.15, 0.25 ], spread: 0.19,
 			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.02
 		}
 	},
@@ -224,7 +231,7 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 4, 3 ],
 		barkBase: 0x39302c, barkTip: 0x6a5344, barkDead: 0x69635b,
 		blossom: {
-			density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.24, 0.38 ], spread: 0.15,
+			density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.13, 0.21 ], spread: 0.13,
 			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
 		}
 	},
@@ -250,7 +257,7 @@ const ARCHETYPES = {
 		radial:       [ 9, 6, 5, 4, 3 ],
 		barkBase: 0x342b26, barkTip: 0x6b5a4e, barkDead: 0x7c766c,
 		blossom: {
-			density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.24, 0.40 ], spread: 0.17,
+			density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.13, 0.22 ], spread: 0.14,
 			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
 		}
 	},
@@ -276,7 +283,7 @@ const ARCHETYPES = {
 		radial:       [ 7, 5, 4, 3 ],
 		barkBase: 0x4a3226, barkTip: 0x7b5340, barkDead: 0x6f685d,
 		blossom: {
-			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.20, 0.32 ], spread: 0.115,
+			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.11, 0.18 ], spread: 0.10,
 			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
 		}
 	},
@@ -302,7 +309,7 @@ const ARCHETYPES = {
 		radial:       [ 12, 8, 6, 5, 4, 3 ],
 		barkBase: 0x2f2823, barkTip: 0x6a5c50, barkDead: 0x847d72,
 		blossom: {
-			density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.29, 0.48 ], spread: 0.21,
+			density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.16, 0.26 ], spread: 0.18,
 			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
 		}
 	}

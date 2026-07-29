@@ -310,7 +310,7 @@ async function boot() {
     // Once the branch structure actually built, the default blossom load left
     // the island looking like an orchard in March. The blossom is the subject —
     // it should hide most of the branch it grows on.
-    blossomDensity: q.label === 'ultra' ? 3.0 : q.label === 'high' ? 2.3 : 1.5,
+    blossomDensity: q.label === 'ultra' ? 3.6 : q.label === 'high' ? 2.8 : 1.9,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     // Nothing calls getBlossomSamples (petals use forest.emitters) - keeping the
     // sample cloud held ~330 MB of dead heap at 13.7M blossoms.
@@ -363,11 +363,17 @@ async function boot() {
     seed: SEED, quality: q,
     canopies: world.canopies,
     wind: world.wind,
-    heightAt: world.heightAt,
+    // groundAt, pas heightAt : sur les chemins le ruban de terre est surélevé
+    // (~0.13-0.20) — un pétale posé sur heightAt passerait SOUS le ruban.
+    // Hors chemin les deux fonctions sont identiques.
+    heightAt: world.groundAt,
     slopeAt: world.slopeAt,
     // Eau seulement : les pétales tombés ONT leur place sur la terre battue
     // (c'est là qu'on court dedans — consigne joueur).
     exclude: (x, z) => world.inWater(x, z),
+    // Sur les chemins l'herbe est rase : le tapis s'y pose au sol, pas perché
+    // à hauteur d'herbe de prairie.
+    onPath: (x, z) => isOnPath(x, z, 0.5),
   });
   scene.add(world.petals.mesh);
   if (world.petals.carpet) scene.add(world.petals.carpet);

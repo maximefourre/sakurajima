@@ -481,3 +481,35 @@ Attention perf : ultra s'est alourdi — ~23 fps sur les vues chargées.
    `color_fragment` de three est gardé par `USE_COLOR` seul, donc la couleur est
    téléversée, multipliée dans l'étage sommet, puis jamais lue. Il faut les deux,
    plus un attribut `color` blanc sur la géométrie.
+
+## 2026-07-29 — Des fleurs de cerisier, pas des confettis (suite tapis hanami)
+
+Consigne joueur : « ça devrait être des fleurs de cerisier, pas juste un truc
+rose ; trop grosses, il en faut plus mais moins grosses — arbres, air, sol ;
+trop coincées dans l'herbe. »
+
+- **sakura.js** : blossom.size ×0.55 sur les 5 archétypes (à l'échelle d'arbre
+  ×1.5-2, 0.46 auteur ≈ 1 m monde = blob), spread ×0.85 ; blossomDensity
+  main.js 3.0→3.6 ultra. Mesuré : 23.5 M fleurs (20.2 M avant), couronnes
+  toujours pleines en vue large.
+- **petals.js** : silhouette factorisée SAKURA_SHAPE_GLSL (pétale échancré OU
+  corolle 5 lobes, même math que la rosette d'arbre) ; attribut aShape sur les
+  2 meshes — 12 % de corolles en l'air (tumble ×0.65), 40 % au sol ; cœur rose
+  soutenu radial sur les corolles. Tailles air ×0.67, sol ×0.6. Tapis perché
+  0.25-0.70 (haut de l'herbe, était 0.06-0.42 = « coincé ») et posé au sol sur
+  les chemins (option onPath) ; heightAt = world.groundAt (sinon les pétales
+  passaient SOUS le ruban des chemins).
+- **Tapis anti-paillettes** : le ShaderMaterial ne reçoit pas la shadow map →
+  plein soleil sous sa propre couronne = tout brûlait en blanc. Part de soleil
+  bakée PAR INSTANCE (distance au tronc + jitter tacheté) dans aTintAge.z :
+  rose à l'ombre, étincelant à la lisière. Palette rosée (#f5dfe4/#efb3c4),
+  skew teinte 2.4→1.7.
+- **config.js** : petals 19000, fallenPetals 34000 (·AREA_SOFT) ultra —
+  mesurés 107.5k en l'air, 192.4k au sol.
+- Vérif : node --check ×4, invariants 7/7, visuel midi gros plan + vue large.
+- **Piège navigateur** : onglet MCP caché ⇒ rAF gelé (0 frame), captures =
+  frame PÉRIMÉE (l'aube éternelle). Parade : piloter la boucle à la main —
+  `for(i…) __sk.frame(performance.now()+i*16)` rend même onglet caché, puis
+  screenshot. Le HUD horloge peut rester en retard (throttlé), foi aux uniforms.
+- Grok CLI déconnecté (auth.json absent) → chantier codé par Claude sur brief
+  écrit ; relancer `grok login` avant le prochain chantier.
