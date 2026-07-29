@@ -42,12 +42,12 @@ noise.js    — PRNG seedé (streamFor), noise2/fbm2/ridged2, smoothstep/clamp/m
 island.js   — heightfield analytique → grille bakée → mesh terrain + océan + rochers
 ponds.js    — 3 étangs à koi (seul carve composé dans le heightfield)
 grass.js    — brins instanciés, LOD par chunks, plancher de densité 0.55 partout
-sakura.js   — 5 archétypes de cerisiers, fleurs instanciées
+sakura.js   — 5 archétypes sakura/momiji, feuillage instancié (saison au boot)
 details.js  — fleurs sauvages, RÉSEAU DE CHEMINS (3 routes) + TORII + LANTERNES
               générées le long des routes, galets (exporte isOnPath, initPath)
 detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
-clouds.js / birds.js / petals.js / wind.js / shiba.js — atmosphère & personnage
+clouds.js / birds.js / petals.js / wind.js / shiba.js / season.js / seasonal-foliage.js — atmosphère, saison & personnage
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu
 ```
 

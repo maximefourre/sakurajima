@@ -1,7 +1,8 @@
 // =============================================================================
-// sakura.js  —  procedural cherry-blossom trees for three.js r185 (0.185.1)
+// sakura.js  —  procedural sakura / momiji trees for three.js r185 (0.185.1)
 // -----------------------------------------------------------------------------
 // No external textures, no addons, no build step. Fully deterministic (mulberry32).
+// Season is chosen once at construction (spring sakura crowns / autumn momiji).
 //
 //   import { createSakuraForest, makeTree, createWindUniforms, WIND_GLSL } from './sakura.js';
 //
@@ -9,12 +10,18 @@
 //   createWindUniforms(opts)          -> shared wind uniform bundle (give this to grass too)
 //   WIND_GLSL                         -> the shared wind GLSL (grass/petals should reuse it)
 //   makeTree(archetype, rng, opts)    -> one unique tree prototype
-//   createSakuraForest(opts)          -> { group, update, setEnvironment, setSeason, ... }
+//   createSakuraForest(opts)          -> { group, update, setEnvironment, ... }
 // =============================================================================
 
 import * as THREE from 'three';
 import { LAND_SCALE } from './config.js';
 import { smoothstep } from './noise.js';
+import {
+	AUTUMN_PALETTES,
+	dominantForIndex,
+	isAutumnDominant,
+	MAPLE_SHAPE_GLSL,
+} from './seasonal-foliage.js';
 
 // -----------------------------------------------------------------------------
 // 0. Deterministic RNG + tiny value noise
@@ -175,11 +182,11 @@ function ensureWindUniforms( u ) {
  * SIZE went the other way (29/07): at the ×1.5–2 tree scale, the old 0.46
  * quads came out near a full metre across — up close the crown read as pink
  * blobs, not flowers. Halved (≈15–25 cm world, a stylised but readable
- * blossom), with blossomDensity raised in main.js so the crown stays full
+ * blossom), with foliageDensity raised in main.js so the crown stays full
  * through NUMBER of flowers rather than size of quad. Spread tightened a
  * touch so a cluster reads as a clump of small flowers.
  * Second pass same day, same direction: halved AGAIN (≈7–13 cm world) with
- * blossomDensity doubled in main.js — the crown must be a mass of small
+ * foliageDensity doubled in main.js — the crown must be a mass of small
  * flowers, matching the fine grain of the ground carpet (user call).
  */
 const ARCHETYPES = {
@@ -207,9 +214,15 @@ const ARCHETYPES = {
 		segLen:       [ 0.50, 0.48, 0.44, 0.38, 0.32 ],
 		radial:       [ 10, 7, 5, 4, 3 ],
 		barkBase: 0x3b2f29, barkTip: 0x6f5a4c, barkDead: 0x6d675e,
-		blossom: {
-			density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.075, 0.125 ], spread: 0.19,
-			h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.02
+		foliage: {
+			spring: {
+				density: 16.0, start: 0.12, cluster: [ 5, 8 ], size: [ 0.075, 0.125 ], spread: 0.19,
+				h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.02
+			},
+			autumn: {
+				density: 9.0, start: 0.10, cluster: [ 2, 4 ], size: [ 0.14, 0.22 ], spread: 0.20,
+				bare: 0.01
+			}
 		}
 	},
 
@@ -233,9 +246,15 @@ const ARCHETYPES = {
 		segLen:       [ 0.45, 0.38, 0.26, 0.22 ],
 		radial:       [ 9, 6, 4, 3 ],
 		barkBase: 0x39302c, barkTip: 0x6a5344, barkDead: 0x69635b,
-		blossom: {
-			density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.065, 0.105 ], spread: 0.13,
-			h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
+		foliage: {
+			spring: {
+				density: 15.0, start: 0.04, cluster: [ 5, 7 ], size: [ 0.065, 0.105 ], spread: 0.13,
+				h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
+			},
+			autumn: {
+				density: 8.5, start: 0.04, cluster: [ 2, 4 ], size: [ 0.13, 0.20 ], spread: 0.14,
+				bare: 0.02
+			}
 		}
 	},
 
@@ -259,9 +278,15 @@ const ARCHETYPES = {
 		segLen:       [ 0.42, 0.40, 0.36, 0.32, 0.28 ],
 		radial:       [ 9, 6, 5, 4, 3 ],
 		barkBase: 0x342b26, barkTip: 0x6b5a4e, barkDead: 0x7c766c,
-		blossom: {
-			density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.065, 0.11 ], spread: 0.14,
-			h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
+		foliage: {
+			spring: {
+				density: 13.0, start: 0.18, cluster: [ 5, 7 ], size: [ 0.065, 0.11 ], spread: 0.14,
+				h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
+			},
+			autumn: {
+				density: 8.0, start: 0.15, cluster: [ 2, 4 ], size: [ 0.13, 0.21 ], spread: 0.15,
+				bare: 0.05
+			}
 		}
 	},
 
@@ -285,9 +310,15 @@ const ARCHETYPES = {
 		segLen:       [ 0.40, 0.36, 0.30, 0.26 ],
 		radial:       [ 7, 5, 4, 3 ],
 		barkBase: 0x4a3226, barkTip: 0x7b5340, barkDead: 0x6f685d,
-		blossom: {
-			density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.055, 0.09 ], spread: 0.10,
-			h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
+		foliage: {
+			spring: {
+				density: 12.5, start: 0.12, cluster: [ 3, 5 ], size: [ 0.055, 0.09 ], spread: 0.10,
+				h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
+			},
+			autumn: {
+				density: 7.0, start: 0.10, cluster: [ 2, 3 ], size: [ 0.11, 0.18 ], spread: 0.11,
+				bare: 0.03
+			}
 		}
 	},
 
@@ -311,9 +342,15 @@ const ARCHETYPES = {
 		segLen:       [ 0.40, 0.44, 0.42, 0.36, 0.32, 0.28 ],
 		radial:       [ 12, 8, 6, 5, 4, 3 ],
 		barkBase: 0x2f2823, barkTip: 0x6a5c50, barkDead: 0x847d72,
-		blossom: {
-			density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.08, 0.13 ], spread: 0.18,
-			h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
+		foliage: {
+			spring: {
+				density: 14.5, start: 0.16, cluster: [ 5, 8 ], size: [ 0.08, 0.13 ], spread: 0.18,
+				h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
+			},
+			autumn: {
+				density: 8.5, start: 0.14, cluster: [ 2, 4 ], size: [ 0.15, 0.24 ], spread: 0.19,
+				bare: 0.08
+			}
 		}
 	}
 
@@ -434,7 +471,7 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 	const leanAmt   = at( cfg.lean, depth );
 
 	// deadwood decision has to happen here so the bark colour can differ
-	const bare = terminal ? rng.chance( cfg.blossom.bare ) : false;
+	const bare = terminal ? rng.chance( ctx.foliage.bare ) : false;
 
 	const rEnd = terminal ? r0 * 0.09 : r0 * cfg.endTaper;
 	let segs = Math.max( 2, Math.round( len / segLen ) );
@@ -618,7 +655,9 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 	const quality      = opts.quality !== undefined ? opts.quality : 1.0;
 	const prevailing   = opts.prevailingWind ? opts.prevailingWind.clone().setY( 0 ).normalize()
 	                                         : new THREE.Vector3( 1, 0, 0.38 ).normalize();
-	const density      = opts.blossomDensity !== undefined ? opts.blossomDensity : 1.0;
+	const density      = opts.foliageDensity !== undefined ? opts.foliageDensity : 1.0;
+	const mode         = opts.season === 'autumn' ? 'autumn' : 'spring';
+	const F            = cfg.foliage[ mode ] || cfg.foliage.spring;
 
 	const trunkLen    = rng.range2( cfg.trunkLen );
 	const trunkRadius = rng.range2( cfg.trunkRadius );
@@ -640,7 +679,8 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 		leanDir: prevailing.clone(),
 		cBase: { r: _cBase.r, g: _cBase.g, b: _cBase.b },
 		cTip:  { r: _cTip.r,  g: _cTip.g,  b: _cTip.b  },
-		cDead: { r: _cDead.r, g: _cDead.g, b: _cDead.b }
+		cDead: { r: _cDead.r, g: _cDead.g, b: _cDead.b },
+		foliage: F
 	};
 
 	const W = new MeshWriter();
@@ -652,11 +692,17 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 
 	const geometry = W.toGeometry();
 
-	// ---- blossoms -------------------------------------------------------------
-	const bo = [], bc = [], bp = [], bl = [];
-	const B  = cfg.blossom;
+	// ---- foliage (spring flowers / autumn maple leaves) ------------------------
+	// Prototype bake keeps offsets/params/kind only. Autumn colours are painted
+	// later in the world-space second pass from the placement dominant+phase so
+	// one prototype can tint many trees without per-leaf Color allocations.
+	const bo = [], bp = [], bk = [];
+	const B  = F;
+	const autumn = mode === 'autumn';
 
 	let sumX = 0, sumY = 0, sumZ = 0, yMin = Infinity, yMax = - Infinity;
+	// Spring still needs colours on the prototype (same HSL order as before).
+	const bc = autumn ? null : [];
 
 	for ( let i = 0; i < ctx.twigs.length; i ++ ) {
 
@@ -690,16 +736,20 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 				if ( py < yMin ) yMin = py;
 				if ( py > yMax ) yMax = py;
 
-				_cBl.setHSL(
-					THREE.MathUtils.euclideanModulo( rng.range2( B.h ), 1 ),
-					rng.range2( B.s ),
-					rng.range2( B.l ),
-					THREE.SRGBColorSpace );
-				bc.push( _cBl.r, _cBl.g, _cBl.b );
+				if ( ! autumn ) {
+					_cBl.setHSL(
+						THREE.MathUtils.euclideanModulo( rng.range2( B.h ), 1 ),
+						rng.range2( B.s ),
+						rng.range2( B.l ),
+						THREE.SRGBColorSpace );
+					bc.push( _cBl.r, _cBl.g, _cBl.b );
+				}
 
 				// x=size  y=phase  z=flex  w=ao (filled in below)
 				bp.push( rng.range2( B.size ), rng.next(), flex, 1.0 );
-				bl.push( rng.chance( B.leaf ) ? 1 : 0 );
+				// aKind: 0 flower, 1 spring lanceolate leaf, 2 maple
+				if ( autumn ) bk.push( 2 );
+				else bk.push( rng.chance( B.leaf ) ? 1 : 0 );
 
 			}
 
@@ -707,7 +757,7 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 
 	}
 
-	const n = bl.length;
+	const n = bk.length;
 
 	// ---- bake canopy AO + measure the crown -----------------------------------
 	let canopyR = 0.001;
@@ -785,11 +835,11 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 		archetype,
 		geometry,
 		lobeGeometry: lobeGeo,
-		blossom: {
+		foliage: {
 			offsets: new Float32Array( bo ),
-			colors:  new Float32Array( bc ),
+			colors:  autumn ? null : new Float32Array( bc ),
 			params:  new Float32Array( bp ),
-			leaf:    new Float32Array( bl ),
+			kind:    new Float32Array( bk ),
 			count:   n
 		},
 		height: target,
@@ -998,7 +1048,7 @@ function createBarkMaterial( wind ) {
 
 }
 
-const BLOSSOM_VERT = /* glsl */`
+const FOLIAGE_VERT = /* glsl */`
 #include <common>
 #include <fog_pars_vertex>
 ${WIND_GLSL}
@@ -1006,16 +1056,15 @@ ${WIND_GLSL}
 attribute vec3  aOffset;
 attribute vec3  aColor;
 attribute vec4  aParams;   // x size, y phase, z flex, w ao
-attribute float aLeaf;
+attribute float aKind;     // 0 flower, 1 spring leaf, 2 maple
 
-uniform float uSeason;
 uniform float uSizeScale;
 
 varying vec2  vUv2;
 varying vec3  vTint;
 varying float vAo;
 varying float vVariant;
-varying float vLeaf;
+varying float vKind;
 
 void main() {
 
@@ -1035,12 +1084,10 @@ void main() {
 
 	vec4 mvPosition = viewMatrix * vec4( worldAnchor, 1.0 );
 
-	float leafRoll   = fract( aParams.y * 17.13 );
-	float seasonLeaf = step( mix( 1.10, 0.15, uSeason ), leafRoll );
-	vLeaf = clamp( aLeaf + seasonLeaf, 0.0, 1.0 );
-
-	float size = aParams.x * uSizeScale * mix( 1.0, 0.74, smoothstep( 0.30, 1.0, uSeason ) );
-	size *= mix( 1.0, 1.25, vLeaf );
+	vKind = aKind;
+	float size = aParams.x * uSizeScale;
+	// spring lanceolate leaves read a touch larger than flowers on the same twig
+	size *= mix( 1.0, 1.25, step( 0.5, aKind ) * ( 1.0 - step( 1.5, aKind ) ) );
 
 	float rot = aParams.y * 6.2831853 + wave * amp * 0.55;
 	float cr  = cos( rot ), sr = sin( rot );
@@ -1058,7 +1105,7 @@ void main() {
 }
 `;
 
-const BLOSSOM_FRAG = /* glsl */`
+const FOLIAGE_FRAG = /* glsl */`
 #include <common>
 #include <fog_pars_fragment>
 
@@ -1066,7 +1113,6 @@ uniform vec3  uSunDir;         // world-space direction TOWARD the sun
 uniform vec3  uSunColor;
 uniform vec3  uAmbientSky;
 uniform vec3  uAmbientGround;
-uniform float uSeason;
 uniform float uAlphaTest;
 uniform float uBacklight;
 
@@ -1074,22 +1120,32 @@ varying vec2  vUv2;
 varying vec3  vTint;
 varying float vAo;
 varying float vVariant;
-varying float vLeaf;
+varying float vKind;
+
+${MAPLE_SHAPE_GLSL}
 
 void main() {
 
 	vec2  p = vUv2 * 2.0 - 1.0;
 	float r = length( p );
-	if ( r > 1.0 ) discard;
+	if ( r > 1.15 ) discard;
 
 	float a = atan( p.y, p.x );
 
 	float alpha;
 	vec3  tint;
 
-	if ( vLeaf > 0.5 ) {
+	if ( vKind > 1.5 ) {
 
-		// simple lanceolate leaf
+		// maple leaf (autumn)
+		alpha = mapleAlpha( p, vVariant );
+		float vein = mapleVeins( p, vVariant );
+		tint = vTint;
+		tint = mix( tint, tint * 0.72, vein * 0.55 );
+
+	} else if ( vKind > 0.5 ) {
+
+		// simple lanceolate leaf (spring)
 		float rot = vVariant * 6.2831853;
 		vec2 lp = vec2( p.x * cos( rot ) - p.y * sin( rot ), p.x * sin( rot ) + p.y * cos( rot ) );
 		lp.x *= 2.15;
@@ -1098,11 +1154,11 @@ void main() {
 		float vein = smoothstep( 0.05, 0.0, abs( lp.y ) );
 		tint = mix( vec3( 0.055, 0.150, 0.038 ), vec3( 0.170, 0.300, 0.070 ), 0.5 + 0.5 * lp.y );
 		tint = mix( tint, tint * 1.5, vein * 0.6 );
-		tint = mix( tint, vec3( 0.28, 0.20, 0.06 ), uSeason * 0.45 );
 
 	} else {
 
-		// 5-petal rosette: abs(cos(2.5*theta)) has exactly five lobes over 2*PI
+		// 5-petal sakura rosette
+		if ( r > 1.0 ) discard;
 		float lob = abs( cos( 2.5 * a + vVariant * 3.1416 ) );
 		float R   = mix( 0.50, 1.0, pow( lob, 0.55 ) );
 		R -= 0.14 * smoothstep( 0.90, 1.0, lob );           // notched petal tip
@@ -1116,9 +1172,6 @@ void main() {
 		// faint radial veins along each petal seam
 		tint *= 1.0 - 0.10 * smoothstep( 0.78, 1.0, abs( sin( 2.5 * a + vVariant * 3.1416 ) ) );
 
-		// late season: petals redden and bruise
-		tint = mix( tint, tint * vec3( 1.02, 0.78, 0.84 ), uSeason * 0.55 );
-
 	}
 
 	// fake spherical normal so a flat quad shades like a little dome
@@ -1129,8 +1182,7 @@ void main() {
 	float ndl  = dot( nView, sunView );
 	float diff = smoothstep( - 0.55, 0.90, ndl );
 
-	// petals are ~paper thin: when the sun is behind them they glow. This is the
-	// single term that makes sunrise / sunset read.
+	// thin tissue backlight
 	float back = pow( clamp( - sunView.z, 0.0, 1.0 ), 1.5 )
 	           * pow( clamp( 1.0 - abs( ndl ), 0.0, 1.0 ), 1.1 );
 
@@ -1146,7 +1198,7 @@ void main() {
 }
 `;
 
-function createBlossomMaterial( wind ) {
+function createFoliageMaterial( wind, season ) {
 
 	const uniforms = Object.assign(
 		THREE.UniformsUtils.clone( THREE.UniformsLib.fog ),
@@ -1155,8 +1207,7 @@ function createBlossomMaterial( wind ) {
 			uSunColor:      { value: new THREE.Color( 1.65, 1.52, 1.34 ) },
 			uAmbientSky:    { value: new THREE.Color( 0.30, 0.38, 0.50 ) },
 			uAmbientGround: { value: new THREE.Color( 0.14, 0.15, 0.11 ) },
-			uSeason:        { value: 0.0 },
-			uAlphaTest:     { value: 0.38 },
+			uAlphaTest:     { value: season === 'autumn' ? 0.32 : 0.38 },
 			uSizeScale:     { value: 1.0 },
 			uBacklight:     { value: 1.35 }
 		},
@@ -1165,8 +1216,8 @@ function createBlossomMaterial( wind ) {
 
 	const mat = new THREE.ShaderMaterial( {
 		uniforms,
-		vertexShader: BLOSSOM_VERT,
-		fragmentShader: BLOSSOM_FRAG,
+		vertexShader: FOLIAGE_VERT.replace( '${WIND_GLSL}', WIND_GLSL ),
+		fragmentShader: FOLIAGE_FRAG.replace( '${MAPLE_SHAPE_GLSL}', MAPLE_SHAPE_GLSL ),
 		side: THREE.DoubleSide,
 		transparent: false,
 		depthWrite: true,
@@ -1202,8 +1253,9 @@ export function createSakuraForest( options = {} ) {
 		windUniforms: null,
 		prevailingWind: new THREE.Vector3( 1, 0, 0.38 ),
 		quality: 1.0,
-		blossomDensity: 1.0,
-		blossomChunks: 6,
+		season: 'spring',
+		foliageDensity: 1.0,
+		foliageChunks: 6,
 		terrainAlign: 0.25,
 		castShadow: true,
 		receiveShadow: true,
@@ -1213,10 +1265,13 @@ export function createSakuraForest( options = {} ) {
 		// instead of everywhere being a uniform sprinkle.
 		groveScale: 0.015,
 		groveContrast: 0.85,
-		keepBlossomSamples: true,
+		keepFoliageSamples: true,
 		prototypeCounts: { somei: 4, shidare: 3, windswept: 3, ancient: 3, young: 3 },
 		weights: { somei: 0.46, shidare: 0.18, windswept: 0.10, ancient: 0.14, young: 0.12 }
 	}, options );
+
+	const season = o.season === 'autumn' ? 'autumn' : 'spring';
+	const autumn = season === 'autumn';
 
 	const rng  = makeRng( o.seed );
 	const wind = ensureWindUniforms( o.windUniforms );
@@ -1237,7 +1292,8 @@ export function createSakuraForest( options = {} ) {
 			prototypes.push( makeTree( name, rng, {
 				quality: o.quality,
 				prevailingWind: prevailing,
-				blossomDensity: o.blossomDensity
+				foliageDensity: o.foliageDensity,
+				season
 			} ) );
 
 		}
@@ -1440,7 +1496,14 @@ export function createSakuraForest( options = {} ) {
 
 		addToGrid( x, z );
 
-		const rec = { position: pos, quaternion: quat, scale, protoIndex: pi, archetype };
+		const rec = {
+			position: pos,
+			quaternion: quat,
+			scale,
+			protoIndex: pi,
+			archetype,
+			dominant: autumn ? dominantForIndex( placements.length, o.seed ) : null
+		};
 		placements.push( rec );
 		perProto[ pi ].push( rec );
 
@@ -1518,13 +1581,30 @@ export function createSakuraForest( options = {} ) {
 
 	}
 
-	// ---- 5. blossoms: bake to world space, bucket spatially, one material -----
-	let totalBlossoms = 0;
-	for ( const r of placements ) totalBlossoms += prototypes[ r.protoIndex ].blossom.count;
+	// ---- 5. foliage: bake to world space, bucket spatially, one material -----
+	let totalFoliage = 0;
+	for ( const r of placements ) totalFoliage += prototypes[ r.protoIndex ].foliage.count;
 
-	const chunkN = Math.max( 1, o.blossomChunks | 0 );
+	const chunkN = Math.max( 1, o.foliageChunks | 0 );
 	const spanX = Math.max( 1e-3, maxX - minX );
 	const spanZ = Math.max( 1e-3, maxZ - minZ );
+
+	// Preconvert the twelve autumn hexes once; second-pass paint interpolates
+	// linear triplets in place — never THREE.Color / array per leaf.
+	const autumnLin = {};
+	if ( autumn ) {
+		const tmpC = new THREE.Color();
+		for ( const name of Object.keys( AUTUMN_PALETTES ) ) {
+			const p = AUTUMN_PALETTES[ name ];
+			tmpC.set( p.shadow );
+			const sh = [ tmpC.r, tmpC.g, tmpC.b ];
+			tmpC.set( p.mid );
+			const md = [ tmpC.r, tmpC.g, tmpC.b ];
+			tmpC.set( p.sun );
+			const sn = [ tmpC.r, tmpC.g, tmpC.b ];
+			autumnLin[ name ] = { shadow: sh, mid: md, sun: sn };
+		}
+	}
 
 	// Two passes with preallocated typed arrays. Growing plain JS arrays here
 	// (150M+ pushes of doubles at ultra) put ~2 GB on the V8 heap and past
@@ -1537,7 +1617,7 @@ export function createSakuraForest( options = {} ) {
 		const bx = THREE.MathUtils.clamp( Math.floor( ( rec.position.x - minX ) / spanX * chunkN ), 0, chunkN - 1 );
 		const bz = THREE.MathUtils.clamp( Math.floor( ( rec.position.z - minZ ) / spanZ * chunkN ), 0, chunkN - 1 );
 		bucketOf[ r ] = bz * chunkN + bx;
-		bucketCount[ bucketOf[ r ] ] += prototypes[ rec.protoIndex ].blossom.count;
+		bucketCount[ bucketOf[ r ] ] += prototypes[ rec.protoIndex ].foliage.count;
 
 	}
 
@@ -1549,43 +1629,66 @@ export function createSakuraForest( options = {} ) {
 			off: new Float32Array( c * 3 ),
 			col: new Float32Array( c * 3 ),
 			par: new Float32Array( c * 4 ),
-			leaf: new Float32Array( c ),
+			kind: new Float32Array( c ),
 			n: 0
 		} );
 
 	}
 
 	const tmp = new THREE.Vector3();
+	const dominantCounts = { red: 0, orange: 0, yellow: 0, green: 0 };
 
 	for ( let r = 0; r < placements.length; r ++ ) {
 
 		const rec = placements[ r ];
 		const proto = prototypes[ rec.protoIndex ];
-		const bl = proto.blossom;
-		if ( bl.count === 0 ) continue;
+		const fl = proto.foliage;
+		if ( fl.count === 0 ) continue;
+
+		if ( autumn && isAutumnDominant( rec.dominant ) ) dominantCounts[ rec.dominant ] ++;
 
 		scl.set( rec.scale, rec.scale, rec.scale );
 		mat4.compose( rec.position, rec.quaternion, scl );
 
 		const bucket = buckets[ bucketOf[ r ] ];
 		let w = bucket.n;
+		const pal = autumn && isAutumnDominant( rec.dominant ) ? autumnLin[ rec.dominant ] : null;
 
-		for ( let i = 0; i < bl.count; i ++, w ++ ) {
+		for ( let i = 0; i < fl.count; i ++, w ++ ) {
 
-			tmp.set( bl.offsets[ i * 3 ], bl.offsets[ i * 3 + 1 ], bl.offsets[ i * 3 + 2 ] )
+			tmp.set( fl.offsets[ i * 3 ], fl.offsets[ i * 3 + 1 ], fl.offsets[ i * 3 + 2 ] )
 				.applyMatrix4( mat4 );
 			bucket.off[ w * 3 ] = tmp.x;
 			bucket.off[ w * 3 + 1 ] = tmp.y;
 			bucket.off[ w * 3 + 2 ] = tmp.z;
-			bucket.col[ w * 3 ] = bl.colors[ i * 3 ];
-			bucket.col[ w * 3 + 1 ] = bl.colors[ i * 3 + 1 ];
-			bucket.col[ w * 3 + 2 ] = bl.colors[ i * 3 + 2 ];
-			bucket.par[ w * 4 ] = bl.params[ i * 4 ] * rec.scale;
+
 			// decorrelate the phase per tree so neighbours never pulse together
-			bucket.par[ w * 4 + 1 ] = THREE.MathUtils.euclideanModulo( bl.params[ i * 4 + 1 ] + r * 0.6180339887, 1 );
-			bucket.par[ w * 4 + 2 ] = bl.params[ i * 4 + 2 ];
-			bucket.par[ w * 4 + 3 ] = bl.params[ i * 4 + 3 ];
-			bucket.leaf[ w ] = bl.leaf[ i ];
+			const phase = THREE.MathUtils.euclideanModulo( fl.params[ i * 4 + 1 ] + r * 0.6180339887, 1 );
+			bucket.par[ w * 4 ] = fl.params[ i * 4 ] * rec.scale;
+			bucket.par[ w * 4 + 1 ] = phase;
+			bucket.par[ w * 4 + 2 ] = fl.params[ i * 4 + 2 ];
+			bucket.par[ w * 4 + 3 ] = fl.params[ i * 4 + 3 ];
+			bucket.kind[ w ] = fl.kind[ i ];
+
+			if ( autumn && pal ) {
+				// two-segment family ramp from the placement dominant only
+				const t = phase;
+				let a, b, u;
+				if ( t < 0.5 ) {
+					a = pal.shadow; b = pal.mid;
+					u = THREE.MathUtils.smoothstep( t, 0, 0.5 );
+				} else {
+					a = pal.mid; b = pal.sun;
+					u = THREE.MathUtils.smoothstep( t, 0.5, 1 );
+				}
+				bucket.col[ w * 3 ] = a[ 0 ] + ( b[ 0 ] - a[ 0 ] ) * u;
+				bucket.col[ w * 3 + 1 ] = a[ 1 ] + ( b[ 1 ] - a[ 1 ] ) * u;
+				bucket.col[ w * 3 + 2 ] = a[ 2 ] + ( b[ 2 ] - a[ 2 ] ) * u;
+			} else {
+				bucket.col[ w * 3 ] = fl.colors[ i * 3 ];
+				bucket.col[ w * 3 + 1 ] = fl.colors[ i * 3 + 1 ];
+				bucket.col[ w * 3 + 2 ] = fl.colors[ i * 3 + 2 ];
+			}
 
 		}
 
@@ -1602,14 +1705,14 @@ export function createSakuraForest( options = {} ) {
 	] ), 2 );
 	const quadIdx = new THREE.BufferAttribute( new Uint16Array( [ 0, 1, 2, 0, 2, 3 ] ), 1 );
 
-	const blossomMaterial = createBlossomMaterial( wind );
-	const blossomMeshes = [];
-	let maxBlossomSize = 0.3;
+	const foliageMaterial = createFoliageMaterial( wind, season );
+	const foliageMeshes = [];
+	let maxFoliageSize = 0.3;
 
 	for ( let bi = 0; bi < buckets.length; bi ++ ) {
 
 		const bkt = buckets[ bi ];
-		const n = bkt.leaf.length;
+		const n = bkt.kind.length;
 		if ( n === 0 ) continue;
 
 		const geo = new THREE.InstancedBufferGeometry();
@@ -1619,7 +1722,7 @@ export function createSakuraForest( options = {} ) {
 		geo.setAttribute( 'aOffset', new THREE.InstancedBufferAttribute( bkt.off, 3 ) );
 		geo.setAttribute( 'aColor',  new THREE.InstancedBufferAttribute( bkt.col, 3 ) );
 		geo.setAttribute( 'aParams', new THREE.InstancedBufferAttribute( bkt.par, 4 ) );
-		geo.setAttribute( 'aLeaf',   new THREE.InstancedBufferAttribute( bkt.leaf, 1 ) );
+		geo.setAttribute( 'aKind',   new THREE.InstancedBufferAttribute( bkt.kind, 1 ) );
 		geo.instanceCount = n;
 
 		// CRITICAL: the auto bounding sphere would only cover the unit quad, so the
@@ -1640,34 +1743,35 @@ export function createSakuraForest( options = {} ) {
 			if ( d > rad ) rad = d;
 
 		}
-		maxBlossomSize = Math.max( maxBlossomSize, sMax );
+		maxFoliageSize = Math.max( maxFoliageSize, sMax );
 		geo.boundingSphere = new THREE.Sphere(
 			new THREE.Vector3( cx, cy, cz ),
 			Math.sqrt( rad ) + sMax * 1.6 + 1.2   // + wind sway headroom
 		);
 
-		const mesh = new THREE.Mesh( geo, blossomMaterial );
-		mesh.name = 'sakuraBlossoms_' + bi;
+		const mesh = new THREE.Mesh( geo, foliageMaterial );
+		mesh.name = 'sakuraFoliage_' + bi;
 		mesh.castShadow = false;
 		mesh.receiveShadow = false;
 		mesh.renderOrder = 1;
 		group.add( mesh );
-		blossomMeshes.push( mesh );
+		foliageMeshes.push( mesh );
 
 	}
 
-	// ---- 6. blossom sample cloud for the falling-petal emitter ----------------
+	// ---- 6. foliage sample cloud for optional emitters ------------------------
 	let sampleCloud = null;
-	if ( o.keepBlossomSamples && totalBlossoms > 0 ) {
+	if ( o.keepFoliageSamples && totalFoliage > 0 ) {
 
-		const pos = new Float32Array( totalBlossoms * 3 );
-		const col = new Float32Array( totalBlossoms * 3 );
+		const pos = new Float32Array( totalFoliage * 3 );
+		const col = new Float32Array( totalFoliage * 3 );
 		let w = 0;
 		for ( const bkt of buckets ) {
 
-			for ( let i = 0; i < bkt.leaf.length; i ++ ) {
+			for ( let i = 0; i < bkt.kind.length; i ++ ) {
 
-				if ( bkt.leaf[ i ] > 0.5 ) continue;
+				// include flowers (0) and maple (2); exclude spring lanceolate (1)
+				if ( bkt.kind[ i ] > 0.5 && bkt.kind[ i ] < 1.5 ) continue;
 				pos[ w * 3 ] = bkt.off[ i * 3 ];
 				pos[ w * 3 + 1 ] = bkt.off[ i * 3 + 1 ];
 				pos[ w * 3 + 2 ] = bkt.off[ i * 3 + 2 ];
@@ -1683,7 +1787,7 @@ export function createSakuraForest( options = {} ) {
 
 	}
 
-	// ---- 7. public API ---------------------------------------------------------
+// ---- 7. public API ---------------------------------------------------------
 	function readWind( src, uKey, plainKey ) {
 
 		if ( ! src ) return undefined;
@@ -1726,7 +1830,7 @@ export function createSakuraForest( options = {} ) {
 
 	function setEnvironment( env = {} ) {
 
-		const u = blossomMaterial.uniforms;
+		const u = foliageMaterial.uniforms;
 
 		if ( env.sunDirection ) {
 
@@ -1769,13 +1873,7 @@ export function createSakuraForest( options = {} ) {
 
 	}
 
-	function setSeason( v ) {
-
-		blossomMaterial.uniforms.uSeason.value = THREE.MathUtils.clamp( v, 0, 1 );
-
-	}
-
-	function getBlossomSamples( n, seed = 12345 ) {
+	function getFoliageSamples( n, seed = 12345 ) {
 
 		if ( ! sampleCloud || sampleCloud.count === 0 ) {
 
@@ -1812,9 +1910,9 @@ export function createSakuraForest( options = {} ) {
 			if ( p.lobeGeometry ) p.lobeGeometry.dispose();
 
 		}
-		for ( const m of blossomMeshes ) m.geometry.dispose();
+		for ( const m of foliageMeshes ) m.geometry.dispose();
 		barkMaterial.dispose();
-		blossomMaterial.dispose();
+		foliageMaterial.dispose();
 		if ( lobeMaterial ) lobeMaterial.dispose();
 
 	}
@@ -1826,11 +1924,12 @@ export function createSakuraForest( options = {} ) {
 		group,
 		update,
 		setEnvironment,
-		setSeason,
-		getBlossomSamples,
+		getFoliageSamples,
 		windUniforms: wind,
 		barkMaterial,
-		blossomMaterial,
+		foliageMaterial,
+		season,
+		species: autumn ? 'momiji' : 'sakura',
 		prototypes,
 		instances: placements,
 		emitters: placements.map( r => {
@@ -1840,16 +1939,18 @@ export function createSakuraForest( options = {} ) {
 				position: new THREE.Vector3().copy( p.canopyCenter )
 					.applyQuaternion( r.quaternion ).multiplyScalar( r.scale ).add( r.position ),
 				radius: p.canopyRadius * r.scale,
-				archetype: r.archetype
+				archetype: r.archetype,
+				dominant: r.dominant
 			};
 
 		} ),
 		stats: {
 			prototypes: prototypes.length,
 			trees: placements.length,
-			blossoms: totalBlossoms,
+			foliage: totalFoliage,
+			dominantCounts,
 			barkTriangles: triTotal,
-			drawCalls: barkMeshes.length + blossomMeshes.length + lobeMeshes.length,
+			drawCalls: barkMeshes.length + foliageMeshes.length + lobeMeshes.length,
 			placementAttempts: attempts
 		},
 		dispose

@@ -31,6 +31,12 @@ import { WORLD } from './config.js';
 import { streamFor, R, clamp } from './noise.js';
 import { NOISE_GLSL } from './noise.js';
 import { WIND_GLSL } from './wind.js';
+import {
+  AUTUMN_PALETTES,
+  dominantForIndex,
+  isAutumnDominant,
+  MAPLE_SHAPE_GLSL,
+} from './seasonal-foliage.js';
 
 /**
  * Silhouette partagée par les deux passes (air + tapis). Deux formes sur le
@@ -83,9 +89,38 @@ function makePetalGeometry() {
   return g;
 }
 
-export function createPetals({ seed, quality, canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null }) {
+export function createPetals({ seed, quality, season = 'spring', canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null }) {
+  const mode = season === 'autumn' ? 'autumn' : 'spring';
+  const autumn = mode === 'autumn';
   const COUNT = quality.petals;
   const rng = streamFor(seed, 'petals');
+
+  // Preconvert autumn palettes once; air/carpet both sample linear triplets.
+  const autumnLin = {};
+  if (autumn) {
+    const tmpC = new THREE.Color();
+    for (const name of Object.keys(AUTUMN_PALETTES)) {
+      const p = AUTUMN_PALETTES[name];
+      tmpC.set(p.shadow); const sh = [tmpC.r, tmpC.g, tmpC.b];
+      tmpC.set(p.mid);    const md = [tmpC.r, tmpC.g, tmpC.b];
+      tmpC.set(p.sun);    const sn = [tmpC.r, tmpC.g, tmpC.b];
+      autumnLin[name] = { shadow: sh, mid: md, sun: sn };
+    }
+  }
+  function autumnColor(dominant, t, out, o) {
+    const pal = autumnLin[isAutumnDominant(dominant) ? dominant : dominantForIndex(0, seed)];
+    let a, b, u;
+    if (t < 0.5) {
+      a = pal.shadow; b = pal.mid;
+      u = THREE.MathUtils.smoothstep(t, 0, 0.5);
+    } else {
+      a = pal.mid; b = pal.sun;
+      u = THREE.MathUtils.smoothstep(t, 0.5, 1);
+    }
+    out[o] = a[0] + (b[0] - a[0]) * u;
+    out[o + 1] = a[1] + (b[1] - a[1]) * u;
+    out[o + 2] = a[2] + (b[2] - a[2]) * u;
+  }
 
   const geo = makePetalGeometry();
 
@@ -94,7 +129,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
   const aSeedA  = new Float32Array(COUNT * 4); // phase, tumbleRate, size, lifeOffset
   const aSeedB  = new Float32Array(COUNT * 4); // spiralR, spiralRate, axisTilt, tint
   const aMode   = new Float32Array(COUNT);     // 0 = airborne, 1 = settled on ground
-  const aShape  = new Float32Array(COUNT);     // 0 = pétale seul, 1 = corolle entière
+  const aShape  = new Float32Array(COUNT);     // 0 petal, 1 corolla, 2 maple
+  const aColor  = new Float32Array(COUNT * 3); // instanced RGB (autumn maple; spring unused in frag)
 
   const half = WORLD.size * 0.5;
   const SETTLED_FRACTION = 0.09;
@@ -138,22 +174,23 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     aOrigin[i * 4 + 2] = z;
     aOrigin[i * 4 + 3] = spawnH;
 
-    // 12 % de COROLLES entières : le somei-yoshino lâche parfois la fleur
-    // complète, pas seulement des pétales (« des fleurs de cerisier, pas
-    // juste un truc rose », consigne joueur). Plus grosses qu'un pétale,
-    // elles planent plus qu'elles ne virevoltent.
-    const flower = rng() < 0.12 ? 1 : 0;
-    aShape[i] = flower;
+    // Consume the shape draw in the same RNG order every season. Spring keeps
+    // the 12 % corolla rate; autumn forces kind 2 without an extra draw.
+    const flowerRoll = rng() < 0.12 ? 1 : 0;
+    const flower = autumn ? 0 : flowerRoll;
+    aShape[i] = autumn ? 2 : flower;
 
     aSeedA[i * 4 + 0] = rng() * Math.PI * 2;          // phase
     // 0.22-0.85 lisait ENCORE trop vite en jeu (trois plaintes joueur) : un
     // pétale de cerisier plane, il tourne à peine. Divisé par ~2.3.
     aSeedA[i * 4 + 1] = R.range(rng, 0.10, 0.36) * (flower ? 0.65 : 1); // tumble rate
-    // Size: a real petal is ~1.5cm. Rendering it at true scale makes it
-    // invisible past a few metres, so this is deliberately exaggerated — but
-    // kept under ~17cm (réduit ×0.67 le 29/07 : « plus mais moins grosses »,
-    // le nombre compense dans config.js). Any larger reads as confetti.
-    aSeedA[i * 4 + 2] = R.skew(rng, 0.12, 0.34, 2.0) * (flower ? 1.5 : 1);
+    // Size: spring uses the validated petal/corolla skew; autumn maple leaves
+    // are larger but still consume exactly one skew draw.
+    if (autumn) {
+      aSeedA[i * 4 + 2] = R.skew(rng, 0.18, 0.40, 1.8);
+    } else {
+      aSeedA[i * 4 + 2] = R.skew(rng, 0.12, 0.34, 2.0) * (flower ? 1.5 : 1);
+    }
     aSeedA[i * 4 + 3] = rng();                        // lifetime offset
 
     aSeedB[i * 4 + 0] = R.range(rng, 0.4, 2.6);       // spiral radius
@@ -162,7 +199,17 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     aSeedB[i * 4 + 2] = R.range(rng, 0.15, 1.0);      // tumble axis tilt
     // Tint heavily biased to the pale end: somei yoshino blossom is nearly
     // white, with only a blush of pink. A uniform distribution reads as plastic.
+    // Autumn reuses this draw as the two-segment palette phase (no extra RNG).
     aSeedB[i * 4 + 3] = R.skew(rng, 0, 1, 2.4);
+
+    if (autumn) {
+      let dom = null;
+      if (canopy && isAutumnDominant(canopy.dominant)) dom = canopy.dominant;
+      else dom = dominantForIndex(i, seed);
+      autumnColor(dom, aSeedB[i * 4 + 3], aColor, i * 3);
+    } else {
+      aColor[i * 3] = 1; aColor[i * 3 + 1] = 1; aColor[i * 3 + 2] = 1;
+    }
 
     aMode[i] = rng() < SETTLED_FRACTION ? 1 : 0;
   }
@@ -172,6 +219,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
   geo.setAttribute('aSeedB',  new THREE.InstancedBufferAttribute(aSeedB, 4));
   geo.setAttribute('aMode',   new THREE.InstancedBufferAttribute(aMode, 1));
   geo.setAttribute('aShape',  new THREE.InstancedBufferAttribute(aShape, 1));
+  geo.setAttribute('aColor',  new THREE.InstancedBufferAttribute(aColor, 3));
 
   const uniforms = THREE.UniformsUtils.merge([
     THREE.UniformsLib.fog,
@@ -185,6 +233,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       uGlow:        { value: 0 },   // emissive lift, peaks at golden hour
       uPaleColor:   { value: new THREE.Color('#fffafc') },
       uDeepColor:   { value: new THREE.Color('#f8ccda') },
+      uAutumn:      { value: autumn ? 1 : 0 },
+      uAgeColor:    { value: new THREE.Color('#6b4a2d') },
     },
   ]);
   // UniformsUtils.merge clones values, so re-attach the shared wind uniforms BY
@@ -203,7 +253,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       attribute vec4  aSeedA;   // phase, tumbleRate, size, lifeOffset
       attribute vec4  aSeedB;   // spiralR, spiralRate, axisTilt, tint
       attribute float aMode;    // 0 airborne, 1 settled
-      attribute float aShape;   // 0 petale seul, 1 corolle entiere
+      attribute float aShape;   // 0 petal, 1 corolla, 2 maple
+      attribute vec3  aColor;
 
       uniform float uFallSpeed;
       uniform float uDrift;
@@ -214,6 +265,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       varying float vTint;
       varying float vEdge;      // 1 when broadside to camera, 0 when edge-on
       varying float vShape;
+      varying vec3  vColor;
 
       ${NOISE_GLSL}
       ${WIND_GLSL}
@@ -234,6 +286,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         vUv   = uv;
         vTint = aSeedB.w;
         vShape = aShape;
+        vColor = aColor;
 
         float phase   = aSeedA.x;
         float tumbleR = aSeedA.y;
@@ -343,40 +396,46 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       uniform float uGlow;
       uniform vec3  uPaleColor;
       uniform vec3  uDeepColor;
+      uniform float uAutumn;
+      uniform vec3  uAgeColor;
 
       varying vec2  vUv;
       varying vec3  vNormalW;
       varying float vTint;
       varying float vEdge;
       varying float vShape;
+      varying vec3  vColor;
 
       ${SAKURA_SHAPE_GLSL}
+      ${MAPLE_SHAPE_GLSL}
 
       #include <fog_pars_fragment>
 
       void main() {
-        // ── silhouette procédurale (pétale ou corolle), crisp at any zoom ──
         vec2 p = vUv * 2.0 - 1.0;
-        float alpha = sakuraAlpha(p, vShape);
-        if (alpha < 0.02) discard;
+        float alpha;
+        vec3 base;
 
-        // ── colour ────────────────────────────────────────────────
-        vec3 base = mix(uPaleColor, uDeepColor, vTint);
-        if (vShape < 0.5) {
-          // Slightly deeper toward the base of the petal, like the real flower.
-          base = mix(base * 0.88, base, smoothstep(0.0, 0.7, p.y * 0.5 + 0.5));
+        if (uAutumn > 0.5) {
+          alpha = mapleAlpha(p, vTint);
+          if (alpha < 0.02) discard;
+          float vein = mapleVeins(p, vTint);
+          base = vColor;
+          base = mix(base, base * 0.72, vein * 0.55);
+          // age toward dry brown, max 45 %
+          base = mix(base, uAgeColor, vTint * 0.45);
         } else {
-          // Coeur nettement plus rose (les étamines) fondu vers des bords
-          // pâles — LE détail qui fait lire « fleur de cerisier ».
-          float r = length(vec2(p.x, p.y * 1.44));
-          base = mix(uDeepColor * vec3(0.98, 0.72, 0.80), base, smoothstep(0.10, 0.38, r));
+          alpha = sakuraAlpha(p, vShape);
+          if (alpha < 0.02) discard;
+          base = mix(uPaleColor, uDeepColor, vTint);
+          if (vShape < 0.5) {
+            base = mix(base * 0.88, base, smoothstep(0.0, 0.7, p.y * 0.5 + 0.5));
+          } else {
+            float r = length(vec2(p.x, p.y * 1.44));
+            base = mix(uDeepColor * vec3(0.98, 0.72, 0.80), base, smoothstep(0.10, 0.38, r));
+          }
         }
 
-        // A petal is a thin membrane, not an opaque solid. Straight Lambert is
-        // wrong for it: the shadowed side of a real petal stays pale because
-        // light scatters through, whereas Lambert drives it to brown mud.
-        // Half-Lambert (wrap lighting) keeps the terminator soft and the dark
-        // side luminous, which is what actually reads as "petal".
         vec3 n = normalize(vNormalW);
         float wrap  = dot(n, uSunDir) * 0.5 + 0.5;
         float trans = pow(max(dot(-n, uSunDir), 0.0), 2.2);
@@ -384,8 +443,6 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         vec3 col = base * (uAmbient + uSunColor * (wrap * 0.62 + trans * 0.55));
         col += uSunColor * uGlow * 0.22 * base;
 
-        // Edge-on petals nearly vanish; broadside petals catch the light.
-        // The overall alpha stays under 1 so they read as translucent tissue.
         alpha *= mix(0.10, 0.88, pow(vEdge, 0.55));
 
         gl_FragColor = vec4(col, alpha);
@@ -428,9 +485,11 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     // z = part de soleil 0..1 (0 = sous la couronne — voir le fragment).
     const aTintAge = new Float32Array(CARPET_COUNT * 3);
     carpetGeo.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(aTintAge, 3));
-    // 0 = pétale seul, 1 = corolle entière (voir SAKURA_SHAPE_GLSL).
+    // 0 = pétale seul, 1 = corolle entière, 2 = maple.
     const aShapeC = new Float32Array(CARPET_COUNT);
     carpetGeo.setAttribute('aShape', new THREE.InstancedBufferAttribute(aShapeC, 1));
+    const aColorC = new Float32Array(CARPET_COUNT * 3);
+    carpetGeo.setAttribute('aColor', new THREE.InstancedBufferAttribute(aColorC, 3));
 
     const carpetUniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]);
     carpetUniforms.uTime = { value: 0 };
@@ -447,6 +506,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     // « hanami » (constat écran du 29/07).
     carpetUniforms.uPaleColor = { value: new THREE.Color('#f5dfe4') };
     carpetUniforms.uDeepColor = { value: new THREE.Color('#efb3c4') };
+    carpetUniforms.uAutumn = { value: autumn ? 1 : 0 };
+    carpetUniforms.uAgeColor = { value: new THREE.Color('#6b4a2d') };
 
     carpetMat = new THREE.ShaderMaterial({
       uniforms: carpetUniforms,
@@ -456,6 +517,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       vertexShader: /* glsl */ `
         attribute vec3 aTintAge;
         attribute float aShape;
+        attribute vec3 aColor;
 
         uniform float uTime;
         uniform vec3  uPlayer;
@@ -466,6 +528,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         varying float vAge;
         varying float vShade;
         varying float vShape;
+        varying vec3  vColor;
 
         #include <fog_pars_vertex>
 
@@ -475,6 +538,7 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
           vAge  = aTintAge.y;
           vShade = aTintAge.z;
           vShape = aShape;
+          vColor = aColor;
 
           // instanceMatrix is declared by three's prefix on any InstancedMesh.
           vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
@@ -508,6 +572,8 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         uniform float uGlow;
         uniform vec3  uPaleColor;
         uniform vec3  uDeepColor;
+        uniform float uAutumn;
+        uniform vec3  uAgeColor;
 
         varying vec2  vUv;
         varying vec3  vNormalW;
@@ -515,35 +581,41 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
         varying float vAge;
         varying float vShade;
         varying float vShape;
+        varying vec3  vColor;
 
         ${SAKURA_SHAPE_GLSL}
+        ${MAPLE_SHAPE_GLSL}
 
         #include <fog_pars_fragment>
 
         void main() {
-          // Same procedural sakura silhouettes as the airborne pass.
           vec2 p = vUv * 2.0 - 1.0;
-          float alpha = sakuraAlpha(p, vShape);
-          if (alpha < 0.45) discard;
+          float alpha;
+          vec3 base;
 
-          vec3 base = mix(uPaleColor, uDeepColor, vTint);
-          if (vShape < 0.5) {
-            base = mix(base * 0.90, base, smoothstep(0.0, 0.7, p.y * 0.5 + 0.5));
+          if (uAutumn > 0.5) {
+            alpha = mapleAlpha(p, vTint);
+            if (alpha < 0.45) discard;
+            float vein = mapleVeins(p, vTint);
+            base = vColor;
+            base = mix(base, base * 0.72, vein * 0.55);
+            base = mix(base, uAgeColor, vAge * 0.45);
           } else {
-            // Coeur rose soutenu (étamines), bords pâles.
-            float r = length(vec2(p.x, p.y * 1.44));
-            base = mix(uDeepColor * vec3(0.98, 0.72, 0.80), base, smoothstep(0.10, 0.38, r));
+            alpha = sakuraAlpha(p, vShape);
+            if (alpha < 0.45) discard;
+            base = mix(uPaleColor, uDeepColor, vTint);
+            if (vShape < 0.5) {
+              base = mix(base * 0.90, base, smoothstep(0.0, 0.7, p.y * 0.5 + 0.5));
+            } else {
+              float r = length(vec2(p.x, p.y * 1.44));
+              base = mix(uDeepColor * vec3(0.98, 0.72, 0.80), base, smoothstep(0.10, 0.38, r));
+            }
+            // Age: bruise toward ivory-brown, the pink going first.
+            base = mix(base, vec3(0.87, 0.80, 0.72) * (0.75 + 0.25 * base.r), vAge * 0.55);
           }
-          // Age: bruise toward ivory-brown, the pink going first.
-          base = mix(base, vec3(0.87, 0.80, 0.72) * (0.75 + 0.25 * base.r), vAge * 0.55);
 
           vec3 n = normalize(vNormalW);
           float wrap = dot(n, uSunDir) * 0.5 + 0.5;
-          // vShade : part de soleil bakee au placement (distance au tronc,
-          // avec un peu de lumiere tachetee). Le ShaderMaterial ne recoit
-          // pas la shadow map : sans ce facteur, tout le tapis brulait en
-          // blanc, meme a l'ombre de son propre arbre — il ne restait que
-          // des paillettes. Rose a l'ombre, etincelant a la lisiere.
           vec3 col = base * (uAmbient * (0.75 + 0.25 * vShade)
                            + uSunColor * wrap * 0.55 * mix(0.15, 1.0, vShade));
           col += uSunColor * uGlow * 0.10 * base * vShade;
@@ -598,12 +670,13 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
       // against the light instead of forming one specular sheet.
       _e.set(R.range(crng, -0.35, 0.35), 0, R.range(crng, -0.35, 0.35));
       _q.setFromAxisAngle(UPV, crng() * Math.PI * 2).multiply(_tq.setFromEuler(_e));
-      // 40 % de corolles entières parmi les pétales : c'est ce mélange qui
-      // lit « hanami » et pas « confettis » (consigne joueur).
-      const flower = crng() < 0.40 ? 1 : 0;
-      // Tailles réduites ×0.6 le 29/07 (« plus mais moins grosses ») — les
-      // corolles un peu plus larges qu'un pétale seul.
-      const s = R.skew(crng, 0.18, 0.40, 1.6) * (flower ? 1.4 : 1);
+      // Consume the shape draw every season; autumn forces maple kind 2.
+      const flowerRoll = crng() < 0.40 ? 1 : 0;
+      const flower = autumn ? 0 : flowerRoll;
+      // Spring: petal/corolla skew. Autumn: maple ground size, one skew draw.
+      const s = autumn
+        ? R.skew(crng, 0.22, 0.46, 1.6)
+        : R.skew(crng, 0.18, 0.40, 1.6) * (flower ? 1.4 : 1);
       // Perchés sur le HAUT de l'herbe (~1.2 de haut) : à 0.06-0.42 ils
       // lisaient « coincés DANS l'herbe » (consigne joueur). Sur la terre
       // battue des chemins, herbe rase : posés au sol.
@@ -611,16 +684,28 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
                                              : R.range(crng, 0.25, 0.70);
       _m.compose(_p.set(x, h + perch, z), _q, _s.set(s, s, s));
       cMesh.setMatrixAt(placed, _m);
-      aShapeC[placed] = flower;
+      aShapeC[placed] = autumn ? 2 : flower;
 
       // The fringe fell first: older (browner, duller) toward the disc edge.
       // Skew 1.7 (était 2.4) : plus de roses moyens, moins de quasi-blancs.
+      // Autumn reuses aTintAge.x as the palette phase (no extra RNG).
       aTintAge[placed * 3 + 0] = R.skew(crng, 0, 1, 1.7);
       aTintAge[placed * 3 + 1] = clamp((rr / rad) * 0.6 + crng() * 0.45, 0, 1);
       // Part de soleil : l'intérieur du disque est sous la couronne, la
       // lisière au soleil ; le jitter fait la lumière tachetée des trouées.
       const st = clamp(((rr / rad) - 0.72) / 0.30, 0, 1);
       aTintAge[placed * 3 + 2] = clamp(st * st * (3 - 2 * st) + (crng() - 0.5) * 0.3, 0, 1);
+
+      if (autumn) {
+        let dom = null;
+        if (c && isAutumnDominant(c.dominant)) dom = c.dominant;
+        else dom = dominantForIndex(placed, seed);
+        autumnColor(dom, aTintAge[placed * 3 + 0], aColorC, placed * 3);
+      } else {
+        aColorC[placed * 3] = 1;
+        aColorC[placed * 3 + 1] = 1;
+        aColorC[placed * 3 + 2] = 1;
+      }
       placed++;
     }
     cMesh.count = placed;
@@ -667,5 +752,11 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
     carpet?.dispose();
   }
 
-  return { mesh, carpet, update, setPlayer, dispose, count: COUNT, carpetCount: carpet ? carpet.count : 0 };
+  return {
+    mesh, carpet, update, setPlayer, dispose,
+    count: COUNT,
+    carpetCount: carpet ? carpet.count : 0,
+    season: mode,
+    kind: autumn ? 'maple' : 'sakura',
+  };
 }

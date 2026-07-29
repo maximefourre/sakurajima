@@ -311,7 +311,10 @@ async function boot() {
   /** Standing water (ponds). Every scatter system has to reject it. */
   world.inWater = (x, z) => world.ponds.isInPond(x, z);
 
-  await step('cerisiers');
+  await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
+  const foliageDensity = world.season === 'autumn'
+    ? (q.label === 'ultra' ? 2.1 : q.label === 'high' ? 1.7 : 1.2)
+    : (q.label === 'ultra' ? 7.2 : q.label === 'high' ? 5.6 : 3.8);
   world.forest = createSakuraForest({
     seed: SEED,
     // sakura.js was written against its own option names and silently falls back
@@ -321,21 +324,18 @@ async function boot() {
     count: q.trees,
     radius: 104 * LAND_SCALE,        // the land's own half-extent, before LAND_SCALE
     quality: q.label === 'ultra' ? 1.25 : q.label === 'high' ? 0.9 : 0.6,
-    // Once the branch structure actually built, the default blossom load left
-    // the island looking like an orchard in March. The blossom is the subject —
-    // it should hide most of the branch it grows on.
-    // Doubled tier by tier with the ÷2 blossom size (second small-flowers
-    // pass). ~48M instances at ultra: only viable since the world-space bake
-    // preallocates typed arrays — growing JS arrays hit a GC wall past ~16M.
-    blossomDensity: q.label === 'ultra' ? 7.2 : q.label === 'high' ? 5.6 : 3.8,
+    season: world.season,
+    // Spring: dense small flowers (validated 3.8/5.6/7.2). Autumn: maple crown
+    // multipliers 1.2/1.7/2.1. Typed-array two-pass bake keeps ultra viable.
+    foliageDensity,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
-    // Nothing calls getBlossomSamples (petals use forest.emitters) - keeping the
-    // sample cloud held ~330 MB of dead heap at 13.7M blossoms.
-    keepBlossomSamples: false,
+    // Nothing calls getFoliageSamples (petals use forest.emitters) - keeping the
+    // sample cloud held hundreds of MB of dead heap at high foliage counts.
+    keepFoliageSamples: false,
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     // Trees refuse the path corridor (half-width + 4 u ≈ 5.6 u from the axis).
-    // Altitude > 2.6 keeps cerisiers off the sand/dune band along the shore.
+    // Altitude > 2.6 keeps trees off the sand/dune band along the shore.
     isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4) && world.heightAt(x, z) > 2.6,
     windUniforms: forestWind,
   });
@@ -375,9 +375,10 @@ async function boot() {
   // to spawn petals at crown height instead of a global ceiling.
   world.canopies = (world.forest.emitters ?? []).map((e) => ({
     x: e.position.x, y: e.position.y, z: e.position.z, radius: e.radius,
+    dominant: e.dominant ?? null,
   }));
   world.petals = createPetals({
-    seed: SEED, quality: q,
+    seed: SEED, quality: q, season: world.season,
     canopies: world.canopies,
     wind: world.wind,
     // groundAt, pas heightAt : sur les chemins le ruban de terre est surélevé
