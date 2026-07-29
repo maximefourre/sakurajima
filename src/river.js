@@ -292,7 +292,12 @@ export function carveRiver(x, z, h) {
   // under the sand and the delta read as damp stains instead of channels. A
   // channel that stays carved through the flat and only dissolves once the
   // ground is genuinely seabed is exactly what a real river mouth scours.
-  inChannel *= smoothstep(WORLD.seaLevel - 0.5, WORLD.seaLevel + 1.2, h);
+  // Bord haut 1.2 -> 0.45 : à 1.2, toute la traversée de la plaine basse
+  // (sol entre +0.5 et +1.2) ne creusait qu'à moitié — bol large et plat,
+  // crêtes de digue à 20 cm, eau réduite à un film de « sable mouillé ».
+  // Une rivière INCISE la plaine : pleine profondeur dès que le sol est
+  // franchement au-dessus de la mer, la dissolution sous la mer ne bouge pas.
+  inChannel *= smoothstep(WORLD.seaLevel - 0.5, WORLD.seaLevel + 0.45, h);
   if (inChannel <= 0) return h;
 
   // Cut RELATIVE to the local ground: the bed sits `depth` below whatever the
@@ -300,9 +305,16 @@ export function carveRiver(x, z, h) {
   // instead of trenching through it.
   const bedY = h - RIVER.depth;
 
-  // A bowl-shaped cross-section rather than a square trench.
+  // Section COMPOSÉE : un chenal net (lèvre à ~1.15·halfW) qui tient l'eau,
+  // dans un évasement doux qui devient la berge de sable. L'ancien bol unique
+  // pow(u,1.7) étalait tout le creux sur tout le couloir — jusqu'à 40 u de
+  // large sur les plats : une soucoupe sans chenal ni berges, où l'eau calée
+  // sous la crête du bord s'étalait en lavis de 15 cm. La lèvre donne au
+  // profil d'eau (crête échantillonnée juste après halfW) un vrai niveau à
+  // tenir, et à la ligne d'eau un vrai sol qui remonte.
   const u = clamp(dist / (halfW + bank), 0, 1);
-  const profile = bedY + (h - bedY) * Math.pow(u, 1.7);
+  const lip = smoothstep(0.55 * halfW, 1.15 * halfW, dist);
+  const profile = bedY + (h - bedY) * (0.30 * Math.pow(u, 1.7) + 0.70 * lip);
 
   return h * (1 - inChannel) + profile * inChannel;
 }
@@ -395,11 +407,18 @@ function buildWaterRibbon(b = 0, startT = 0, faded = false, heightAt = null) {
     // Left-hand normal in the XZ plane.
     const nx = -tan.z, nz = tan.x;
     const len = Math.hypot(nx, nz) || 1;
-    // La ligne d'eau EST le bord : on marche toujours sur TOUT le couloir
-    // creusé (pas une largeur wobbulée — l'organicité vient du terrain
-    // lui-même). Un wobble qui raccourcissait la marche laissait le bord
-    // en l'air dès que la berge remontait juste au-delà.
-    const wCorr = (W + RIVER.bankWidth * 0.9) * widthKAt(b, t);
+    // L'EMPREINTE de la nappe reste celle du chenal : largeur wobbulée,
+    // plafonnée à width/2 + 0.45·bank — chercher la ligne d'eau sur tout le
+    // couloir creusé (0.9·bank) faisait s'étaler la nappe en cellophane sur
+    // le sable et l'herbe dès que la berge ne remontait pas (captures du
+    // joueur : films de verre sur les plats du delta, herbe à travers l'eau —
+    // l'exclusion d'herbe suit la largeur de chenal, pas le couloir). Si la
+    // berge ne remonte pas DANS cette borne, le bord se drape au sol À LA
+    // frontière du chenal : la petite erreur de ligne d'eau est invisible,
+    // l'écume de rive la couvre.
+    const wob = fbm2(p.x * 0.03, p.z * 0.03, 2) * 0.28 + 1;
+    const flare = faded ? 1 + 0.6 * (1 - fadeAtB(b, t)) : 1;
+    const wCorr = Math.min(W * wob * flare, W + RIVER.bankWidth * 0.45) * widthKAt(b, t);
     const y = waterYAtB(b, t);
     const ux = nx / len, uz = nz / len;
     const [wL, brchL] = wettedHalfWidth(p.x, p.z, ux, uz, wCorr, y);
@@ -536,14 +555,24 @@ const RIVER_FRAG = /* glsl */ `
     float s = vUv.y - uTime * uFlow;
     float r1 = vnoise(vec2(vUv.x * 22.0, s * 5.5));
     float r2 = vnoise(vec2(vUv.x * 44.0 + 4.7, s * 11.0));
-    float ripple = r1 * 0.65 + r2 * 0.35;
+    // Clapot en ESPACE MONDE : les rides en UV de spline s'étirent sur toute
+    // la longueur du chenal et disparaissent en incidence rasante — vue à
+    // hauteur de chien, la surface était une cellophane sans matière. Cette
+    // couche a une densité constante partout et anime les normales, donc les
+    // reflets accrochent à ras de l'eau.
+    float chop = vnoise(vWorld.xz * 1.5 + vec2(uTime * 0.4, -uTime * 0.6));
+    float ripple = r1 * 0.5 + r2 * 0.25 + chop * 0.25;
 
     // REAL depth: surface height minus the carved bed under this fragment,
     // read from the same baked heightfield the ocean uses. This is what turns
     // the ribbon from a painted sprite into water you look INTO - colour,
     // transparency, foam and the waterline all key off it.
     float depth = vWorld.y - terrainH(vWorld.xz);
-    float depthN = smoothstep(0.05, 2.6, depth);
+    // Rampe courte (2.6 -> 1.2) : la heightmap lisse la tranchée étroite et
+    // sous-estime la profondeur réelle — les biefs de 30-80 cm perçus doivent
+    // déjà tirer vers le teal profond, sinon la traversée du plat delta lit
+    // comme du sable mouillé, pas comme une rivière.
+    float depthN = smoothstep(0.03, 1.2, depth);
 
     vec3 col = mix(uShallow, uDeep, depthN * (0.75 + 0.25 * ripple));
 
@@ -553,15 +582,20 @@ const RIVER_FRAG = /* glsl */ `
     col += vec3(0.05, 0.07, 0.07) * smoothstep(0.62, 0.90, streak) * (1.0 - depthN * 0.6);
 
     // Cheap specular: perturb a flat-up normal by the ripple gradient.
-    vec3 n = normalize(vec3((r2 - r1) * 0.9, 1.0, (r1 - r2) * 0.9));
+    vec3 n = normalize(vec3((r2 - r1) * 0.9 + (chop - 0.5) * 0.8, 1.0,
+                            (r1 - r2) * 0.9 - (chop - 0.5) * 0.8));
     float spec = pow(max(dot(reflect(-uSunDir, n), normalize(cameraPosition - vWorld)), 0.0), 48.0);
     col += uSunColor * spec * 0.55 * (1.0 - vSkirt);
 
     // Sky reflection at grazing angles only - a flat sky fraction everywhere
     // is what reads as a paved road instead of water.
     vec3 viewDir = normalize(cameraPosition - vWorld);
+    // Miroir plafonné à 0.12 : sans reflets détaillés (arbres, berges), le
+    // fresnel vers un ciel clair délave toute la surface en cellophane pâle
+    // dès que la caméra est à hauteur d'eau — la couleur du corps d'eau doit
+    // dominer, c'est le choix des eaux stylisées.
     float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
-    col = mix(col, uSkyColor, fres * 0.22 * (1.0 - vSkirt));
+    col = mix(col, uSkyColor, fres * 0.12 * (1.0 - vSkirt));
 
     // Mouth zone: as the banks fade the river is becoming SEA.
     float mouth = 1.0 - smoothstep(0.12, 0.55, vFade);
@@ -593,7 +627,11 @@ const RIVER_FRAG = /* glsl */ `
     // channel heart stays opaque enough to read as a river; vFade still
     // dissolves the estuary tips. The dark-arms complaint at the delta dies
     // here - centimetres of water over sand render nearly clear.
-    float alpha = mix(0.26, 0.78, depthN);
+    // Plancher relevé : à 0.26 l'eau de moins d'un demi-mètre était du verre
+    // invisible et les biefs peu profonds lisaient comme des oueds à sec —
+    // la rivière doit se LIRE comme une rivière, style féérique assumé. Le
+    // bord reste doux (0.30) pour que la ligne d'eau fonde dans la berge.
+    float alpha = mix(0.34, 0.85, depthN);
     alpha = max(alpha, foam * 0.75);
     alpha *= 1.0 - 0.35 * vSkirt;
     gl_FragColor = vec4(col, alpha * pow(vFade, 0.55));
@@ -908,16 +946,28 @@ export function createRiver({ wind } = {}) {
         const nx = -_tanC.z, nz = _tanC.x;
         const l = Math.hypot(nx, nz) || 1;
         const wHalf = RIVER.width * 0.5 * widthKAt(b, i / N);
-        const bankW = RIVER.bankWidth * (b === 0 ? 1 : br.widthK);
+        // Une digue est du sol SEC : un rayon qui tombe dans le chenal mouillé
+        // d'un autre bras (l'éventail du delta creuse une auge commune) mesure
+        // la tranchée du voisin, pas une berge — le prendre en compte écrasait
+        // l'eau de tout l'éventail en film invisible (« oued à sec » vu du
+        // ciel). Un côté sans AUCUN échantillon sec n'impose pas de plafond :
+        // l'eau peut y rejoindre l'eau.
+        // Rayon calé sur la LÈVRE du chenal (halfW+0.5 → halfW+3, cf. la
+        // section composée de carveRiver) : c'est elle qui tient l'eau. Un
+        // rayon plus long (0.85·bank) attrapait des crêtes au-delà du bord du
+        // ruban (tentes drapées) ; l'empreinte entière du ruban, des crêtes de
+        // soucoupe trop basses (lavis de 15 cm).
         let crestL = -Infinity, crestR = -Infinity;
         for (let k2 = 0; k2 < 5; k2++) {
-          const d = wHalf + 0.5 + (bankW * 0.85 - 0.5) * (k2 / 4);
-          const gl2 = heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
-          const gr2 = heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
-          if (gl2 > crestL) crestL = gl2;
-          if (gr2 > crestR) crestR = gr2;
+          const d = wHalf + 0.5 + 2.5 * (k2 / 4);
+          const xl = br.sx[i] + (nx / l) * d, zl = br.sz[i] + (nz / l) * d;
+          const xr = br.sx[i] - (nx / l) * d, zr = br.sz[i] - (nz / l) * d;
+          if (!isInRiver(xl, zl)) { const g2 = heightAt(xl, zl); if (g2 > crestL) crestL = g2; }
+          if (!isInRiver(xr, zr)) { const g2 = heightAt(xr, zr); if (g2 > crestR) crestR = g2; }
         }
-        lvCeil[i] = Math.max(Math.min(crestL, crestR) - 0.10, WORLD.seaLevel + 0.03);
+        const cL = crestL === -Infinity ? Infinity : crestL;
+        const cR = crestR === -Infinity ? Infinity : crestR;
+        lvCeil[i] = Math.max(Math.min(cL, cR) - 0.10, WORLD.seaLevel + 0.03);
         br.profile[i] = Math.max(Math.min(bed[i] + RIVER.depth * 0.72, lvCeil[i]), bed[i] + 0.14);
       }
 
@@ -1054,7 +1104,10 @@ export function createRiver({ wind } = {}) {
     // from, the fresnel sky mix bleaches whatever it is given — a desaturated
     // deep colour washed out to lifeless grey.
     uShallow:  { value: new THREE.Color(0x43b0aa) },
-    uDeep:     { value: new THREE.Color(0x155a68) },
+    // Plus clair et plus saturé que l'ancien 0x155a68 : la heightmap (texel
+    // 2-3 u) lisse la tranchée étroite et sous-estime la profondeur — le
+    // teal doit déjà chanter à mi-rampe.
+    uDeep:     { value: new THREE.Color(0x1a7183) },
     uMouthCol: { value: new THREE.Color(0x2f9aa0) },
     uSunDir:   { value: new THREE.Vector3(0, 1, 0) },
     uSunColor: { value: new THREE.Color(1, 1, 1) },

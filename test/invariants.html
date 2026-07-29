@@ -37,7 +37,7 @@ import { SEED, WORLD, CAMERA, QUALITY, RIVER } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
-import { createRiver, BRANCHES, widthKAt } from '../src/river.js';
+import { createRiver, BRANCHES, widthKAt, isInRiver } from '../src/river.js';
 import { createIsland } from '../src/island.js';
 import { initPath } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
@@ -161,15 +161,18 @@ river.build(island.heightAt);
       // Même sémantique que build(), sur EXACTEMENT les mêmes rayons :
       // crête de digue par côté = max du sol le long du rayon de berge.
       const wHalf = RIVER.width * 0.5 * widthKAt(b, i / br.N);
-      const bankW = RIVER.bankWidth * (b === 0 ? 1 : br.widthK);
+      // Une digue est du sol SEC (même règle que build) : les rayons dans un
+      // chenal mouillé sont ignorés ; sans berge sèche des deux côtés, la
+      // station n'est pas testable (l'eau y rejoint l'eau).
       let crestL = -Infinity, crestR = -Infinity;
       for (let k2 = 0; k2 < 5; k2++) {
-        const d = wHalf + 0.5 + (bankW * 0.85 - 0.5) * (k2 / 4);
-        const gl2 = island.heightAt(br.sx[i] + (nx / l) * d, br.sz[i] + (nz / l) * d);
-        const gr2 = island.heightAt(br.sx[i] - (nx / l) * d, br.sz[i] - (nz / l) * d);
-        if (gl2 > crestL) crestL = gl2;
-        if (gr2 > crestR) crestR = gr2;
+        const d = wHalf + 0.5 + 2.5 * (k2 / 4);
+        const xl = br.sx[i] + (nx / l) * d, zl = br.sz[i] + (nz / l) * d;
+        const xr = br.sx[i] - (nx / l) * d, zr = br.sz[i] - (nz / l) * d;
+        if (!isInRiver(xl, zl)) { const g2 = island.heightAt(xl, zl); if (g2 > crestL) crestL = g2; }
+        if (!isInRiver(xr, zr)) { const g2 = island.heightAt(xr, zr); if (g2 > crestR) crestR = g2; }
       }
+      if (crestL === -Infinity || crestR === -Infinity) continue;
       const bedC = island.heightAt(br.sx[i], br.sz[i]);
       const lim = Math.max(Math.min(crestL, crestR) - 0.10, bedC + 0.15, WORLD.seaLevel + 0.03);
       const excess = br.profile[i] - lim;

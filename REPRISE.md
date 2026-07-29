@@ -323,6 +323,32 @@ de ligne d'eau ne trouvait jamais de sol qui remonte et laissait le bord pendu
    couloir creusé (le wobble de largeur raccourcissait la recherche et laissait
    des bords en l'air sur berge saine).
 
+**Suite 2 (même jour) — « moche, déborde, pas naturelle ».** Quatre passes en
+cascade, chacune révélée par la précédente :
+1. Marcher sur tout le couloir (0.9·bank) faisait s'étaler la nappe en
+   cellophane sur 40 u (herbe à travers l'eau — l'exclusion suit la largeur de
+   chenal). Empreinte restaurée à chenal+0.45·bank, wobble compris.
+2. Crête « sol SEC uniquement » : un rayon dans le chenal mouillé du voisin
+   mesure sa tranchée, pas une berge — le compter écrasait tout l'éventail en
+   film invisible (« oued à sec » vu du ciel).
+3. **Section de carve composée** (le vrai fond du problème) : le bol unique
+   pow(u,1.7) étalait 4 u de creux sur tout le couloir → soucoupe plate sur
+   les plats, où AUCUNE règle de niveau ne marche (crête proche = lavis de
+   15 cm ; crête lointaine = tente drapée). Chenal net avec lèvre à
+   ~1.15·halfW (70 % du creux) + évasement doux (30 %), crête échantillonnée
+   SUR la lèvre → l'eau a un niveau à tenir et la ligne d'eau un sol qui
+   remonte, par construction. Incision pleine sur la plaine basse (fondu
+   d'estuaire 1.2 → 0.45).
+4. Rendu au ras de l'eau : clapot en espace monde dans rides et normales
+   (les UV de spline s'étirent sur 700 u — surface sans matière en incidence
+   rasante), fresnel plafonné 0.12 (ciel blanc = cellophane), rampe de
+   profondeur 1.2 + uDeep 0x1a7183 (la heightmap, texel 2-3 u, lisse la
+   tranchée étroite et sous-estime la profondeur de moitié — diagnostiqué en
+   forçant uDeep rouge à chaud).
+Piège de vérif payé : une « eau pâle qui couvre tout » à hauteur de chien
+peut être l'ENVERS de la nappe — vérifier `waterSurfaceYAt(x,z)` contre le y
+caméra avant de conclure (deux fausses itérations sur ce fantôme).
+
 ---
 
 ## Reste à faire, dans l'ordre

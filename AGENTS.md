@@ -85,12 +85,19 @@ ponds.isInPond || river.isInRiver`.
   digue locale − 0.10, PLANCHER lit + 0.12 (le plancher gagne), remontée
   bornée à 0.12/station, lissage 1-2-1, embouchure fondue vers seaLevel+0.05.
   AUCUNE propagation amont→aval : le « jamais-remonter » v1–v3 passait l'eau
-  SOUS le lit dès que celui-ci remontait (trous de sable sec). Le ruban marche
-  jusqu'à la vraie ligne d'eau (bisection) sur TOUT le couloir ; si la berge ne
-  remonte jamais (éventail du delta, rebord côtier), le bord est DRAPÉ au sol
-  (sol+0.08) au lieu de rester une table en l'air ; jupe plongée sous le sol
-  LOCAL. Jupes et bords drapés portent `aSkirt` : le fragment y coupe écume,
-  spéculaire et fresnel (sinon rayures blanches à travers l'eau du voisin).
+  SOUS le lit dès que celui-ci remontait (trous de sable sec).
+  **Section de carve COMPOSÉE** : chenal net à lèvre (~1.15·halfW, 70 % du
+  creux) dans un évasement doux (30 %) — un bol unique étalait le creux en
+  soucoupe de 40 u sur les plats, ni chenal ni berges. La CRÊTE est
+  échantillonnée sur la lèvre (halfW+0.5 → halfW+3), en SOL SEC uniquement
+  (un rayon dans le chenal mouillé d'un autre bras mesure sa tranchée, pas
+  une berge — le compter écrasait l'éventail en film) ; côté 100 % mouillé =
+  pas de plafond (l'eau rejoint l'eau). Le ruban marche jusqu'à la vraie
+  ligne d'eau (bisection) dans l'empreinte chenal+0.45·bank ; berge qui ne
+  remonte pas → bord DRAPÉ au sol (sol+0.08), jamais une table en l'air ;
+  jupe plongée sous le sol LOCAL. Jupes et bords drapés portent `aSkirt` :
+  le fragment y coupe écume, spéculaire et fresnel (sinon rayures blanches
+  à travers l'eau du voisin).
   Jonction : stations d'un distributaire dans le chenal du tronc épinglées sur
   l'eau du tronc ; ruban démarrant à >0.55·width de l'axe du tronc (sinon
   double-blend). La jonction doit être où l'eau du tronc ≈ niveau de la mer.
