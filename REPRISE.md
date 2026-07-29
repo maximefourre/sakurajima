@@ -399,6 +399,22 @@ montée aux torii à midi, lanternes allumées et torii sous la Voie lactée à
 
 ---
 
+## Session « pétales calmés, forêt en gradient » du 29/07 (suite)
+
+- **Pétales-toupies, le retour** : le tumble était multiplié par la rafale
+  (`gust`, crête 2.6 × le curseur de vent) — en bourrasque tout tournait 3×
+  trop vite. Facteur plafonné (`min(gust, 1.0) * 0.45`) : une rafale presse
+  un pétale, elle ne le fait pas tourner. La leçon : tout facteur shader
+  branché sur uWindStrength doit être borné, la crête de squall dépasse 1.
+- **Gradient des cerisiers** (Grok) : plus un arbre sous h = 2.6 (sable et
+  dunes) ; poids d'implantation à deux foyers — centre (0, −10)·L et coin
+  falaise (−88, 0)·L — qui module l'ACCEPTATION (0.22 → 1.0) et l'ÉCHELLE
+  globale (×0.82 → ×1.37, espacement et branches basses compris). Le budget
+  inchangé se redistribue : lisières clairsemées d'arbres modestes, cœur et
+  montée à la falaise denses et hauts.
+
+---
+
 ## Reste à faire, dans l'ordre
 
 1. **Relire les trois nouveaux modules** (`ponds`, `birds`, `clouds`). Ils ont

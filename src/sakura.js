@@ -13,6 +13,8 @@
 // =============================================================================
 
 import * as THREE from 'three';
+import { LAND_SCALE } from './config.js';
+import { smoothstep } from './noise.js';
 
 // -----------------------------------------------------------------------------
 // 0. Deterministic RNG + tiny value noise
@@ -1301,7 +1303,8 @@ export function createSakuraForest( options = {} ) {
 
 	const placements = [];
 	const perProto = prototypes.map( () => [] );
-	const attemptsMax = o.count * 60;
+	// ×2 : the peripheral gradient reject redistributes trees toward the core.
+	const attemptsMax = o.count * 60 * 2;
 	const UPV = new THREE.Vector3( 0, 1, 0 );
 	const qTilt = new THREE.Quaternion();
 	const qYaw  = new THREE.Quaternion();
@@ -1333,6 +1336,17 @@ export function createSakuraForest( options = {} ) {
 		const slope = Math.abs( o.slopeAt( x, z ) );
 		if ( slope > o.maxSlope ) continue;
 
+		// Gradient d'implantation (consigne utilisateur) : la forêt est pleine et
+		// haute au COEUR de l'île et vers le COIN FALAISE (rebord ouest rehaussé),
+		// clairsemée et plus modeste vers les plages. Deux foyers, on prend le max.
+		const L = LAND_SCALE;
+		const dCentre = Math.hypot( x - 0 * L, z - ( - 10 ) * L );
+		const dFalaise = Math.hypot( x - ( - 88 ) * L, z - 0 * L );
+		const wCentre = 1 - smoothstep( 30 * L, 95 * L, dCentre );
+		const wFalaise = 1 - smoothstep( 10 * L, 55 * L, dFalaise );
+		const wGrad = Math.max( wCentre, wFalaise );
+		if ( rng.next() > 0.22 + 0.78 * wGrad ) continue;   // clairsemé en périphérie
+
 		// groves instead of a uniform sprinkle
 		const g = fbm2( x * o.groveScale, z * o.groveScale, o.seed ^ 0x51ed, 3 );
 		const accept = THREE.MathUtils.lerp( 1.0, THREE.MathUtils.smoothstep( g, 0.34, 0.72 ),
@@ -1354,7 +1368,10 @@ export function createSakuraForest( options = {} ) {
 		const pi = pool[ Math.min( pool.length - 1, Math.floor( rng.next() * pool.length ) ) ];
 		const proto = prototypes[ pi ];
 
-		const scale = rng.range( 0.84, 1.20 ) * ( flags.high ? 0.82 : 1.0 );
+		// wGrad : heart & cliff rim grow larger; beach edge stays modest.
+		// scale feeds spacing (canopyRadius) and low-branch exclusion — not mesh-only.
+		const scale = rng.range( 0.84, 1.20 ) * ( flags.high ? 0.82 : 1.0 )
+			* ( 0.82 + 0.55 * wGrad );
 		const spacing = Math.max( o.minSpacing, proto.canopyRadius * scale * 0.60 );
 		if ( tooClose( x, z, spacing * ( 1 - relax * 0.45 ) ) ) continue;
 

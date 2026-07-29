@@ -252,7 +252,11 @@ export function createPetals({ seed, quality, canopies = [], wind, heightAt, slo
 
         // ── tumble ───────────────────────────────────────────────
         // A precessing axis, so the petal does not spin about a fixed line.
-        float ta = uTime * tumbleR * (0.6 + gust * 0.9) + phase;
+        // The gust factor is CLAMPED: gust rides uWindStrength whose squall
+        // peak is 2.6 (times the UI wind slider) — unclamped it tripled the
+        // tumble in every squall and the petals spun like tops again. A gust
+        // may hurry a petal a little; it must never spin it.
+        float ta = uTime * tumbleR * (0.6 + min(gust, 1.0) * 0.45) + phase;
         vec3 axis = normalize(vec3(
           sin(ta * 0.37 + phase) * tilt,
           1.0,

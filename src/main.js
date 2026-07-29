@@ -318,7 +318,8 @@ async function boot() {
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     // Trees refuse the path corridor (half-width + 4 u ≈ 5.6 u from the axis).
-    isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4),
+    // Altitude > 2.6 keeps cerisiers off the sand/dune band along the shore.
+    isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4) && world.heightAt(x, z) > 2.6,
     windUniforms: forestWind,
   });
   scene.add(world.forest.group);
