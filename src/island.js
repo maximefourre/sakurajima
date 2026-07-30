@@ -73,7 +73,7 @@ const BEACH_SOFT   = 0.58;  // 0..1 — how hard heights are compressed toward s
 const BEACH_WIDTH  = 2.8;   // world units of the compression band
 
 /** Terrain palette. Authored as sRGB hex; ColorManagement converts on read. */
-const PAL = {
+const PAL_SPRING = {
   seabed:    0x4a5648,
   sandWet:   0x9d8e72,
   sandDry:   0xdccaa4,
@@ -84,9 +84,25 @@ const PAL = {
   rockDark:  0x615a50,
 };
 
+const PAL_AUTUMN = {
+  seabed:    0x4a5142,
+  sandWet:   0x8f765b,
+  sandDry:   0xc9a06b,
+  grassLow:  0x9a943f,
+  grassMid:  0x737437,
+  grassHigh: 0x4f5b31,
+  rock:      0x81796e,
+  rockDark:  0x5d554b,
+};
+
 /** Water, day and night. The caller lerps between them via `phase`. */
-const WATER_DAY   = { deep: 0x0d3c55, shallow: 0x37a7ab, foam: 0xf2f8f6 };
+const WATER_DAY_SPRING = { deep: 0x0d3c55, shallow: 0x37a7ab, foam: 0xf2f8f6 };
+const WATER_DAY_AUTUMN = { deep: 0x173743, shallow: 0x578775, foam: 0xeee4cf };
 const WATER_NIGHT = { deep: 0x050c1a, shallow: 0x123a48, foam: 0x8fa6b8 };
+
+/** Boulder moss tint — spring keeps the exact linear RGB; autumn is preallocated hex. */
+const MOSS_SPRING = Object.freeze({ r: 0.60, g: 0.86, b: 0.44 });
+const MOSS_AUTUMN = 0x667044;
 
 /* ────────────────────────────────────────────────────────────────
    Small helpers
@@ -406,7 +422,13 @@ const WATER_FRAG = /* glsl */ `
  * @param {Function} [opts.carve]   (x, z, y) => y — ponds carve their basins in here
  * @param {Function} [opts.isInPond](x, z) => bool  — keeps boulders out of the ponds
  */
-export function createIsland({ seed = 1337, quality = null, carve = null, isInPond = null } = {}) {
+export function createIsland({ seed = 1337, quality = null, carve = null, isInPond = null, season = 'spring' } = {}) {
+  const mode = season === 'autumn' ? 'autumn' : 'spring';
+  const PAL = mode === 'autumn' ? PAL_AUTUMN : PAL_SPRING;
+  const WATER_DAY = mode === 'autumn' ? WATER_DAY_AUTUMN : WATER_DAY_SPRING;
+  const mossColor = mode === 'autumn'
+    ? new THREE.Color(MOSS_AUTUMN)
+    : new THREE.Color(MOSS_SPRING.r, MOSS_SPRING.g, MOSS_SPRING.b);
   const SIZE = WORLD.size;
   const HALF = SIZE * 0.5;
   const SEG = quality && quality.label === 'low' ? 320
@@ -861,7 +883,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
 
     const v = new THREE.Vector3();
     const c = new THREE.Color();
-    const moss = new THREE.Color(0.60, 0.86, 0.44);
+    const moss = mossColor;
 
     for (let i = 0; i < n; i++) {
       v.fromBufferAttribute(p, i);

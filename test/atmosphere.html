@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — atmosphère saisonnière</title>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.185.1/examples/jsm/"
+} }
+</script>
+<style>
+  html,body{margin:0;min-height:100%;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{padding:10px 14px;line-height:1.8;max-width:56em}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+  canvas{position:fixed;right:8px;bottom:8px;width:160px;height:90px;opacity:.35}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+/*
+ * Focused autumn atmosphere contract.
+ * Summary line (greppable):
+ *   ATMOSPHERE: N pass, M fail
+ *
+ * Builds spring + autumn skies, samples midday / golden / deep-night phases,
+ * and checks season identity, grades, tint, scattering and fog density without
+ * source-text assertions.
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
+window.addEventListener('unhandledrejection', e => {
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+});
+
+import * as THREE from 'three';
+import { createSky } from '../src/sky.js';
+
+let pass = 0, fail = 0;
+function check(name, cond, detail = '') {
+  if (cond) {
+    pass++;
+    say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok');
+  } else {
+    fail++;
+    say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad');
+    console.error(`FAIL — ${name} ${detail}`);
+  }
+}
+
+function near(a, b, eps = 1.5e-3) {
+  return Math.abs(a - b) <= eps;
+}
+
+function hexOf(c) {
+  return '#' + c.getHexString();
+}
+
+function distColor(a, b) {
+  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+}
+
+function makeRenderer() {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setSize(160, 90, false);
+  renderer.setPixelRatio(1);
+  document.body.appendChild(renderer.domElement);
+  return renderer;
+}
+
+function makeCamera() {
+  const camera = new THREE.PerspectiveCamera(50, 160 / 90, 0.1, 8000);
+  camera.position.set(0, 18, 40);
+  camera.lookAt(0, 8, 0);
+  return camera;
+}
+
+function buildSky(season) {
+  const scene = new THREE.Scene();
+  const renderer = makeRenderer();
+  const camera = makeCamera();
+  const sky = createSky({ scene, renderer, camera, quality: { bloom: false, shadowMap: 512 }, season });
+  return { scene, renderer, camera, sky, season };
+}
+
+function sample(skyBundle, dayTime) {
+  const phase = skyBundle.sky.update(dayTime, 0);
+  const skyU = skyBundle.sky.sky.material.uniforms;
+  return {
+    phase,
+    day: phase.day,
+    night: phase.night,
+    twilight: phase.twilight,
+    golden: phase.golden,
+    season: phase.season,
+    sun: phase.sunColor.clone(),
+    hemiSky: phase.skyColor.clone(),
+    hemiGround: phase.groundColor.clone(),
+    fog: phase.fogColor.clone(),
+    key: phase.keyColor.clone(),
+    ambient: phase.ambient,
+    moonIntensity: phase.moonIntensity,
+    keyIntensity: phase.keyIntensity,
+    exposure: phase.exposure,
+    fogDensity: skyBundle.scene.fog?.isFogExp2 ? skyBundle.scene.fog.density : null,
+    turbidity: skyU.turbidity?.value ?? null,
+    mie: skyU.mieCoefficient?.value ?? null,
+    rayleigh: skyU.rayleigh?.value ?? null,
+    mieG: skyU.mieDirectionalG?.value ?? null,
+    tint: skyU.uSkyTint?.value?.clone?.() ?? skyU.uSkyTint?.value ?? null,
+    tintStrength: skyU.uSkyTintStrength?.value ?? null,
+    horizonFog: skyU.uHorizonFogColor?.value?.clone?.() ?? null,
+    horizonFogStrength: skyU.uHorizonFogStrength?.value ?? null,
+    twilightGlow: skyBundle.sky.nightDome?.material?.uniforms?.uSunGlowColor?.value?.clone?.() ?? null,
+  };
+}
+
+say('modules chargés', 'ok');
+
+const spring = buildSky('spring');
+const autumn = buildSky('autumn');
+const unknown = buildSky('winter');
+
+const sNoon = sample(spring, 0.50);
+const aNoon = sample(autumn, 0.50);
+const uNoon = sample(unknown, 0.50);
+const sGold = sample(spring, 0.72);
+const aGold = sample(autumn, 0.72);
+const sNight = sample(spring, 0.97);
+const aNight = sample(autumn, 0.97);
+
+/* ── phase.season identity ── */
+check('phase.season spring', sNoon.season === 'spring', `got ${sNoon.season}`);
+check('phase.season autumn', aNoon.season === 'autumn', `got ${aNoon.season}`);
+check('saison inconnue → spring', uNoon.season === 'spring', `got ${uNoon.season}`);
+
+/* ── noon autumn grades warmer than spring ── */
+const sunTarget = new THREE.Color(0xffb45f);
+const hemiSkyTarget = new THREE.Color(0xaebbc5);
+const hemiGroundTarget = new THREE.Color(0x7b5430);
+const fogTarget = new THREE.Color(0xc9aa87);
+const tintTarget = new THREE.Color(0xffd0a2);
+
+check('midi autumn sun plus proche #ffb45f',
+  distColor(aNoon.sun, sunTarget) + 1e-4 < distColor(sNoon.sun, sunTarget),
+  `spring ${hexOf(sNoon.sun)} autumn ${hexOf(aNoon.sun)}`);
+
+check('midi autumn hemiSky plus proche #aebbc5',
+  distColor(aNoon.hemiSky, hemiSkyTarget) + 1e-4 < distColor(sNoon.hemiSky, hemiSkyTarget),
+  `spring ${hexOf(sNoon.hemiSky)} autumn ${hexOf(aNoon.hemiSky)}`);
+
+check('midi autumn hemiGround plus proche #7b5430',
+  distColor(aNoon.hemiGround, hemiGroundTarget) + 1e-4 < distColor(sNoon.hemiGround, hemiGroundTarget),
+  `spring ${hexOf(sNoon.hemiGround)} autumn ${hexOf(aNoon.hemiGround)}`);
+
+check('midi autumn fog plus proche #c9aa87',
+  distColor(aNoon.fog, fogTarget) + 1e-4 < distColor(sNoon.fog, fogTarget),
+  `spring ${hexOf(sNoon.fog)} autumn ${hexOf(aNoon.fog)}`);
+
+/* ── published fields are the graded scratches (same object identity path) ── */
+check('phase.sunColor === lumière soleil autumn',
+  autumn.sky.phase.sunColor === autumn.sky.sunLight.color
+  || autumn.sky.phase.sunColor.equals(autumn.sky.sunLight.color),
+  hexOf(autumn.sky.phase.sunColor));
+
+check('phase.fogColor === scene.fog autumn',
+  autumn.sky.phase.fogColor.equals(autumn.scene.fog.color),
+  `${hexOf(autumn.sky.phase.fogColor)} vs ${hexOf(autumn.scene.fog.color)}`);
+
+/* ── sky tint uniforms ── */
+check('spring tint strength 0',
+  sNoon.tintStrength != null && near(sNoon.tintStrength, 0, 1e-6),
+  `got ${sNoon.tintStrength}`);
+
+check('autumn midi tint #ffd0a2',
+  aNoon.tint && distColor(aNoon.tint, tintTarget) < 1e-3,
+  aNoon.tint ? hexOf(aNoon.tint) : 'missing uSkyTint');
+
+check('autumn midi tint strength > 0 et ≤ .08',
+  aNoon.tintStrength != null && aNoon.tintStrength > 0 && aNoon.tintStrength <= 0.08 + 1e-6,
+  `got ${aNoon.tintStrength}`);
+
+check('autumn golden tint strength > 0 et ≤ .08',
+  aGold.tintStrength != null && aGold.tintStrength > 0 && aGold.tintStrength <= 0.08 + 1e-6,
+  `got ${aGold.tintStrength}`);
+
+check('autumn golden tint ≥ midi tint',
+  aGold.tintStrength != null && aNoon.tintStrength != null
+    && aGold.tintStrength + 1e-6 >= aNoon.tintStrength,
+  `noon ${aNoon.tintStrength} gold ${aGold.tintStrength}`);
+
+/* ── scattering / fog density autumn > spring at day ── */
+check('autumn midi turbidity > spring',
+  aNoon.turbidity != null && sNoon.turbidity != null
+    && aNoon.turbidity > sNoon.turbidity + 1e-6,
+  `spring ${sNoon.turbidity} autumn ${aNoon.turbidity}`);
+
+check('autumn midi mie > spring',
+  aNoon.mie != null && sNoon.mie != null && aNoon.mie > sNoon.mie + 1e-9,
+  `spring ${sNoon.mie} autumn ${aNoon.mie}`);
+
+check('rayleigh inchangé midi',
+  aNoon.rayleigh != null && sNoon.rayleigh != null && near(aNoon.rayleigh, sNoon.rayleigh, 1e-6),
+  `spring ${sNoon.rayleigh} autumn ${aNoon.rayleigh}`);
+
+check('mieG inchangé midi',
+  aNoon.mieG != null && sNoon.mieG != null && near(aNoon.mieG, sNoon.mieG, 1e-6),
+  `spring ${sNoon.mieG} autumn ${aNoon.mieG}`);
+
+check('autumn midi fog density > spring',
+  aNoon.fogDensity != null && sNoon.fogDensity != null
+    && aNoon.fogDensity > sNoon.fogDensity + 1e-9,
+  `spring ${sNoon.fogDensity} autumn ${aNoon.fogDensity}`);
+
+/* ── HORIZON-1: autumn golden hour densifies shared fog so sea→fogColor fuses ── */
+check('autumn golden fog density ≫ spring golden',
+  aGold.fogDensity != null && sGold.fogDensity != null
+    && aGold.fogDensity > sGold.fogDensity * 1.80,
+  `spring ${sGold.fogDensity} autumn ${aGold.fogDensity} ratio ${
+    (aGold.fogDensity && sGold.fogDensity) ? (aGold.fogDensity / sGold.fogDensity).toFixed(3) : '?'
+  }`);
+check('autumn golden fog density > autumn midi (boost goldenW)',
+  aGold.fogDensity != null && aNoon.fogDensity != null
+    && aGold.fogDensity > aNoon.fogDensity * 1.06,
+  `noon ${aNoon.fogDensity} gold ${aGold.fogDensity}`);
+check('autumn golden horizonFogStrength > 0',
+  aGold.horizonFogStrength != null && aGold.horizonFogStrength > 0.25,
+  `got ${aGold.horizonFogStrength}`);
+check('autumn golden horizonFogColor === fogColor',
+  aGold.horizonFog && distColor(aGold.horizonFog, aGold.fog) < 2e-3,
+  aGold.horizonFog ? `${hexOf(aGold.horizonFog)} vs ${hexOf(aGold.fog)}` : 'missing');
+check('spring golden horizonFogStrength 0',
+  sGold.horizonFogStrength != null && near(sGold.horizonFogStrength, 0, 1e-6),
+  `got ${sGold.horizonFogStrength}`);
+check('nuit profonde autumn horizonFogStrength 0',
+  aNight.horizonFogStrength != null && aNight.horizonFogStrength < 0.01,
+  `got ${aNight.horizonFogStrength}`);
+check('nuit profonde autumn fog density ≈ spring (pas de boost nuit)',
+  aNight.fogDensity != null && sNight.fogDensity != null
+    && near(aNight.fogDensity, sNight.fogDensity, 1e-9),
+  `spring ${sNight.fogDensity} autumn ${aNight.fogDensity}`);
+
+/* ── deep night neutrality: no orange grade on moon/dome/fog path ── */
+check('nuit profonde autumn ≈ spring sun (coeffs ~0)',
+  distColor(aNight.sun, sNight.sun) < 2e-3,
+  `spring ${hexOf(sNight.sun)} autumn ${hexOf(aNight.sun)}`);
+
+check('nuit profonde autumn fog reste bleu (pas de grade chaud)',
+  aNight.fog.b + 1e-4 >= aNight.fog.r && aNight.fog.b + 1e-4 >= aNight.fog.g * 0.85,
+  hexOf(aNight.fog));
+
+check('nuit profonde autumn tint strength ~0',
+  aNight.tintStrength != null && aNight.tintStrength < 0.01,
+  `got ${aNight.tintStrength}`);
+
+check('nuit profonde autumn turbidity ≈ spring',
+  aNight.turbidity != null && sNight.turbidity != null
+    && near(aNight.turbidity, sNight.turbidity, 5e-3),
+  `spring ${sNight.turbidity} autumn ${aNight.turbidity}`);
+
+/* ── NIGHT-1 regression: cool moonlit fill so darker autumn albedos stay readable ── */
+function luma(c) {
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
+function nightFill(s) {
+  // Approximate land illumination from hemi bounce + key (moon) + exposure.
+  // Observable phase outputs only — no source-text assertions.
+  return (s.ambient * luma(s.hemiGround) * 1.35
+    + s.ambient * luma(s.hemiSky) * 0.45
+    + s.keyIntensity * luma(s.key) * 0.22) * s.exposure;
+}
+const sFill = nightFill(sNight);
+const aFill = nightFill(aNight);
+check('nuit profonde autumn fill > spring (lisibilité momiji)',
+  aFill > sFill * 1.18,
+  `spring ${sFill.toFixed(4)} autumn ${aFill.toFixed(4)}`);
+check('nuit profonde autumn key reste froid (b ≥ r)',
+  aNight.key.b + 1e-4 >= aNight.key.r,
+  hexOf(aNight.key));
+check('nuit profonde autumn hemiGround non-chaud vs spring',
+  (aNight.hemiGround.r - aNight.hemiGround.b) <= (sNight.hemiGround.r - sNight.hemiGround.b) + 0.02,
+  `spring ${hexOf(sNight.hemiGround)} autumn ${hexOf(aNight.hemiGround)}`);
+check('nuit profonde autumn moonIntensity ≥ spring',
+  aNight.moonIntensity + 1e-6 >= sNight.moonIntensity,
+  `spring ${sNight.moonIntensity} autumn ${aNight.moonIntensity}`);
+
+/* ── twilight glow selected once (autumn cooler orange, spring hot) ── */
+const springGlow = new THREE.Color(0xff7a33);
+const autumnGlow = new THREE.Color(0xe75b22);
+if (sNight.twilightGlow && aNight.twilightGlow) {
+  check('twilight glow spring #ff7a33',
+    distColor(sNight.twilightGlow, springGlow) < 1e-3,
+    hexOf(sNight.twilightGlow));
+  check('twilight glow autumn #e75b22',
+    distColor(aNight.twilightGlow, autumnGlow) < 1e-3,
+    hexOf(aNight.twilightGlow));
+} else {
+  check('twilight glow spring #ff7a33', false, 'missing night glow sample');
+  check('twilight glow autumn #e75b22', false, 'missing night glow sample');
+}
+
+/* ── allocation-free-ish: update mutates same phase object ── */
+const p1 = autumn.sky.update(0.5, 0);
+const p2 = autumn.sky.update(0.51, 0);
+check('update mutates same phase object', p1 === p2 && p1 === autumn.sky.phase, 'identity');
+
+const summary = `ATMOSPHERE: ${pass} pass, ${fail} fail`;
+say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+console.log(summary);
+document.title = summary;
+
+// dispose lightly
+spring.sky.dispose(); autumn.sky.dispose(); unknown.sky.dispose();
+spring.renderer.dispose(); autumn.renderer.dispose(); unknown.renderer.dispose();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>banc d'essai — pétales + vent</title>
+<title>banc d'essai — feuillage saisonnier (pétales + tapis)</title>
 <script type="importmap">
 { "imports": {
     "three": "https://unpkg.com/three@0.185.1/build/three.module.js",
@@ -13,127 +13,315 @@
   html,body{margin:0;height:100%;overflow:hidden;background:#11121a;
     font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
   #log{position:fixed;top:0;left:0;padding:10px 14px;line-height:1.8;z-index:5;
-    text-shadow:0 1px 6px #000;pointer-events:none}
+    text-shadow:0 1px 6px #000;pointer-events:none;max-width:46em}
   .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
 </style>
 </head>
 <body>
 <div id="log"></div>
 <script type="module">
+/*
+ * Dual-season foliage contract for airborne petals + carpet.
+ * Query: ?season=spring|autumn (default spring).
+ * Summary line (greppable):
+ *   FOLIAGE (<season>): N pass, M fail
+ */
 const log = document.getElementById('log');
-const say = (s, cls='') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
-window.onerror = (m,_s,_l,_c,e) => say('✗ ' + (e?.stack || m), 'bad');
-window.addEventListener('unhandledrejection', e => say('✗ ' + (e.reason?.stack || e.reason), 'bad'));
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+let pageErrors = 0;
+window.onerror = (m, _s, _l, _c, e) => {
+  pageErrors++;
+  say('✗ ' + (e?.stack || m), 'bad');
+  console.error(m);
+};
+window.addEventListener('unhandledrejection', e => {
+  pageErrors++;
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+});
 
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { seedNoise } from '../src/noise.js';
-import { createWind } from '../src/wind.js';
-import { createPetals } from '../src/petals.js';
+const params = new URLSearchParams(location.search);
+const rawSeason = params.get('season');
+const season = rawSeason === 'autumn' ? 'autumn' : 'spring';
+const expectedKind = season === 'autumn' ? 'maple' : 'sakura';
+const AIR = 2600;
+const CARPET = 1200;
+const SEED = 20260727;
 
-seedNoise(20260727);
-say('modules chargés', 'ok');
+let pass = 0, fail = 0;
+function check(name, cond, detail = '') {
+  if (cond) {
+    pass++;
+    say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok');
+  } else {
+    fail++;
+    say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad');
+    console.error(`FAIL — ${name} ${detail}`);
+  }
+}
+
+function finishSummary() {
+  const summary = `FOLIAGE (${season}): ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+  document.title = summary;
+}
+
+function failAll(reason) {
+  pageErrors++;
+  say('✗ ' + reason, 'bad');
+  console.error(reason);
+  check('compte aérien', false, reason);
+  check('compte tapis', false, reason);
+  check('kind retour', false, reason);
+  check('kinds/couleurs attributs (fallback null)', false, reason);
+  check('zéro erreur shader/page', false, reason);
+  finishSummary();
+}
+
+let THREE, seedNoise, createWind, createPetals, AUTUMN_PALETTES, isAutumnDominant, dominantForIndex;
+try {
+  THREE = await import('three').then(m => m.default ?? m);
+  ({ seedNoise } = await import('../src/noise.js'));
+  ({ createWind } = await import('../src/wind.js'));
+  ({ createPetals } = await import('../src/petals.js'));
+  ({ AUTUMN_PALETTES, isAutumnDominant, dominantForIndex } = await import('../src/seasonal-foliage.js'));
+} catch (err) {
+  failAll('import failed: ' + (err?.message || err));
+  throw err;
+}
+
+seedNoise(SEED);
+say(`modules chargés · saison <span class="k">${season}</span>`, 'ok');
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(1);
+renderer.setSize(640, 360);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#2a2b3d');
-// Fog is deliberately ON — this test exists partly to prove the <fog_*> chunk
-// wiring in the petal ShaderMaterial actually compiles.
 scene.fog = new THREE.Fog('#2a2b3d', 40, 190);
 
-const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 900);
+const camera = new THREE.PerspectiveCamera(45, 640 / 360, 0.1, 900);
 camera.position.set(26, 13, 32);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 8, 0);
-controls.enableDamping = true;
+camera.lookAt(0, 8, 0);
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 const dir = new THREE.DirectionalLight(0xffddbb, 2.2);
-dir.position.set(-30, 16, -22);   // low sun, so we can judge the translucency term
+dir.position.set(-30, 16, -22);
 scene.add(dir);
 
-// Flat stand-in ground.
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(300, 300),
   new THREE.MeshStandardMaterial({ color: '#3f4a35', roughness: 1 })
 );
-ground.rotation.x = -Math.PI/2;
+ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// Stand-in canopies so we can prove petals cluster around trees rather than
-// raining uniformly out of a box.
+// Three canopies: two explicit dominants + one null (fallback path).
 const canopies = [
-  { x:  0, z:  0, radius: 7 },
-  { x: 18, z: -9, radius: 5 },
-  { x:-15, z: 12, radius: 6 },
+  { x: 0, y: 9, z: 0, radius: 7, dominant: 'red' },
+  { x: 18, y: 8, z: -9, radius: 5, dominant: 'yellow' },
+  { x: -15, y: 8.5, z: 12, radius: 6, dominant: null },
 ];
 for (const c of canopies) {
   const m = new THREE.Mesh(
     new THREE.SphereGeometry(c.radius, 16, 12),
-    new THREE.MeshStandardMaterial({ color: '#f2b8cd', roughness: 0.9, transparent: true, opacity: 0.28 })
+    new THREE.MeshStandardMaterial({
+      color: season === 'autumn' ? '#d97835' : '#f2b8cd',
+      roughness: 0.9, transparent: true, opacity: 0.28,
+    })
   );
-  m.position.set(c.x, 9, c.z);
+  m.position.set(c.x, c.y, c.z);
   scene.add(m);
 }
 
 const wind = createWind();
-const petals = createPetals({
-  seed: 20260727,
-  // Matched to the real scene's local density: 12k petals over a 240-unit
-  // island is far sparser than 6k over this small test plot, and judging
-  // density on an unrepresentative sample is how you end up with a blizzard.
-  quality: { petals: 2600 },
-  canopies,
-  wind,
-  heightAt: () => 0,
-});
-scene.add(petals.mesh);
-say(`pétales instanciés : <span class="k">${petals.count}</span>`, 'ok');
-
-// Prove the shader actually compiled rather than silently failing.
-let compiled = false;
+let petals = null;
+let shaderErrors = 0;
 renderer.debug.onShaderError = (gl, prog, vs, fs) => {
+  shaderErrors++;
   say('✗ shader ne compile pas', 'bad');
-  say('<pre>' + (gl.getShaderInfoLog(vs) || '') + (gl.getShaderInfoLog(fs) || '') + '</pre>', 'bad');
+  const info = (gl.getShaderInfoLog(vs) || '') + (gl.getShaderInfoLog(fs) || '');
+  say('<pre>' + info + '</pre>', 'bad');
+  console.error('shader error', info);
 };
 
+try {
+  petals = createPetals({
+    seed: SEED,
+    quality: { petals: AIR, fallenPetals: CARPET },
+    season,
+    canopies,
+    wind,
+    heightAt: () => 0,
+  });
+  scene.add(petals.mesh);
+  if (petals.carpet) scene.add(petals.carpet);
+} catch (err) {
+  pageErrors++;
+  say('✗ createPetals a levé : ' + (err?.stack || err), 'bad');
+  console.error(err);
+}
+
+function near(a, b, eps = 1e-4) {
+  return Math.abs(a - b) <= eps;
+}
+
+function linearTriplet(hex) {
+  const c = new THREE.Color(hex);
+  return [c.r, c.g, c.b];
+}
+
+function onSegment(rgb, a, b, eps = 1e-4) {
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ap = [rgb[0] - a[0], rgb[1] - a[1], rgb[2] - a[2]];
+  const ab2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+  if (ab2 < 1e-12) {
+    return near(rgb[0], a[0], eps) && near(rgb[1], a[1], eps) && near(rgb[2], a[2], eps);
+  }
+  let t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / ab2;
+  t = Math.max(0, Math.min(1, t));
+  const px = a[0] + ab[0] * t;
+  const py = a[1] + ab[1] * t;
+  const pz = a[2] + ab[2] * t;
+  return near(rgb[0], px, eps) && near(rgb[1], py, eps) && near(rgb[2], pz, eps);
+}
+
+function colorOnAutumnPalette(rgb) {
+  for (const name of Object.keys(AUTUMN_PALETTES)) {
+    const p = AUTUMN_PALETTES[name];
+    const shadow = linearTriplet(p.shadow);
+    const mid = linearTriplet(p.mid);
+    const sun = linearTriplet(p.sun);
+    if (onSegment(rgb, shadow, mid) || onSegment(rgb, mid, sun)) return true;
+  }
+  return false;
+}
+
+function readAttr(geo, name) {
+  return geo?.getAttribute?.(name) || null;
+}
+
+function validateAttributes() {
+  if (!petals) return { ok: false, detail: 'petals null' };
+  const airGeo = petals.mesh?.geometry;
+  const carpetGeo = petals.carpet?.geometry;
+  const aShapeAir = readAttr(airGeo, 'aShape');
+  const aColorAir = readAttr(airGeo, 'aColor');
+  const aShapeCarpet = readAttr(carpetGeo, 'aShape');
+  const aColorCarpet = readAttr(carpetGeo, 'aColor');
+
+  if (!aShapeAir) return { ok: false, detail: 'air aShape missing' };
+  if (!aColorAir) return { ok: false, detail: 'air aColor missing' };
+  if (!aShapeCarpet) return { ok: false, detail: 'carpet aShape missing' };
+  if (!aColorCarpet) return { ok: false, detail: 'carpet aColor missing' };
+  if (aColorAir.itemSize !== 3) return { ok: false, detail: `air aColor itemSize=${aColorAir.itemSize}` };
+  if (aColorCarpet.itemSize !== 3) return { ok: false, detail: `carpet aColor itemSize=${aColorCarpet.itemSize}` };
+
+  const airN = Math.min(petals.count | 0, aShapeAir.count | 0, aColorAir.count | 0);
+  const carpetN = Math.min(petals.carpetCount | 0, aShapeCarpet.count | 0, aColorCarpet.count | 0);
+  if (airN <= 0) return { ok: false, detail: 'no air instances' };
+  if (carpetN <= 0) return { ok: false, detail: 'no carpet instances' };
+
+  // Null canopy dominant must resolve without throw via dominantForIndex.
+  let fallbackOk = true;
+  try {
+    for (let i = 0; i < 8; i++) {
+      const d = dominantForIndex(i, SEED);
+      if (!isAutumnDominant(d)) fallbackOk = false;
+    }
+    // Explicit null canopy entry is accepted by the factory (no throw above).
+    if (canopies[2].dominant !== null) fallbackOk = false;
+  } catch (err) {
+    return { ok: false, detail: 'null fallback threw: ' + err };
+  }
+  if (!fallbackOk) return { ok: false, detail: 'null dominant fallback invalid' };
+
+  if (season === 'spring') {
+    // Spring keeps 0/1 shapes; aColor is present but must not force maple.
+    let saw0 = false, saw1 = false, bad = 0;
+    for (let i = 0; i < airN; i++) {
+      const s = aShapeAir.getX(i);
+      if (s < 0.5) saw0 = true;
+      else if (s < 1.5) saw1 = true;
+      else bad++;
+    }
+    for (let i = 0; i < carpetN; i++) {
+      const s = aShapeCarpet.getX(i);
+      if (s < 0.5) saw0 = true;
+      else if (s < 1.5) saw1 = true;
+      else bad++;
+    }
+    if (bad) return { ok: false, detail: `spring unexpected shape count=${bad}` };
+    if (!saw0 || !saw1) return { ok: false, detail: `spring shapes missing petal/corolla (0=${saw0},1=${saw1})` };
+    return { ok: true, detail: `spring shapes ok · air=${airN} carpet=${carpetN}` };
+  }
+
+  // Autumn: every shape is maple kind 2, every aColor on a palette segment.
+  let badShape = 0, badColor = 0;
+  const sample = (attrShape, attrColor, n) => {
+    for (let i = 0; i < n; i++) {
+      const s = attrShape.getX(i);
+      if (Math.abs(s - 2) > 1e-4) badShape++;
+      const rgb = [attrColor.getX(i), attrColor.getY(i), attrColor.getZ(i)];
+      if (!colorOnAutumnPalette(rgb)) badColor++;
+    }
+  };
+  sample(aShapeAir, aColorAir, airN);
+  sample(aShapeCarpet, aColorCarpet, carpetN);
+  if (badShape || badColor) {
+    return { ok: false, detail: `autumn badShape=${badShape} badColor=${badColor}` };
+  }
+  return { ok: true, detail: `autumn kind2+palette ok · air=${airN} carpet=${carpetN}` };
+}
+
 const clock = new THREE.Clock();
-let frames = 0, acc = 0;
-const statLine = document.createElement('div');
-log.appendChild(statLine);
+let frames = 0;
+
+function finish() {
+  check('compte aérien',
+    !!petals && petals.count === AIR,
+    petals ? `got ${petals.count}` : 'petals null');
+
+  check('compte tapis',
+    !!petals && petals.carpetCount === CARPET,
+    petals ? `got ${petals.carpetCount}` : 'petals null');
+
+  check('kind retour',
+    !!petals && petals.kind === expectedKind && petals.season === season,
+    petals ? `kind=${petals.kind} season=${petals.season}` : 'petals null');
+
+  const attr = validateAttributes();
+  check('kinds/couleurs attributs (fallback null)', attr.ok, attr.detail);
+
+  check('zéro erreur shader/page',
+    shaderErrors === 0 && pageErrors === 0 && frames >= 2,
+    `shader=${shaderErrors} page=${pageErrors} frames=${frames}`);
+
+  finishSummary();
+}
 
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
-  const t  = clock.elapsedTime;
-
+  const t = clock.elapsedTime;
   wind.update(t, dt);
-  petals.update(t, {
-    sunDirection: dir.position.clone().normalize(),
-    sunColor: new THREE.Color('#ffd9b0'),
-    ambientColor: new THREE.Color('#5a6478'),
-    goldenHour: 0.8,
-  });
-
-  controls.update();
+  if (petals) {
+    petals.update(t, {
+      sunDirection: dir.position.clone().normalize(),
+      sunColor: new THREE.Color('#ffd9b0'),
+      ambientColor: new THREE.Color('#5a6478'),
+      goldenHour: 0.8,
+    });
+  }
   renderer.render(scene, camera);
-
-  if (!compiled) { compiled = true; say('shader compilé sans erreur', 'ok'); }
-
-  frames++; acc += dt;
-  if (acc > 0.5) {
-    statLine.innerHTML =
-      `<span class="k">${(frames/acc).toFixed(0)}</span> fps · ` +
-      `rafale <span class="k">${wind.state.gust.toFixed(2)}</span> · ` +
-      `force <span class="k">${wind.state.strength.toFixed(2)}</span> · ` +
-      `cap <span class="k">${(wind.state.heading*180/Math.PI % 360).toFixed(0)}°</span> · ` +
-      `${renderer.info.render.calls} draw`;
-    frames = 0; acc = 0;
+  frames++;
+  if (frames >= 2) {
+    renderer.setAnimationLoop(null);
+    finish();
   }
 });
 </script>

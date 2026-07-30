@@ -324,19 +324,35 @@ export let lanternSpots = [];
  * Four species, weighted. The white daisy is the workhorse and reads at the
  * longest range; the others are accents. Deep violet is only 8% of the mix —
  * it is there to be found, not to be seen.
- * The whole palette stays in hanami tones (white/pink/mauve, warm-cream hearts):
- * anything gold or yellow at grass height reads as dead leaves against the
- * sakura petal carpet (user call, 29/07). */
+ * Spring stays in hanami tones (white/pink/mauve, warm-cream hearts).
+ * Autumn swaps only petal/heart/stem pigments; weights and geometry stay put. */
 // Sizes are frankly larger than life. A real daisy is 3 cm across, which at this
 // world scale is four millimetres of corolla hidden among 55 cm grass blades —
 // present in the buffer, invisible on screen. Blown up to roughly the size of a
 // small poppy they read as flowers from where the dog actually walks.
-const FLOWERS = [
-  { name: 'daisy',   weight: 0.44, petal: 0xfbf7ee, heart: 0xf2e3cf, petals: 8, size: 0.155, height: [0.42, 0.66] },
-  { name: 'buttercup', weight: 0.27, petal: 0xf2cfdd, heart: 0xdd9db8, petals: 5, size: 0.130, height: [0.34, 0.54] },
-  { name: 'clover',  weight: 0.21, petal: 0xe9b6cd, heart: 0xf0d7e2, petals: 6, size: 0.118, height: [0.28, 0.46] },
-  { name: 'harebell', weight: 0.08, petal: 0x8f7fd0, heart: 0xcfc6f0, petals: 5, size: 0.140, height: [0.46, 0.72] },
+const FLOWER_BASE = [
+  { name: 'daisy',   weight: 0.44, petals: 8, size: 0.155, height: [0.42, 0.66] },
+  { name: 'buttercup', weight: 0.27, petals: 5, size: 0.130, height: [0.34, 0.54] },
+  { name: 'clover',  weight: 0.21, petals: 6, size: 0.118, height: [0.28, 0.46] },
+  { name: 'harebell', weight: 0.08, petals: 5, size: 0.140, height: [0.46, 0.72] },
 ];
+
+const FLOWER_PROFILES = {
+  spring: {
+    stem: 0x5f8a42,
+    daisy:    { petal: 0xfbf7ee, heart: 0xf2e3cf },
+    buttercup:{ petal: 0xf2cfdd, heart: 0xdd9db8 },
+    clover:   { petal: 0xe9b6cd, heart: 0xf0d7e2 },
+    harebell: { petal: 0x8f7fd0, heart: 0xcfc6f0 },
+  },
+  autumn: {
+    stem: 0x596333,
+    daisy:    { petal: 0xe8dfc5, heart: 0xb58a32 },
+    buttercup:{ petal: 0xd6a43b, heart: 0x8a5e24 },
+    clover:   { petal: 0xa85a3c, heart: 0x6f392b },
+    harebell: { petal: 0x786683, heart: 0xb6a3b5 },
+  },
+};
 
 const STONE = 0x9a9691;
 const STONE_DARK = 0x716d69;
@@ -355,11 +371,11 @@ const LANTERN_LIGHT = 0xffc978;
  * 1 at the corolla. The wind bend in the vertex shader is proportional to its
  * square, which is what makes the stem arc instead of shear.
  */
-function makeFlowerGeometry(spec, rng) {
+function makeFlowerGeometry(spec, rng, stemHex = 0x5f8a42) {
   const pos = [], nrm = [], col = [], base = [], idx = [];
   const petal = new THREE.Color(spec.petal);
   const heart = new THREE.Color(spec.heart);
-  const stemCol = new THREE.Color(0x5f8a42);
+  const stemCol = new THREE.Color(stemHex);
   const h = R.range(rng, spec.height[0], spec.height[1]);
 
   const push = (x, y, z, nx, ny, nz, c, b) => {
@@ -527,6 +543,7 @@ function makeToriiGeometry() {
  * @param {Function} [opts.normalAt]
  * @param {Function} [opts.inWater]  (x, z) => bool — ponds
  * @param {object}   [opts.wind]     from createWind(); shared BY REFERENCE
+ * @param {string}   [opts.season]   'spring' | 'autumn' — construction-time palette
  */
 export function createDetails({
   seed = 1337,
@@ -536,7 +553,14 @@ export function createDetails({
   normalAt = null,
   inWater = null,
   wind = null,
+  season = 'spring',
 } = {}) {
+  if (typeof heightAt !== 'function') {
+    throw new Error('[details] createDetails requires heightAt(x, z) -> y');
+  }
+
+  const mode = season === 'autumn' ? 'autumn' : 'spring';
+  const profile = FLOWER_PROFILES[mode] || FLOWER_PROFILES.spring;
   if (typeof heightAt !== 'function') {
     throw new Error('[details] createDetails requires heightAt(x, z) -> y');
   }
@@ -567,10 +591,12 @@ export function createDetails({
     const _s = new THREE.Vector3();
     const _n = new THREE.Vector3();
 
-    for (let f = 0; f < FLOWERS.length; f++) {
-      const spec = FLOWERS[f];
+    for (let f = 0; f < FLOWER_BASE.length; f++) {
+      const base = FLOWER_BASE[f];
+      const colors = profile[base.name] || FLOWER_PROFILES.spring[base.name];
+      const spec = { ...base, petal: colors.petal, heart: colors.heart };
       const want = Math.max(1, Math.round(total * spec.weight));
-      const geo = makeFlowerGeometry(spec, rng);
+      const geo = makeFlowerGeometry(spec, rng, profile.stem);
       disposables.push(geo);
 
       const mat = makeFoliageMaterial(wind);

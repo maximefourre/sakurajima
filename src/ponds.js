@@ -598,9 +598,16 @@ function makeReedTuftGeometry(rng) {
  * Winding is forgiven by the DoubleSide material plus the gl_FrontFacing
  * flip in the fragment shader; the authored normals carry the shading.
  */
-function makeLotusGeometry(rng) {
+function makeLotusGeometry(rng, palette = null) {
   const pos = [], nrm = [], col = [], kind = [], idx = [];
   const cA = new THREE.Color(), cB = new THREE.Color(), cM = new THREE.Color();
+  const pal = palette || {
+    stem: 0x476b33,
+    petalBase: 0xd96a9c,
+    petalTip: 0xfdf3f6,
+    leafDark: 0x2c5527,
+    leafLight: 0x557f36,
+  };
 
   const push = (x, y, z, nx, ny, nz, c, k) => {
     const inv = 1 / (Math.hypot(nx, ny, nz) || 1);
@@ -627,13 +634,12 @@ function makeLotusGeometry(rng) {
   const HEAD = 0.72;                        // flower base height above the waterline
 
   // — flower stalk —
-  cM.setHex(0x476b33);
+  cM.setHex(pal.stem);
   tube(0, 0, -0.35, HEAD, 0.034, 0.024, cM, 1);
 
   // — petals: three whorls, pointed, cupping tighter toward the middle.
-  //   Rose at the base fading to near-white at the tips.
-  cA.setHex(0xd96a9c);
-  cB.setHex(0xfdf3f6);
+  cA.setHex(pal.petalBase);
+  cB.setHex(pal.petalTip);
   const WHORLS = [
     { n: 7, len: 0.34, tilt: 1.10, r0: 0.085, w: 0.100, a0: 0.00 },
     { n: 6, len: 0.30, tilt: 0.72, r0: 0.070, w: 0.088, a0: 0.45 },
@@ -682,7 +688,7 @@ function makeLotusGeometry(rng) {
 
   // — leaves: two big upturned funnels on their own stalks, offset from the
   //   flower. The raised rim is what separates them from the flat pads.
-  cA.setHex(0x2c5527); cB.setHex(0x557f36);
+  cA.setHex(pal.leafDark); cB.setHex(pal.leafLight);
   const LEAVES = [
     { ang: R.range(rng, 0, TAU), dist: 0.42, h: 0.26, r: 0.46 },
     { ang: R.range(rng, 0, TAU), dist: 0.34, h: 0.15, r: 0.36 },
@@ -744,7 +750,27 @@ const MARGIN_FRAG = /* glsl */ `
    Factory
    ──────────────────────────────────────────────────────────────── */
 
-export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}) {
+export function createPonds({ seed = 1337, wind, quality, heightAt = null, season = 'spring' } = {}) {
+  const mode = season === 'autumn' ? 'autumn' : 'spring';
+  const waterPigment = mode === 'autumn'
+    ? { shallow: 0x626d47, deep: 0x18261d, silt: 0x684d32 }
+    : { shallow: 0x3f6b52, deep: 0x0a2019, silt: 0x5f5336 };
+  const marginPigment = mode === 'autumn'
+    ? {
+      reedDark:  [0.1651, 0.1356, 0.0284],
+      reedLight: [0.4233, 0.2831, 0.0545],
+      padDark:   [0.0497, 0.0823, 0.0242],
+      padLight:  [0.1384, 0.1620, 0.0395],
+    }
+    : {
+      reedDark:  [0.24, 0.36, 0.16],
+      reedLight: [0.42, 0.50, 0.20],
+      padDark:   [0.18, 0.34, 0.19],
+      padLight:  [0.30, 0.44, 0.20],
+    };
+  const lotusPalette = mode === 'autumn'
+    ? { stem: 0x596333, petalBase: 0xb7653d, petalTip: 0xead7b2, leafDark: 0x45512d, leafLight: 0x788044 }
+    : { stem: 0x476b33, petalBase: 0xd96a9c, petalTip: 0xfdf3f6, leafDark: 0x2c5527, leafLight: 0x557f36 };
   const group = new THREE.Group();
   group.name = 'ponds';
 
@@ -800,9 +826,9 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
    */
   const waterUniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]);
   Object.assign(waterUniforms, {
-    uShallow: { value: new THREE.Color(0x3f6b52) },
-    uDeep: { value: new THREE.Color(0x0a2019) },
-    uSilt: { value: new THREE.Color(0x5f5336) },
+    uShallow: { value: new THREE.Color(waterPigment.shallow) },
+    uDeep: { value: new THREE.Color(waterPigment.deep) },
+    uSilt: { value: new THREE.Color(waterPigment.silt) },
     uKeyDir: { value: new THREE.Vector3(0, 1, 0) },
     uKeyColor: { value: new THREE.Color(1, 1, 1) },
     uAmbient: { value: new THREE.Color(0.42, 0.44, 0.46) },
@@ -851,6 +877,10 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
     uKeyDir: { value: new THREE.Vector3(0, 1, 0) },
     uKeyColor: { value: new THREE.Color(1, 1, 1) },
     uAmbient: { value: new THREE.Color(0.42, 0.44, 0.46) },
+    uReedDark:  { value: new THREE.Vector3().fromArray(marginPigment.reedDark) },
+    uReedLight: { value: new THREE.Vector3().fromArray(marginPigment.reedLight) },
+    uPadDark:   { value: new THREE.Vector3().fromArray(marginPigment.padDark) },
+    uPadLight:  { value: new THREE.Vector3().fromArray(marginPigment.padLight) },
   });
   // Everything WIND_GLSL needs, by reference — see the note above.
   Object.assign(marginUniforms, wind.uniforms);
@@ -863,6 +893,11 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
       attribute float aKind;
       attribute vec4  aInst;    // world x, y, z, scale
       attribute vec4  aTrim;    // yaw, phase, tint index, sway scale
+
+      uniform vec3 uReedDark;
+      uniform vec3 uReedLight;
+      uniform vec3 uPadDark;
+      uniform vec3 uPadLight;
 
       varying vec3  vNormalW;
       varying vec2  vUv;
@@ -897,9 +932,9 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
         vec3 n = normalize(vec3(normal.x * c - normal.z * s, normal.y, normal.x * s + normal.z * c));
         vNormalW = normalize(mat3(modelMatrix) * n);
 
-        // Reeds run olive to straw, pads a deeper green; aTrim.z decorrelates them.
-        vec3 green = mix(vec3(0.24, 0.36, 0.16), vec3(0.42, 0.50, 0.20), aTrim.z);
-        vec3 pad = mix(vec3(0.18, 0.34, 0.19), vec3(0.30, 0.44, 0.20), aTrim.z);
+        // Reeds / pads: construction-time uniforms (spring olive, autumn straw).
+        vec3 green = mix(uReedDark, uReedLight, aTrim.z);
+        vec3 pad = mix(uPadDark, uPadLight, aTrim.z);
         vTint = mix(pad, green, aKind);
 
         vec4 mvPosition = viewMatrix * modelMatrix * vec4(world, 1.0);
@@ -1305,7 +1340,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null } = {}
     }
     if (!inst.length) return;
 
-    lotusGeo = makeLotusGeometry(rng);
+    lotusGeo = makeLotusGeometry(rng, lotusPalette);
     lotusGeo.setAttribute('aInst', new THREE.InstancedBufferAttribute(new Float32Array(inst), 4));
     lotusGeo.setAttribute('aTrim', new THREE.InstancedBufferAttribute(new Float32Array(trim), 4));
     lotusMesh = new THREE.InstancedMesh(lotusGeo, lotusMat, inst.length / 4);

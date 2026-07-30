@@ -18,8 +18,19 @@
   :root {
     --ink:   #100d12;
     --paper: #f4ece2;
-    --sakura:#f2b8cd;
+    --accent:#f2b8cd;
+    --accent-glow: rgba(242,184,205,.28);
+    --accent-ring: rgba(242,184,205,.12);
+    --accent-ring-hover: rgba(242,184,205,.20);
+    --accent-soft: rgba(242,184,205,.16);
     --gold:  #e8bd7a;
+  }
+  :root[data-season="autumn"] {
+    --accent:#d97835;
+    --accent-glow: rgba(217,120,53,.30);
+    --accent-ring: rgba(217,120,53,.12);
+    --accent-ring-hover: rgba(217,120,53,.20);
+    --accent-soft: rgba(217,120,53,.18);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -50,8 +61,8 @@
     letter-spacing: .32em;
     text-indent: .32em;
     text-align: center;
-    color: var(--sakura);
-    text-shadow: 0 0 42px rgba(242,184,205,.28);
+    color: var(--accent);
+    text-shadow: 0 0 42px var(--accent-glow);
   }
   #veil .romaji {
     text-align: center;
@@ -68,7 +79,7 @@
   }
   #bar i {
     display: block; height: 100%; width: 0%;
-    background: linear-gradient(90deg, transparent, var(--sakura), var(--gold));
+    background: linear-gradient(90deg, transparent, var(--accent), var(--gold));
     transition: width .35s ease;
   }
   #veil .status {
@@ -154,11 +165,11 @@
   input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
     width: 9px; height: 9px; border-radius: 50%;
-    background: var(--sakura); cursor: pointer;
-    box-shadow: 0 0 0 4px rgba(242,184,205,.12);
+    background: var(--accent); cursor: pointer;
+    box-shadow: 0 0 0 4px var(--accent-ring);
     transition: box-shadow .2s ease;
   }
-  input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 7px rgba(242,184,205,.2); }
+  input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 7px var(--accent-ring-hover); }
 
   .seg { display: flex; gap: 3px; }
   .seg button {
@@ -172,7 +183,7 @@
   }
   .seg button:hover { color: rgba(244,236,226,.85); background: rgba(244,236,226,.09); }
   .seg button[aria-pressed=true] {
-    color: var(--ink); background: var(--sakura); font-weight: 600;
+    color: var(--ink); background: var(--accent); font-weight: 600;
   }
 
   .hint {
@@ -212,8 +223,8 @@
   #hint.gone { opacity: 0; }
   #hint kbd {
     font-family: ui-monospace, Menlo, monospace;
-    background: rgba(242,184,205,.16);
-    color: var(--sakura);
+    background: var(--accent-soft);
+    color: var(--accent);
     padding: .12rem .42rem; border-radius: 2px; margin-right: .3rem;
   }
   @media (max-width: 640px) { #hint { display: none; } }
@@ -264,6 +275,14 @@
   <div class="row">
     <label>vent <b id="v-wind">1.0×</b></label>
     <input type="range" id="s-wind" min="0" max="3" step="0.05" value="1">
+  </div>
+
+  <div class="row">
+    <label>saison</label>
+    <div class="seg" id="s-season">
+      <button data-season="spring">printemps</button>
+      <button data-season="autumn">automne</button>
+    </div>
   </div>
 
   <div class="row">

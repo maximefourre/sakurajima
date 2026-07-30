@@ -49,7 +49,7 @@ Maintenant que la structure de branches se construit vraiment (le budget de
 branches valait NaN — voir `REPRISE.md` #6), les arbres montrent beaucoup
 d'écorce sombre. C'est correct et un peu triste. Les leviers, dans l'ordre
 d'efficacité : la taille des fleurs (`size` par archétype dans `sakura.js`,
-0.09–0.215 aujourd'hui), puis `blossomDensity` dans `main.js`, puis le nombre
+0.09–0.215 aujourd'hui), puis `foliageDensity` dans `main.js`, puis le nombre
 d'arbres. Grossir les fleurs remplit une couronne bien plus vite que d'en
 ajouter, et coûte moins cher.
 

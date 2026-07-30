@@ -245,6 +245,20 @@ const DEFAULTS = {
 
 };
 
+const PALETTE_SPRING = Object.freeze( {
+	colorShade: 0x3e6b45,
+	colorMid:   0x63a24b,
+	colorSun:   0xa9cf60,
+	colorDry:   0xc8b06c,
+} );
+
+const PALETTE_AUTUMN = Object.freeze( {
+	colorShade: 0x3f4a2d,
+	colorMid:   0x6f7434,
+	colorSun:   0xb69b3c,
+	colorDry:   0xa45f32,
+} );
+
 const UP = new THREE.Vector3( 0, 1, 0 );
 const ONE = new THREE.Vector3( 1, 1, 1 );
 
@@ -567,7 +581,10 @@ function normBounds( b ) {
 
 export function createGrass( options = {} ) {
 
-	const CFG = Object.assign( {}, DEFAULTS, options );
+	const mode = options.season === 'autumn' ? 'autumn' : 'spring';
+	const palette = mode === 'autumn' ? PALETTE_AUTUMN : PALETTE_SPRING;
+	// DEFAULTS → mode palette → options so explicit colour overrides still win.
+	const CFG = Object.assign( {}, DEFAULTS, palette, options );
 
 	const heightAt = CFG.heightAt;
 	if ( typeof heightAt !== 'function' ) throw new Error( '[grass] createGrass requires heightAt(x, z) -> y' );

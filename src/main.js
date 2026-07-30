@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DAY_LENGTH, START_TIME, WIND, LAND_SCALE } from './config.js';
+import { SEASON_QUERY_PARAM, SEASON_STORAGE_KEY, isSeason, resolveSeason } from './season.js';
 import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
 import { createIsland } from './island.js';
@@ -109,8 +110,19 @@ const initialTier = (() => {
   return DEFAULT_QUALITY;
 })();
 
+/**
+ * Season is resolved the same way as quality, before any construction: valid
+ * ?season=, then the persisted choice, then spring. Switching seasons reloads —
+ * forest, foliage, terrain palettes and atmosphere are build-time data.
+ */
+const initialSeason = resolveSeason({
+  search: location.search,
+  storage: typeof localStorage !== 'undefined' ? localStorage : null,
+});
+
 const world = {
   quality: initialTier,
+  season: initialSeason,
   dayTime: START_TIME,
   daySpeed: 1,
   paused: false,
@@ -120,6 +132,8 @@ const world = {
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
+
+document.documentElement.dataset.season = world.season;
 
 function applyDPR() {
   const cap = QUALITY[world.quality].dprCap;
@@ -266,13 +280,13 @@ async function boot() {
   world.wind = createWind();
 
   await step('relief de l’île');
-  world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null });
+  world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null, season: world.season });
   // Only the pond basins are composed INTO the island's heightfield, so the
   // terrain mesh and every heightAt() query agree on where the ground is by
   // construction rather than by coincidence. Carving after the fact would
   // leave the water floating over higher ground.
   const carve = (x, z, h) => world.ponds.carvePonds(x, z, h);
-  world.island = createIsland({ seed: SEED, quality: q, carve });
+  world.island = createIsland({ seed: SEED, quality: q, carve, season: world.season });
   scene.add(world.island.group);
 
   // island.js already bakes its heightfield onto a grid and interpolates it,
@@ -297,7 +311,10 @@ async function boot() {
   /** Standing water (ponds). Every scatter system has to reject it. */
   world.inWater = (x, z) => world.ponds.isInPond(x, z);
 
-  await step('cerisiers');
+  await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
+  const foliageDensity = world.season === 'autumn'
+    ? (q.label === 'ultra' ? 2.1 : q.label === 'high' ? 1.7 : 1.2)
+    : (q.label === 'ultra' ? 7.2 : q.label === 'high' ? 5.6 : 3.8);
   world.forest = createSakuraForest({
     seed: SEED,
     // sakura.js was written against its own option names and silently falls back
@@ -307,21 +324,18 @@ async function boot() {
     count: q.trees,
     radius: 104 * LAND_SCALE,        // the land's own half-extent, before LAND_SCALE
     quality: q.label === 'ultra' ? 1.25 : q.label === 'high' ? 0.9 : 0.6,
-    // Once the branch structure actually built, the default blossom load left
-    // the island looking like an orchard in March. The blossom is the subject —
-    // it should hide most of the branch it grows on.
-    // Doubled tier by tier with the ÷2 blossom size (second small-flowers
-    // pass). ~48M instances at ultra: only viable since the world-space bake
-    // preallocates typed arrays — growing JS arrays hit a GC wall past ~16M.
-    blossomDensity: q.label === 'ultra' ? 7.2 : q.label === 'high' ? 5.6 : 3.8,
+    season: world.season,
+    // Spring: dense small flowers (validated 3.8/5.6/7.2). Autumn: maple crown
+    // multipliers 1.2/1.7/2.1. Typed-array two-pass bake keeps ultra viable.
+    foliageDensity,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
-    // Nothing calls getBlossomSamples (petals use forest.emitters) - keeping the
-    // sample cloud held ~330 MB of dead heap at 13.7M blossoms.
-    keepBlossomSamples: false,
+    // Nothing calls getFoliageSamples (petals use forest.emitters) - keeping the
+    // sample cloud held hundreds of MB of dead heap at high foliage counts.
+    keepFoliageSamples: false,
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     // Trees refuse the path corridor (half-width + 4 u ≈ 5.6 u from the axis).
-    // Altitude > 2.6 keeps cerisiers off the sand/dune band along the shore.
+    // Altitude > 2.6 keeps trees off the sand/dune band along the shore.
     isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4) && world.heightAt(x, z) > 2.6,
     windUniforms: forestWind,
   });
@@ -349,21 +363,22 @@ async function boot() {
     exclude: (x, z) => world.inWater(x, z),
     shortZone: (x, z) => isOnPath(x, z, 0.25),
     wind: world.wind,
+    season: world.season,
   });
   scene.add(world.grass.mesh);
 
-  await step('pétales');
-  // The forest exposes canopy positions as `emitters` ({position, radius}); the
-  // petal system wants flat {x, z, radius}. Without this the spawn falls back to
-  // a uniform box and petals rain everywhere instead of drifting off the trees.
-  // The forest emitter y is the canopy CENTRE in world space (sakura.js bakes
-  // canopyCenter through the placement transform) — the petal system needs it
-  // to spawn petals at crown height instead of a global ceiling.
+  await step(world.season === 'autumn' ? 'feuilles' : 'pétales');
+  // The forest exposes canopy positions as `emitters` ({position, radius, dominant});
+  // the foliage-fall system wants flat {x,y,z,radius,dominant}. Without this the
+  // spawn falls back to a uniform box and leaves/petals rain everywhere instead
+  // of drifting off the crowns. Emitter y is the canopy CENTRE in world space
+  // (sakura.js bakes canopyCenter through the placement transform).
   world.canopies = (world.forest.emitters ?? []).map((e) => ({
     x: e.position.x, y: e.position.y, z: e.position.z, radius: e.radius,
+    dominant: e.dominant ?? null,
   }));
   world.petals = createPetals({
-    seed: SEED, quality: q,
+    seed: SEED, quality: q, season: world.season,
     canopies: world.canopies,
     wind: world.wind,
     // groundAt, pas heightAt : sur les chemins le ruban de terre est surélevé
@@ -382,7 +397,7 @@ async function boot() {
   if (world.petals.carpet) scene.add(world.petals.carpet);
 
   await step('ciel');
-  world.sky = createSky({ scene, renderer, camera, quality: q });
+  world.sky = createSky({ scene, renderer, camera, quality: q, season: world.season });
 
   await step('nuages');
   world.clouds = createClouds({ seed: SEED, wind: world.wind, quality: q });
@@ -405,6 +420,7 @@ async function boot() {
     normalAt: world.island.normalAt,
     inWater: world.inWater,
     wind: world.wind,
+    season: world.season,
   });
   scene.add(world.details.group);
 
@@ -532,6 +548,10 @@ function frame() {
     controls.update();
   }
 
+  // EffectComposer runs several renderer.render passes; with autoReset the HUD
+  // only sees the last fullscreen blit (1 draw / ~0 tris). Reset once per frame.
+  renderer.info.autoReset = false;
+  renderer.info.reset();
   if (world.sky.composer) world.sky.composer.render();
   else renderer.render(scene, camera);
 
@@ -602,6 +622,20 @@ $('s-quality').onclick = (e) => {
 // which silently desynced from any other resolved tier.
 for (const b of $('s-quality').children) {
   b.setAttribute('aria-pressed', String(b.dataset.q === world.quality));
+}
+
+$('s-season').onclick = (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const value = btn.dataset.season;
+  if (!isSeason(value) || value === world.season) return;
+  try { localStorage.setItem(SEASON_STORAGE_KEY, value); } catch { /* private mode */ }
+  const url = new URL(location.href);
+  url.searchParams.set(SEASON_QUERY_PARAM, value);
+  location.assign(url);
+};
+for (const b of $('s-season').children) {
+  b.setAttribute('aria-pressed', String(b.dataset.season === world.season));
 }
 
 addEventListener('keydown', (e) => {
