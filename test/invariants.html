@@ -38,7 +38,7 @@ import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
-import { initPath, isOnPath, computeLanternSpots } from '../src/details.js';
+import { initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, RIBBON_COLS } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 
 let pass = 0, fail = 0;
@@ -144,6 +144,49 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   }
   check('aucune lanterne orpheline', orphans.length === 0,
     `${spots.length} lanternes, marge ${margin}${orphans.length ? `, ${orphans.length} orphelines` : ''}`);
+}
+
+/* ── 8. la surface des rubans reste au-dessus du terrain ─────────────────── */
+{
+  // Le ruban interpole SES triangles, le terrain les SIENS : une crête de
+  // terrain entre deux sommets du ruban peut le transpercer (patchs verts
+  // anguleux SUR le chemin, capture joueur). On rebâtit ici la géométrie
+  // EXACTE des rubans (mêmes builders que createDetails) et on échantillonne
+  // chaque triangle de la bande intérieure (~0.7·largeur, colonnes 1..5, pas
+  // ~0.3 u) en barycentrique : la surface interpolée doit dominer heightAt.
+  // Le patin de carrefour est testé sur TOUS ses triangles.
+  const meshes = computeRibbonMeshes(island.heightAt);
+  meshes.push(computeJunctionPad(island.heightAt));
+  let worst = Infinity, worstAt = '', checked = 0;
+  const S = 3; // grille barycentrique par triangle (10 points, pas ~0.3 u)
+  for (const m of meshes) {
+    const { pos, idx } = m;
+    for (let t3 = 0; t3 < idx.length; t3 += 3) {
+      const iA = idx[t3], iB = idx[t3 + 1], iC = idx[t3 + 2];
+      if (m.cols === RIBBON_COLS) {
+        // Bande intérieure ≈ largeur×0.7 : on exclut les cellules touchant
+        // les colonnes de bord (0 et 6), effilochées/discardées par le shader.
+        const cA = iA % RIBBON_COLS, cB = iB % RIBBON_COLS, cC = iC % RIBBON_COLS;
+        if (Math.min(cA, cB, cC) < 1 || Math.max(cA, cB, cC) > RIBBON_COLS - 2) continue;
+      }
+      const ax = pos[iA * 3], ay = pos[iA * 3 + 1], az = pos[iA * 3 + 2];
+      const bx = pos[iB * 3], by = pos[iB * 3 + 1], bz = pos[iB * 3 + 2];
+      const cx = pos[iC * 3], cy = pos[iC * 3 + 1], cz = pos[iC * 3 + 2];
+      for (let i = 0; i <= S; i++) {
+        for (let j = 0; j <= S - i; j++) {
+          const l1 = i / S, l2 = j / S, l0 = 1 - l1 - l2;
+          const x = l0 * ax + l1 * bx + l2 * cx;
+          const z = l0 * az + l1 * bz + l2 * cz;
+          const y = l0 * ay + l1 * by + l2 * cy;
+          const d = y - island.heightAt(x, z);
+          checked++;
+          if (d < worst) { worst = d; worstAt = `${m.name}@(${x.toFixed(1)},${z.toFixed(1)})`; }
+        }
+      }
+    }
+  }
+  check('surface des rubans au-dessus du terrain', worst > 0.005,
+    `${checked} échantillons, marge min ${worst.toFixed(3)} (${worstAt})`);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;

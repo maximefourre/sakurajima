@@ -320,6 +320,170 @@ export function computeLanternSpots(heightAt, slopeAt = null) {
 /** Filled by createDetails — last lantern feet placed (read-only snapshot). */
 export let lanternSpots = [];
 
+/* ────────────────────────────────────────────────────────────────
+   Packed-earth surfaces — PURE builders, shared with the invariant
+   bench (test/invariants.html) so the test proves the exact geometry
+   the game renders, not a reimplementation of it.
+   ──────────────────────────────────────────────────────────────── */
+
+/** Probe radius for groundMax — must cover the DIAMETER of the largest ribbon
+ *  or pad triangle (~1.3 u here) so every triangle rests on ground it has
+ *  probed. Grow it if the tessellation below ever gets coarser. */
+const GROUND_PROBE_R = 1.5;
+
+/**
+ * Max of heightAt over a 7x7 grid spanning +-r around (x, z).
+ *
+ * Correctif DEFINITIF des perforations (patchs verts anguleux SUR le chemin) :
+ * le ruban interpole SES triangles entre SES sommets, le terrain bake les
+ * SIENS (pas 1.9 a 4.6 u selon le tier) — une crete de terrain tombant entre
+ * deux sommets du ruban remontait a travers la terre battue. Rehausser a
+ * l'aveugle ne fait que deplacer le seuil. Ici chaque sommet prend le MAX du
+ * sol sur un disque couvrant tous les triangles auxquels il appartient : toute
+ * combinaison convexe de tels sommets reste alors au-dessus de toute crete
+ * sous le triangle, quel que soit le tier — avec un lift PLUS PETIT qu'avant.
+ */
+function groundMax(heightAt, x, z, r = GROUND_PROBE_R) {
+  let m = -Infinity;
+  const s = r / 3;
+  for (let j = -3; j <= 3; j++) {
+    for (let i = -3; i <= 3; i++) {
+      const h = heightAt(x + i * s, z + j * s);
+      if (h > m) m = h;
+    }
+  }
+  return m;
+}
+
+/** Columns across the ribbon. f = 1 - c/3 runs +1 (left edge) -> -1 (right). */
+export const RIBBON_COLS = 7;
+
+/**
+ * Ribbon vertex/index data for every route. Deterministic (seeded fbm only).
+ *
+ * - 7 colonnes (les 5 d'avant laissaient ~1.35 u entre echantillons lateraux)
+ *   et pas axial ~0.7 u : les triangles restent sous GROUND_PROBE_R.
+ * - Chaque sommet: y = groundMax + lift, lift 0.06 (bord) -> 0.12 (axe), sous
+ *   les 0.07 -> 0.14 d'avant — zero perforation avec un relief MOINDRE.
+ * - liftBias par route resserre encore (0/0.02/0.04, avant 0/0.03/0.06) : les
+ *   etages du carrefour lisaient comme des marches.
+ *
+ * @param {Function} heightAt
+ * @returns {{name:string, cols:number, rows:number, pos:number[],
+ *            edge:number[], edgeRaw:number[], idx:number[]}[]}
+ */
+export function computeRibbonMeshes(heightAt) {
+  const out = [];
+  const p = new THREE.Vector3(), tn = new THREE.Vector3();
+  for (const route of _routes) {
+    const len = route.curve.getLength();
+    const N = Math.max(260, Math.min(640, Math.round(len / 0.7)));
+    const pos = [], edge = [], edgeRaw = [], idx = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      // Closed curves: t=1 wraps to the start. Open: getPointAt(1) is fine.
+      if (route.closed) {
+        route.curve.getPointAt(t >= 1 ? 0 : t, p);
+        route.curve.getTangentAt(t >= 1 ? 0 : Math.min(t, 0.9999), tn);
+      } else {
+        route.curve.getPointAt(t, p);
+        route.curve.getTangentAt(Math.min(t, 0.9999), tn);
+      }
+      const l = Math.hypot(tn.x, tn.z) || 1;
+      const nx = -tn.z / l, nz = tn.x / l;
+      // FUSELAGE : seule la FIN de la plage meurt en pointe dans le sable.
+      // Le DEPART des routes ouvertes garde sa PLEINE largeur — il est au
+      // carrefour, pas en pleine nature, et le pincement de depart y lisait
+      // comme un coup de pinceau leve pose sur l'herbe (capture joueur).
+      // La fusion des trois routes est faite par le patin de carrefour.
+      let tap = 1;
+      if (!route.closed && route.name === 'plage') {
+        tap = 1 - smoothstep(0.94, 1, t);
+      }
+      // Etages du carrefour : chaque route garde son etage (empilement
+      // deterministe, pas de z-fight), resserres pour ne plus lire comme des
+      // marches. Le patin de carrefour est SOUS le plus bas (0.04 < 0.06+0).
+      const liftBias = route.name === 'etangs' ? 0 : route.name === 'torii' ? 0.02 : 0.04;
+      // Liseres (verdissement + effilochage) neutralises pres du depart :
+      // sinon chaque ruban dessine sa frange verte par-dessus la terre de
+      // l'autre et du patin.
+      const edgeK = route.closed ? 1 : smoothstep(0.015, 0.06, t);
+      const wk = 0.02 + 0.98 * tap;
+      // INDEPENDENT widths per side — one symmetric width is what read as a
+      // ruled band with two straight edges. Plancher 0.78 : plus bas, le
+      // ruban s'amincissait a la moitie de sa largeur nominale.
+      const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
+      const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
+      for (let c = 0; c < RIBBON_COLS; c++) {
+        const f = 1 - c / 3;               // +1 (bord gauche) .. -1 (bord droit)
+        const w = f >= 0 ? wL : wR;
+        const cx = p.x + nx * w * f, cz = p.z + nz * w * f;
+        const edg = Math.abs(f);
+        const lift = 0.06 + 0.06 * (1 - edg);   // camber: 0.06 bord -> 0.12 axe
+        edgeRaw.push(edg);
+        edge.push(edg * edgeK);
+        pos.push(cx, groundMax(heightAt, cx, cz) + lift + liftBias, cz);
+      }
+      if (i < N) {
+        // Winding chosen so the faces point UP — the trap that has now bitten
+        // this project four times (ocean disc, corolla, bird wings, and this
+        // ribbon): with the default FrontSide material a downward-wound strip
+        // simply does not render, silently.
+        const a = i * RIBBON_COLS, b = a + RIBBON_COLS;
+        for (let c = 0; c < RIBBON_COLS - 1; c++) {
+          idx.push(a + c, b + c, a + c + 1, a + c + 1, b + c, b + c + 1);
+        }
+      }
+    }
+    out.push({ name: route.name, cols: RIBBON_COLS, rows: N + 1, pos, edge, edgeRaw, idx });
+  }
+  return out;
+}
+
+/**
+ * Le PATIN DE CARREFOUR : un disque irregulier de terre battue centre sur le
+ * premier point du reseau (les trois routes y naissent), meme recette de
+ * contour fbm que la terrasse des torii, aPathEdge -> 1 au pourtour pour
+ * l'effilochage. Pose a l'etage LE PLUS BAS (lift 0.04, sous le bord de ruban
+ * 0.06) : les trois rubans pleine largeur le recouvrent sans marche. Tesselle
+ * en anneaux (pas ~1 u) et pose sur groundMax — meme garantie anti-
+ * perforation que les rubans. Aucune lanterne n'y est generee.
+ *
+ * @param {Function} heightAt
+ * @returns {{name:string, pos:number[], edge:number[], edgeRaw:number[], idx:number[]}}
+ */
+export function computeJunctionPad(heightAt) {
+  const [jx, jz] = PATHS.routes[0].points[0];
+  const RINGS = 8, SEGS = 56;
+  const R0 = PATHS.width * 1.6;
+  const pos = [], edge = [], edgeRaw = [], idx = [];
+  pos.push(jx, groundMax(heightAt, jx, jz) + 0.04, jz);
+  edge.push(0); edgeRaw.push(0);
+  for (let k = 1; k <= RINGS; k++) {
+    for (let s = 0; s < SEGS; s++) {
+      const a = (s / SEGS) * TAU;
+      const rr = R0 * (0.82 + 0.28 * fbm2(Math.cos(a) * 2.1 + 5.0, Math.sin(a) * 2.1, 2));
+      const r = rr * (k / RINGS);
+      const px = jx + Math.cos(a) * r, pz = jz + Math.sin(a) * r;
+      pos.push(px, groundMax(heightAt, px, pz) + 0.04, pz);
+      edge.push(k / RINGS); edgeRaw.push(k / RINGS);
+    }
+  }
+  const id = (k, s) => 1 + (k - 1) * SEGS + ((s % SEGS + SEGS) % SEGS);
+  // Fan: same proven up winding as the ocean disc / overlook terrace
+  // (centre, next, current).
+  for (let s = 0; s < SEGS; s++) idx.push(0, id(1, s + 1), id(1, s));
+  // Rings: (i0, i1, o0) / (i1, o1, o0) — cross(tangential, radial) points UP.
+  for (let k = 1; k < RINGS; k++) {
+    for (let s = 0; s < SEGS; s++) {
+      const i0 = id(k, s), i1 = id(k, s + 1);
+      const o0 = id(k + 1, s), o1 = id(k + 1, s + 1);
+      idx.push(i0, i1, o0, i1, o1, o0);
+    }
+  }
+  return { name: 'carrefour', pos, edge, edgeRaw, idx };
+}
+
 /* ── art direction ───────────────────────────────────────────────
  * Four species, weighted. The white daisy is the workhorse and reads at the
  * longest range; the others are accents. Deep violet is only 8% of the mix —
@@ -842,93 +1006,31 @@ export function createDetails({
     disposables.push(pathMat);
 
     const p = new THREE.Vector3(), tn = new THREE.Vector3();
-    const N = 260;
 
-    // One ribbon geometry per route — same lateral fbm widths, aPathEdge cutout,
-    // and world-space grit as the old single pilgrim path.
-    for (const route of _routes) {
-      const pos = [], col = [], idx = [], edge = [];
-      for (let i = 0; i <= N; i++) {
-        const t = i / N;
-        // Closed curves: t=1 wraps to the start. Open: getPointAt(1) is fine.
-        if (route.closed) {
-          route.curve.getPointAt(t >= 1 ? 0 : t, p);
-          route.curve.getTangentAt(t >= 1 ? 0 : Math.min(t, 0.9999), tn);
-        } else {
-          route.curve.getPointAt(t, p);
-          route.curve.getTangentAt(Math.min(t, 0.9999), tn);
-        }
-        const l = Math.hypot(tn.x, tn.z) || 1;
-        const nx = -tn.z / l, nz = tn.x / l;
-        // INDEPENDENT widths per side — one symmetric width is what read as a
-        // ruled band with two straight edges.
-        // Plancher relevé (0.55 → 0.78) : avec l'ancien, le ruban s'amincissait
-        // par endroits à la moitié de sa largeur nominale et l'exclusion
-        // d'herbe (calée sur l'axe) laissait une berge de « vide » vert.
-        // FUSELAGE des extrémités ouvertes : un chemin ne s'arrête pas net en
-        // dalle (capture joueur), il s'amincit et se dissout. Le départ de
-        // chaque route ouverte pince sur ~3.5 % ; la route de la plage meurt
-        // aussi en pointe dans le sable. La fin de la montée aux torii reste
-        // pleine : elle se fond dans la terrasse.
-        let tap = 1;
-        if (!route.closed) {
-          tap = smoothstep(0, 0.035, t);
-          if (route.name === 'plage') tap *= 1 - smoothstep(0.94, 1, t);
-        }
-        // Au CARREFOUR les rubans se superposent : chaque route a son étage
-        // (liftBias) pour un empilement déterministe, et les liserés
-        // (verdissement + effilochage) sont neutralisés à l'approche du
-        // départ — sinon chaque ruban dessinait sa frange verte par-dessus la
-        // terre de l'autre (« ils mergent pas naturellement », capture).
-        // Étages resserrés : à +0.16/0.40 le ruban devenait un PLATELAGE posé
-        // sur l'herbe — les pattes du shiba passaient dessous et l'herbe rase
-        // disparaissait dedans (captures joueur). Le chien marche désormais
-        // sur la surface via pathProximity (sol composite des movers).
-        const liftBias = route.name === 'etangs' ? 0 : route.name === 'torii' ? 0.03 : 0.06;
-        const edgeK = route.closed ? 1 : smoothstep(0.015, 0.06, t);
-        const wk = 0.02 + 0.98 * tap;
-        const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
-        const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
-        // 5 colonnes et rehausse franche : à 3 colonnes posées à +0.08, les
-        // triangles du TERRAIN (pas ~2-3 u) gonflaient au travers du ruban
-        // entre deux échantillons — les « patchs verts anguleux en plein
-        // chemin » de la capture joueur. Plus de colonnes = le ruban épouse le
-        // travers ; plus haut = le terrain ne le transperce plus.
-        const cols = [
-          [p.x + nx * wL, p.z + nz * wL, 0.07, 1],
-          [p.x + nx * wL * 0.5, p.z + nz * wL * 0.5, 0.11, 0.5],
-          [p.x, p.z, 0.14, 0],
-          [p.x - nx * wR * 0.5, p.z - nz * wR * 0.5, 0.11, 0.5],
-          [p.x - nx * wR, p.z - nz * wR, 0.07, 1],
-        ];
-        for (let c = 0; c < 5; c++) {
-          const [cx, cz, lift, edg] = cols[c];
-          edge.push(edg * edgeK);
-          pos.push(cx, heightAt(cx, cz) + lift + liftBias, cz);
-          // worn lighter along the crown, darker at the verges
-          const v = (edg < 0.25 ? 1.06 : 0.86 + 0.14 * (1 - edg)) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
-          col.push(base.r * v, base.g * v, base.b * v);
-        }
-        if (i < N) {
-          // Winding chosen so the faces point UP — the trap that has now bitten
-          // this project four times (ocean disc, corolla, bird wings, and this
-          // ribbon): with the default FrontSide material a downward-wound strip
-          // simply does not render, silently.
-          const a = i * 5, b = a + 5;
-          for (let c = 0; c < 4; c++) {
-            idx.push(a + c, b + c, a + c + 1, a + c + 1, b + c, b + c + 1);
-          }
-        }
+    // One ribbon geometry per route + le patin de carrefour, tous produits
+    // par les builders PURS partages avec test/invariants.html (invariant 8 :
+    // la surface interpolee des rubans reste au-dessus de heightAt partout).
+    // La geometrie testee est EXACTEMENT celle rendue.
+    const surfaces = computeRibbonMeshes(heightAt);
+    surfaces.push(computeJunctionPad(heightAt));
+    for (const surf of surfaces) {
+      const col = [];
+      for (let vi = 0; vi < surf.edgeRaw.length; vi++) {
+        const cx = surf.pos[vi * 3], cz = surf.pos[vi * 3 + 2];
+        const edg = surf.edgeRaw[vi];
+        // worn lighter along the crown, darker at the verges
+        const v = (edg < 0.25 ? 1.06 : 0.86 + 0.14 * (1 - edg)) * (0.92 + 0.16 * fbm2(cx * 0.21, cz * 0.21, 2));
+        col.push(base.r * v, base.g * v, base.b * v);
       }
       const pathGeo = new THREE.BufferGeometry();
-      pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      pathGeo.setAttribute('position', new THREE.Float32BufferAttribute(surf.pos, 3));
       pathGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      pathGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(edge, 1));
-      pathGeo.setIndex(idx);
+      pathGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(surf.edge, 1));
+      pathGeo.setIndex(surf.idx);
       pathGeo.computeVertexNormals();
       disposables.push(pathGeo);
       const path = new THREE.Mesh(pathGeo, pathMat);
-      path.name = `path-${route.name}`;
+      path.name = `path-${surf.name}`;
       path.receiveShadow = true;
       group.add(path);
     }
