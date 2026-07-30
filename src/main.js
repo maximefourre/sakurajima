@@ -23,7 +23,7 @@ import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
 import { createShiba } from './shiba.js';
-import { createDetails, isOnPath, initPath, pathProximity, PATH_SURFACE_LIFT } from './details.js';
+import { createDetails, isOnPath, initPath, pathSurfaceLiftAt } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -302,7 +302,9 @@ async function boot() {
   // groundAt is the mover surface (dog, follow camera): the terrain PLUS la
   // surface de terre battue de la sente — sans quoi les pattes du shiba
   // traversent le ruban (il marchait sur le terrain SOUS le chemin).
-  world.groundAt = (x, z) => world.heightAt(x, z) + PATH_SURFACE_LIFT * pathProximity(x, z);
+  // pathSurfaceLiftAt suit la VRAIE surface des rubans (groundMax + bombé) :
+  // un lift constant les sous-estimait d'~1 u en pente depuis l'anti-perforation.
+  world.groundAt = (x, z) => world.heightAt(x, z) + pathSurfaceLiftAt(world.heightAt, x, z);
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });
@@ -427,7 +429,11 @@ async function boot() {
   await step('shiba');
   world.shiba = createShiba({
     seed: SEED,
-    heightAt: world.heightAt,
+    // groundAt, pas heightAt : le chien marche SUR la terre battue des sentes
+    // (le commentaire de groundAt le promettait, le câblage passait le terrain
+    // nu — invisible tant que le ruban collait au sol, enfouissement d'~1 u en
+    // pente depuis le passage des rubans sur groundMax).
+    heightAt: world.groundAt,
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     isInPond: world.inWater,

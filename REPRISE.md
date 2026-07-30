@@ -669,3 +669,25 @@ unique, zéro perforation, zéro marche, pointe de fin de plage conservée).
 - Reste à surveiller en jeu : l'enfoncement des pattes du shiba sur la jupe
   externe du patin (≤ ~4 cm théorique), l'herbe haute qui traverse la jupe
   (lit comme des touffes de berge, acceptable à la review).
+
+## Régression chantier C corrigée + chantier E livré (30/07/2026 nuit)
+
+- **RÉGRESSION C (« je glitch à travers », capture joueur)** : le ruban étant
+  passé sur `groundMax`, en pente sa surface s'éloigne de `heightAt` (~1 u) ;
+  or le sol composite des movers restait `heightAt + 0.13·prox` ET le shiba
+  recevait en fait `heightAt` BRUT (incohérence préexistante masquée tant que
+  le ruban collait au sol). Correctif (Claude, micro-retouche) :
+  `pathSurfaceLiftAt(heightAt,x,z)` exporté par details.js — suit la vraie
+  surface (groundMax + bombé 0.04→0.12 par proximité, patin fondu au
+  pourtour) ; branché dans `world.groundAt` ET passé à `createShiba`.
+  Vérifié : shiba posé sur la montée aux torii (rise 0.37 absorbé),
+  invariants 8/8. `PATH_SURFACE_LIFT` reste exporté mais n'est plus utilisé.
+- **Chantier E (Codex sol, effort high — premier chantier Codex réussi)** :
+  hokora de pierre procédural (marches, maisonnette, toit à deux pans,
+  ouverture sombre, 117 tris) + deux gardiens canins assis à bavoir/collier
+  vermillon (349 tris chacun) au bout de la route 'torii', posés sur la
+  terrasse falaise, face à l'arrivée du chemin, passage central 1.5 u.
+  Déterministe (aucun RNG), vertex colors + flatShading, disposables OK.
+  Review Claude : diff relu, node --check, invariants 8/8 Chrome réel,
+  visuel terrasse (rien ne flotte, lanternes intactes, très joli face à la
+  mer). Codex n'avait pas accès réseau au serveur — vérifs faites par Claude.

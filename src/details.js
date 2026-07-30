@@ -355,6 +355,34 @@ function groundMax(heightAt, x, z, r = GROUND_PROBE_R) {
   return m;
 }
 
+/**
+ * Surface de MARCHE de la terre battue, en hauteur AU-DESSUS de heightAt(x,z).
+ *
+ * Depuis le passage des rubans sur groundMax (anti-perforation), en pente la
+ * surface visible peut être ~1 u au-dessus du terrain nu : un mover posé sur
+ * heightAt + constante s'enfonce dedans (« je glitch à travers », capture
+ * joueur). Ici on suit la VRAIE surface : groundMax + bombé du ruban
+ * (0.06 bord → 0.12 axe via la proximité), et le patin de carrefour
+ * (groundMax + 0.04, fondu vers le pourtour effiloché). Fondu par la
+ * proximité pour rejoindre le terrain nu à la berge.
+ */
+export function pathSurfaceLiftAt(heightAt, x, z) {
+  const prox = pathProximity(x, z);
+  const [jx, jz] = PATHS.routes[0].points[0];
+  const dx = x - jx, dz = z - jz;
+  const padR = PATHS.width * 1.6;
+  const d2 = dx * dx + dz * dz;
+  let padProx = 0;
+  if (d2 < padR * padR) {
+    padProx = clamp(1 - (Math.sqrt(d2) - padR * 0.55) / (padR * 0.40), 0, 1);
+  }
+  if (prox <= 0 && padProx <= 0) return 0;
+  const rise = Math.max(0, groundMax(heightAt, x, z) - heightAt(x, z));
+  const ribbon = prox > 0 ? prox * (rise + 0.04 + 0.08 * prox) : 0;
+  const pad = padProx > 0 ? padProx * (rise + 0.04) : 0;
+  return Math.max(ribbon, pad);
+}
+
 /** Columns across the ribbon. f = 1 - c/3 runs +1 (left edge) -> -1 (right). */
 export const RIBBON_COLS = 7;
 
@@ -643,6 +671,146 @@ function makeLanternGeometry() {
   // A six-sided roof with a pronounced flare, and a finial.
   part(new THREE.ConeGeometry(0.56, 0.34, 6, 1), STONE, 2.01, Math.PI / 6);
   part(new THREE.SphereGeometry(0.10, 8, 6), STONE, 2.22);
+
+  const merged = mergeGeometries(parts);
+  for (const p of parts) p.dispose();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   Cliff-top hokora and canine guardians
+   ──────────────────────────────────────────────────────────────── */
+
+/**
+ * A modest stone hokora: two shallow steps, a single-cell shrine, dark
+ * opening, projecting gable roof and ridge cap. Local +Z is the facade.
+ */
+function makeHokoraGeometry() {
+  const parts = [];
+  const tint = new THREE.Color();
+
+  const part = (geo, hex, x, y, z, rz = 0, rx = 0) => {
+    if (rz) geo.rotateZ(rz);
+    if (rx) geo.rotateX(rx);
+    geo.translate(x, y, z);
+    tint.setHex(hex);
+    const n = geo.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      c[i * 3] = tint.r;
+      c[i * 3 + 1] = tint.g;
+      c[i * 3 + 2] = tint.b;
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+    geo.deleteAttribute('uv');
+    parts.push(geo);
+  };
+
+  part(new THREE.BoxGeometry(1.52, 0.20, 1.18), STONE_DARK, 0, 0.10, 0);
+  part(new THREE.BoxGeometry(1.30, 0.18, 1.00), STONE, 0, 0.29, 0);
+  part(new THREE.BoxGeometry(1.10, 1.20, 0.84), STONE, 0, 0.98, 0);
+
+  // Front gable closes the triangular wall under the two roof planes.
+  {
+    const gable = new THREE.BufferGeometry();
+    gable.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.55, 1.58, 0.425,
+       0.55, 1.58, 0.425,
+       0.00, 2.00, 0.425,
+    ], 3));
+    // Seen from the approach, this order points toward local +Z.
+    gable.setIndex([0, 1, 2]);
+    gable.computeVertexNormals();
+    part(gable, STONE, 0, 0, 0);
+  }
+
+  // The opening is a deliberately shallow dark inset rather than a painted
+  // mark, so the facade keeps a readable recess in hard daylight.
+  part(new THREE.BoxGeometry(0.54, 0.68, 0.055), TORII_DARK, 0, 1.08, 0.455);
+  part(new THREE.BoxGeometry(0.68, 0.10, 0.16), STONE_DARK, 0, 0.70, 0.49);
+
+  const roofTilt = 0.48;
+  part(new THREE.BoxGeometry(0.88, 0.12, 1.28), STONE_DARK,
+    -0.36, 1.82, 0, roofTilt);
+  part(new THREE.BoxGeometry(0.88, 0.12, 1.28), STONE_DARK,
+     0.36, 1.82, 0, -roofTilt);
+  part(new THREE.CylinderGeometry(0.075, 0.075, 1.36, 8), STONE_DARK,
+    0, 2.05, 0, 0, Math.PI * 0.5);
+
+  const merged = mergeGeometries(parts);
+  for (const p of parts) p.dispose();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/**
+ * One seated low-poly canine guardian. Local +Z is the direction it watches.
+ * The vermilion collar and bib echo the torii without turning the statue into
+ * a painted figure.
+ */
+function makeCanineGuardianGeometry() {
+  const parts = [];
+  const tint = new THREE.Color();
+
+  const part = (geo, hex, x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) => {
+    geo.scale(sx, sy, sz);
+    if (rx) geo.rotateX(rx);
+    if (rz) geo.rotateZ(rz);
+    geo.translate(x, y, z);
+    tint.setHex(hex);
+    const n = geo.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      c[i * 3] = tint.r;
+      c[i * 3 + 1] = tint.g;
+      c[i * 3 + 2] = tint.b;
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+    geo.deleteAttribute('uv');
+    parts.push(geo);
+  };
+
+  part(new THREE.CylinderGeometry(0.27, 0.30, 0.12, 8), STONE_DARK,
+    0, 0.06, 0);
+  part(new THREE.SphereGeometry(0.28, 7, 5), STONE,
+    0, 0.39, -0.04, 0.78, 1.18, 0.82);
+  part(new THREE.SphereGeometry(0.25, 7, 5), STONE,
+    0, 0.70, 0.07, 0.92, 0.96, 0.90);
+  part(new THREE.BoxGeometry(0.22, 0.16, 0.20), STONE,
+    0, 0.66, 0.27);
+  part(new THREE.SphereGeometry(0.055, 6, 4), STONE_DARK,
+    0, 0.68, 0.385);
+
+  // Tall ears and compact forepaws make the dog/fox silhouette legible from
+  // the path even at this deliberately small scale.
+  part(new THREE.ConeGeometry(0.095, 0.27, 5), STONE,
+    -0.13, 0.94, 0.06, 1, 1, 1, 0, 0.10);
+  part(new THREE.ConeGeometry(0.095, 0.27, 5), STONE,
+     0.13, 0.94, 0.06, 1, 1, 1, 0, -0.10);
+  part(new THREE.BoxGeometry(0.12, 0.30, 0.13), STONE,
+    -0.12, 0.24, 0.17);
+  part(new THREE.BoxGeometry(0.12, 0.30, 0.13), STONE,
+     0.12, 0.24, 0.17);
+
+  // A raised tapered tail is kept clear of the back so it reads in silhouette.
+  part(new THREE.ConeGeometry(0.13, 0.48, 6), STONE,
+    0.20, 0.42, -0.27, 1, 1, 1, -0.76, 0.18);
+  part(new THREE.TorusGeometry(0.205, 0.032, 5, 10), VERMILION,
+    0, 0.58, 0.04, 1, 1, 1, Math.PI * 0.5);
+
+  {
+    const bib = new THREE.BufferGeometry();
+    bib.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.16, 0.57, 0.285,
+       0.16, 0.57, 0.285,
+       0.00, 0.35, 0.315,
+    ], 3));
+    // Front face toward local +Z, matching the gable and the approach view.
+    bib.setIndex([0, 2, 1]);
+    bib.computeVertexNormals();
+    part(bib, VERMILION, 0, 0, 0);
+  }
 
   const merged = mergeGeometries(parts);
   for (const p of parts) p.dispose();
@@ -1076,6 +1244,58 @@ export function createDetails({
       terrace.name = 'overlook-terrace';
       terrace.receiveShadow = true;
       group.add(terrace);
+    }
+
+    // — a canine deity's hokora at the cliff side of the terrace —
+    {
+      const shrineRoute = _routes.find((r) => r.name === 'torii');
+      if (shrineRoute) {
+        const end = shrineRoute.points[shrineRoute.points.length - 1];
+        shrineRoute.curve.getTangentAt(0.9999, tn);
+        const tl = Math.hypot(tn.x, tn.z) || 1;
+        const tx = tn.x / tl, tz = tn.z / tl;
+        const nx = -tz, nz = tx;
+
+        // Local +Z faces back down the final path tangent, toward the player.
+        const facing = Math.atan2(-tx, -tz);
+        const shrineGeo = makeHokoraGeometry();
+        const guardianGeo = makeCanineGuardianGeometry();
+        const shrineMat = new THREE.MeshStandardMaterial({
+          vertexColors: true, roughness: 0.94, metalness: 0, flatShading: true,
+        });
+        disposables.push(shrineGeo, guardianGeo, shrineMat);
+
+        // The shrine sits beyond the route end, on the west/cliff half of the
+        // pad. Its broad bottom step is sunk slightly into the raised earth.
+        const shrineX = end[0] + tx * 1.40;
+        const shrineZ = end[1] + tz * 1.40;
+        const hokora = new THREE.Mesh(shrineGeo, shrineMat);
+        hokora.name = 'cliff-hokora';
+        hokora.position.set(shrineX, heightAt(shrineX, shrineZ) + 0.10, shrineZ);
+        hokora.rotation.y = facing;
+        hokora.castShadow = true;
+        hokora.receiveShadow = true;
+
+        // Guardians frame a central 1.5 u opening. They remain well inside the
+        // terrace pair of lanterns (offset about 3.7 u) and do not overlap them.
+        const guardians = new THREE.Group();
+        guardians.name = 'cliff-hokora-guardians';
+        for (const side of [-1, 1]) {
+          const forward = 0.34;
+          const lateral = 1.02 * side;
+          const gx = end[0] + tx * forward + nx * lateral;
+          const gz = end[1] + tz * forward + nz * lateral;
+          const statue = new THREE.Mesh(guardianGeo, shrineMat);
+          statue.name = side < 0 ? 'guardian-canine-left' : 'guardian-canine-right';
+          statue.position.set(gx, heightAt(gx, gz) + 0.11, gz);
+          statue.rotation.y = facing + side * 0.08;
+          statue.castShadow = true;
+          statue.receiveShadow = true;
+          guardians.add(statue);
+        }
+
+        group.add(hokora, guardians);
+      }
     }
 
     // — torii only on the 'torii' climb, oriented across the path —
