@@ -282,6 +282,20 @@ const K_SUN_INTENSITY = [
  * the Purkinje shift means we *perceive* night as blue, and cinema agrees. */
 const MOON_COLOR_HIGH = new THREE.Color().setHex(0x8ea9dc);
 const MOON_COLOR_LOW = new THREE.Color().setHex(0xd6b493); // moon on the horizon goes amber
+/** Moon disc high-altitude colour — hoisted so update() never allocates. */
+const MOON_DISK_HIGH = new THREE.Color(0xf6f2e4);
+/** Residual twilight glow on the night dome — selected once per season. */
+const TWILIGHT_GLOW_SPRING = new THREE.Color(0xff7a33);
+const TWILIGHT_GLOW_AUTUMN = new THREE.Color(0xe75b22);
+
+/* Autumn atmosphere grades — applied after trackColor, zero at deep night. */
+const AUTUMN_SUN_GRADE = new THREE.Color(0xffb45f);
+const AUTUMN_HEMI_SKY_GRADE = new THREE.Color(0xaebbc5);
+const AUTUMN_HEMI_GROUND_GRADE = new THREE.Color(0x7b5430);
+const AUTUMN_FOG_GRADE = new THREE.Color(0xc9aa87);
+const AUTUMN_SKY_TINT = new THREE.Color(0xffd0a2);
+const SKY_TINT_IDENTITY = new THREE.Color(0xffffff);
+
 // Peaks at ~23% of the noon sun — a cinematic bright night, not a black one.
 // The land has to stay READABLE at midnight or the whole night shift is wasted.
 const K_MOON_INTENSITY = [
