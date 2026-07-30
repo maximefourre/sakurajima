@@ -1,8 +1,10 @@
 # Sakurajima — état des lieux et reste à faire
 
-Île 3D en three.js couverte de cerisiers, vent en bourrasques qui emporte les pétales
-et couche l'herbe, cycle jour/nuit complet, relief et rochers, étangs à carpes koi,
-oiseaux, nuages.
+Île 3D en three.js couverte de cerisiers (ou d'érables momiji en automne), vent
+en bourrasques qui emporte les pétales et couche l'herbe, cycle jour/nuit complet,
+relief et rochers, étangs à carpes koi, oiseaux, nuages, réseau de chemins
+lanternés avec torii, shiba jouable. Deux saisons : `?season=spring|autumn`,
+choix persistant, tout est recolorié à la construction.
 
 **Machine cible :** Apple M4 Max, 32 cœurs GPU → budgets calibrés généreusement.
 **three.js 0.185.1** via importmap unpkg, aucun build step.
@@ -16,7 +18,9 @@ python3 serve.py 5173      # serveur no-store + charset utf-8 (indispensable, vo
 open http://127.0.0.1:5173/index.html
 ```
 
-Bancs d'essai isolés : `test/petals.html`
+Bancs d'essai isolés : `test/invariants.html` (le juge de paix — 7 pass
+attendus), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`,
+`test/atmosphere.html`.
 
 ---
 
@@ -34,30 +38,85 @@ Bancs d'essai isolés : `test/petals.html`
 | `src/sakura.js` | ✅ | 5 archétypes d'arbres. Attention à ses noms d'options : `isLand`, `windUniforms`, `quality` **numérique**. |
 | `src/grass.js` | ✅ | Herbe instanciée. Hook `exclude` ajouté pour la garder hors de l'eau. |
 | `src/sky.js` | ✅ | Cycle jour/nuit. Le gain du dôme est keyframé, pas constant. |
-| `src/river.js` | ✅ | Rivière + pont japonais, creusés dans le heightfield. |
-| `src/ponds.js` | ✅ | Étangs, carpes koi, nénuphars. |
+| `src/ponds.js` | ✅ | Étangs, carpes koi, nénuphars. (La rivière et le pont ont été SUPPRIMÉS le 29/07 sur décision utilisateur — ne pas réintroduire.) |
+| `src/details.js` | ✅ | Fleurs sauvages, réseau de 3 routes (`PATHS`), torii, lanternes générées le long des routes, galets. Exporte `isOnPath`/`initPath`. |
+| `src/detailtex.js` | ✅ | Bump maps générées (grain sol/roche, veinage bois), zéro texture externe. |
+| `src/season.js` | ✅ | Résolveur pur de saison : URL → localStorage → `spring`. |
+| `src/seasonal-foliage.js` | ✅ | Profils de feuillage partagés sakura/momiji (silhouette, dominantes, palettes) pour couronnes, feuilles en vol et tapis. |
 | `src/birds.js` | ✅ | Vol en boids, perchoir nocturne, `setRepeller` pour le shiba. |
 | `src/clouds.js` | ✅ | Cumulus proches à parallaxe, dérivant avec le vent partagé. |
 | `src/shiba.js` | ✅ | Le personnage jouable. Voir §5. |
 
 ---
 
+## Chantiers ouverts du 30/07 (feedback joueur, captures à l'appui)
+
+Implémentation déléguée à **Codex gpt-5.6-sol** (sous-agent `codex-rescue` du
+plugin — vérifié prêt et authentifié le 30/07) pour économiser le quota du
+modèle principal ; brief précis + review Claude entre chaque chantier.
+Un chantier à la fois. Grok CLI toujours non authentifié.
+
+- **C — Chemins** *(EN COURS le 30/07 soir, agent de repli Claude)* :
+  1) taches vertes anguleuses SUR le ruban = triangles du terrain qui
+  regonflent à travers entre deux échantillons (récurrent, le passage à
+  5 colonnes n'a pas suffi) — correctif définitif exigé (max de `heightAt`
+  sur un voisinage par sommet et/ou section plus dense, PAS une simple
+  rehausse : le relief actuel est déjà jugé trop visible) + nouvel invariant
+  anti-perforation dans `test/invariants.html` (→ 8 pass) ;
+  2) jonction au carrefour (~(19, −95)) : supprimer le pincement de départ
+  des routes ouvertes (`tap = smoothstep(0, 0.035, t)`, details.js ~873),
+  pleine largeur à t=0 + patin de carrefour façon terrasse (étage le plus
+  bas). Garder le fuselage de FIN de 'plage', les lanternes intactes.
+- **E — Autel de divinité canine** : petit hokora de pierre au BOUT de la
+  route 'torii', sur la terrasse de la falaise (details.js ~936-966) —
+  statuette chien gardien ou kitsune, 100 % procédural façon lanternes/torii.
+  Après C (même fichier).
+- **A — Arbres automne** : couronnes momiji trop dégarnies → monter
+  `foliageDensity` automne (main.js ~315 : 2.1/1.7/1.2, l'automne a de la
+  marge fps vs printemps) « beau, pas réaliste dégarni » ; ET supprimer les
+  branches qui descendent près du sol / pointent vers le bas sans raison
+  (sakura.js, récursion des branches ~461) — plancher de hauteur des pointes
+  feuillues, silhouettes printemps à préserver.
+- **B — Tapis de feuilles au sol** : 1) automne trop clairsemé →
+  multiplicateur sur `CARPET_COUNT` (petals.js ~475) + tailles ~0.34-0.62 ;
+  2) une part dispersée hors couronnes (vent) y compris sur les chemins ;
+  3) silhouettes illisibles à cette taille — les feuilles doivent LIRE
+  momiji en automne, pétale/corolle sakura au printemps ;
+  4) plus de feuilles TOMBÉES vertes : remapper la dominante green → jaune
+  pour le tapis ET les feuilles en vol (les couronnes gardent leurs verts).
+- **D — Perf générales / LOD** : cadrage à écrire. Piste : découper feuillage
+  forêt + tapis en chunks spatiaux (InstancedMesh par chunk, culling frustum
+  par bounding sphere + décimation par distance via drawRange sur instances
+  pré-mélangées) — même patron que l'herbe. Profiler d'abord (printemps
+  ≈40 fps ultra, 62 M tris en vue sol).
+
 ## Reste à faire, par priorité
 
-### 1. Les cerisiers lisent comme un verger, pas comme un nuage rose
-Maintenant que la structure de branches se construit vraiment (le budget de
-branches valait NaN — voir `REPRISE.md` #6), les arbres montrent beaucoup
-d'écorce sombre. C'est correct et un peu triste. Les leviers, dans l'ordre
-d'efficacité : la taille des fleurs (`size` par archétype dans `sakura.js`,
-0.09–0.215 aujourd'hui), puis `foliageDensity` dans `main.js`, puis le nombre
-d'arbres. Grossir les fleurs remplit une couronne bien plus vite que d'en
-ajouter, et coûte moins cher.
+### 1. La couture mer/ciel au coucher du soleil (0.78–0.84)
+Constatée le 30/07 dans LES DEUX saisons : à `dayTime=0.80` la mer reste rose
+saumon uniforme contre un ciel déjà bleu nuit — ligne rasoir sur toute la
+largeur. À midi, golden hour et nuit noire, la fusion vers le fogColor partagé
+(`a920146`) tient ; c'est la fenêtre du coucher, où mer et ciel divergent le
+plus vite, que les courbes de `uHorizonFogStrength`/fog ne couvrent pas.
+Le correctif vit dans les courbes keyframées de `sky.js` + la courbe jour/nuit
+de l'eau dans `island.js` (piège n°4 : ne pas régler l'eau de l'extérieur).
 
-### 2. Juger les trois nouveaux modules dans la vraie scène
-`ponds`, `birds` et `clouds` ont été écrits puis relus par des agents adverses,
-et ils tournent. Mais ils n'ont pas encore été jugés à l'œil à toutes les heures
-du jour. En particulier : les nuages à l'aube et au crépuscule, la couleur de
-l'eau des étangs sous une lumière rasante, et le passage des oiseaux au perchoir.
+### 2. Les nuages au crépuscule virent au marron sale
+Deux saisons. Sous un éclairage par en dessous au couchant, certains cumulus
+prennent une teinte boue au lieu d'un gris-rose. Les nuages de nuit (gris-bleu
+sous la lune) et de jour sont bons.
+
+### 2bis. Constats de la passe du 30/07 qui n'appellent PAS de correctif
+- fps ultra printemps ≈40 (vue large et sol) — conforme au «~41 fps» documenté,
+  les 48 M de fleurs n'ont rien coûté de plus.
+- Oiseaux : le perchoir nocturne fonctionne ; si on téléporte `dayTime` en
+  pleine nuit ils mettent ~1 min simulée à converger — artefact de test, pas
+  un bug.
+- Halo solaire très large et brûlé au lever/coucher bas (deux saisons, ~1/4 du
+  cadre en plein contre-jour). État de base, pas une régression automne — à
+  trancher comme choix d'art direction si ça gêne.
+- Eau des étangs printemps à la golden hour : brun kaki plat, ne prend pas la
+  lumière chaude (l'aube automne, lilas, est belle). Niveau goût, pas cassé.
 
 ### 3. La bande grise au zénith
 Quand la caméra pique franchement vers le bas, le haut du cadre ne montre plus
@@ -66,10 +125,16 @@ pas un bug, mais le cadrage d'ouverture devrait l'éviter.
 
 ### 4. Le shiba, second passage
 Il marche, court, s'assoit, barbote et laisse des empreintes. Manquent encore :
-il ne lève la tête vers les pétales que sur une minuterie, pas parce qu'un pétale
-est réellement passé ; il n'aboie pas ; et il traverse les troncs. Un test de
-collision contre `forest.instances` serait peu coûteux — les positions et les
-rayons de couronne sont déjà exposés.
+il ne lève la tête vers les pétales (ou feuilles mortes, en automne) que sur une
+minuterie, pas parce qu'un pétale est réellement passé ; il n'aboie pas ; et il
+traverse les troncs. Un test de collision contre `forest.instances` serait peu
+coûteux — les positions et les rayons de couronne sont déjà exposés.
+
+### 4bis. Une troisième saison ?
+Le contrat de saison est générique (résolveur pur, palettes à la construction,
+feuillage partagé) et l'automne fournit un précédent complet à imiter, bancs
+d'essai compris. Hiver (yuki) ou été seraient un chantier bien calibré — sur
+demande explicite seulement.
 
 ### 5. Le shiba, tel qu'il a été construit  🐕
 

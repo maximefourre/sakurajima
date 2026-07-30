@@ -578,3 +578,94 @@ cohérentes.
   démarrage du modèle ; les implémentations et revues de repli déléguées ont
   donc été utilisées. Ces limitations sont consignées pour éviter de présenter
   la provenance des passes comme une exécution réussie de ces outils.
+
+## Session « vérification post-fusion automne » du 30/07/2026
+
+Relecture de la fusion `d767222` (branche `feature/autumn-momiji` → main,
+précédée de `692cc18` qui hisse les constantes de ciel côté main pour éviter
+le conflit). Aucun code modifié.
+
+- Analyse : fusion propre (aucune constante dupliquée dans `sky.js`),
+  contrat de saison conforme (résolution URL → localStorage → spring avant le
+  boot, saison passée à la construction de chaque système, sélecteur qui
+  persiste puis recharge — même patron que la qualité).
+- Vérif : `node --check` sur tous les `src/*.js` ; `INVARIANTS: 7 pass,
+  0 fail` ; visuel `?season=autumn` — midi (forêt momiji rouge/orange/jaune,
+  ombres, horizon sans couture, 91 fps), nuit 0.97 (dôme et étoiles restés
+  bleus, terre lisible, lanternes allumées le long du chemin, lune avec halo),
+  golden hour 0.74 (brouillard chaud partagé mer/ciel sans couture). Sélecteur
+  aria-pressed correct, zéro erreur console.
+- Rappel piège n°8 payé à nouveau : onglet Chrome en arrière-plan = rAF
+  étranglé — l'heure ne bouge plus ; forcer des frames via `__sk.frame()` en
+  boucle pour les captures pilotées par CDP.
+
+## Session « PLAN à jour + passe visuelle multi-heures ×2 saisons » du 30/07/2026
+
+Deux tâches convenues avec l'utilisateur, aucune modification de code.
+
+- **PLAN.md remis d'aplomb** : suppression de `src/river.js` du tableau (la
+  rivière n'existe plus depuis le 29/07), ajout de `details/detailtex/season/
+  seasonal-foliage`, mention des deux saisons et des bancs d'essai, item
+  « verger, pas nuage rose » retiré (traité le 29/07), items renumérotés.
+- **Passe item 2 (ponds/birds/clouds à toutes les heures, ×2 saisons)**,
+  heures visitées : 0.24/0.26 (aube), 0.5 (midi), 0.74 (golden), 0.80
+  (coucher), 0.86 (crépuscule), 0.95-0.97 (nuit). Trouvailles :
+  - **BUG VISUEL — couture mer/ciel au coucher (0.80), deux saisons** : mer
+    saumon uniforme contre ciel bleu nuit, ligne rasoir pleine largeur. OK à
+    midi/golden/nuit. → PLAN item 1.
+  - **Nuages marron sale au crépuscule**, deux saisons. → PLAN item 2.
+  - Halo solaire géant brûlé au lever/coucher bas : état de base commun aux
+    deux saisons, pas une régression automne. Choix d'AD à trancher.
+  - Étangs printemps golden hour : eau kaki plate (l'aube automne lilas est
+    belle). Goût, pas cassé.
+  - Perchoir nocturne des oiseaux : OK. Après un saut d'horloge vers la nuit,
+    ~1 min simulée de convergence (32→25 en vol sur ~13 s) — artefact de test.
+- **Item 1 soldé** : fps ultra printemps mesurés ≈40 en vue large ET au sol
+  (frames forcées via `__sk.frame()`, onglet en arrière-plan) — conforme au
+  «~41 fps ultra M4 Max» d'AGENTS.md, les 48 M de fleurs ne coûtent rien de
+  plus. Automne nettement plus léger (91 fps vue large).
+- Méthode captures onglet non focalisé : boucle `while` sur `__sk.frame()`
+  ~1 s puis screenshot CDP ; le HUD fps est alors non représentatif, mesurer
+  en frames/seconde de la boucle.
+
+## Session « feedback automne + backlog chantiers » du 30/07/2026 (soir)
+
+Feedback joueur en rafale (5 captures) → backlog consigné dans PLAN.md,
+section « Chantiers ouverts du 30/07 » : C chemins (perforations vertes =
+terrain à travers le ruban + jonction carrefour), E autel hokora divinité
+canine en haut de la falaise, A couronnes momiji dégarnies + branches
+basses, B tapis de feuilles (densité/silhouette/vert interdit au sol),
+D perf/LOD. Détails et ancrages de code dans PLAN.md — c'est la source.
+
+- Outillage : Grok CLI toujours non authentifié ; **codex-cli 0.145.0 prêt
+  et authentifié** (vérifié via codex:setup) — consigne utilisateur :
+  déléguer l'implémentation à Codex gpt-5.6-sol (sous-agent codex-rescue)
+  pour préserver le quota du modèle principal (passage en Opus prévu,
+  quota Fable hebdo presque atteint).
+- Chantier C lancé le premier (avant la consigne Codex) sur agent de repli
+  Claude — laissé se terminer pour ne pas jeter les tokens déjà dépensés.
+  Review Claude + invariants + visuel exigés avant commit, comme toujours.
+
+## Chantier C livré — chemins : perforations + carrefour (30/07/2026 soir)
+
+Implémentation : agent de repli Claude (lancé avant la consigne Codex).
+Review Claude complète : diff relu, node --check OK, `INVARIANTS: 8 pass,
+0 fail` dans Chrome réel, visuel midi automne (carrefour fondu en clairière
+unique, zéro perforation, zéro marche, pointe de fin de plage conservée).
+
+- **Anti-perforation DÉFINITIF** : les rubans et le patin échantillonnent
+  `groundMax` (max de `heightAt` sur ±1.5 u, grille 7×7) par sommet — toute
+  combinaison convexe des sommets domine les crêtes du terrain quel que soit
+  le tier. 7 colonnes, pas axial ~0.7 u, lift RÉDUIT (0.06→0.12 bombé,
+  biais 0/0.02/0.04) : zéro perforation avec un relief moindre.
+- **Builders purs exportés** `computeRibbonMeshes` / `computeJunctionPad`
+  (details.js), consommés tels quels par createDetails ET par le nouvel
+  invariant 8 (échantillonnage barycentrique de chaque triangle, marge min
+  0.057 mesurée) — le banc teste la géométrie exactement rendue.
+- **Carrefour** : plus de pincement de départ des routes ouvertes (pleine
+  largeur à t=0), patin de terre battue fbm (rayon width×1.6) posé à 0.04
+  SOUS l'étage le plus bas des rubans. Lanternes/`isOnPath`/`PATHS`
+  intacts.
+- Reste à surveiller en jeu : l'enfoncement des pattes du shiba sur la jupe
+  externe du patin (≤ ~4 cm théorique), l'herbe haute qui traverse la jupe
+  (lit comme des touffes de berge, acceptable à la review).

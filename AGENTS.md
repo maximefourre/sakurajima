@@ -7,20 +7,26 @@ pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
 
 ## Rôles de l'équipe d'agents (convention utilisateur)
 
-- **Claude** : planifie, orchestre, review — ne code pas lui-même les gros
-  chantiers.
-- **Grok 4.5** (`grok` CLI, headless : `grok -p "<brief>" --model grok-4.5
-  --permission-mode acceptEdits`) : ÉCRIT le code, un chantier à la fois,
-  d'après un brief précis de Claude (fichiers, ancrages, contraintes AGENTS).
-- **Codex gpt-5.6-sol, effort high** : REVIEW ADVERSARIALE après chaque passe
+- **Claude (Fable ou Opus) — session principale** : planifie, orchestre,
+  review — ne code pas lui-même les gros chantiers. Ne PAS dépenser le
+  modèle principal en implémentation déléguée.
+- **Grok 4.5, effort high — IMPLÉMENTATION** (`grok` CLI, headless :
+  `grok -p "<brief>" --model grok-4.5 --permission-mode acceptEdits`) :
+  ÉCRIT le code, un chantier à la fois, d'après un brief précis de Claude
+  (fichiers, ancrages, contraintes AGENTS). Si non authentifié
+  (`grok login --device-code`) → repli ci-dessous.
+- **Codex sol, effort high — REPLI d'implémentation** : sous-agent
+  `codex-rescue` du plugin Codex (vérifié prêt le 30/07). Sert quand Grok
+  est indisponible.
+- **Codex sol, effort high — REVIEW ADVERSARIALE** après chaque passe
   substantielle — via le skill du plugin Claude Code `codex:adversarial-review`,
   PAS en appelant le CLI codex à la main (consigne utilisateur).
   Le rapport va dans `ADVERSARIAL_REVIEW_CLAUDE.md`
   (versionner l'id `ADV-...`), avec table de suivi remplie par Claude au
   traitement.
-- Après chaque chantier Grok : `git diff` relu par Claude, `node --check`,
-  `test/invariants.html` (7 pass), vérification visuelle navigateur, PUIS
-  commit.
+- Après chaque chantier d'implémentation : `git diff` relu par Claude,
+  `node --check`, `test/invariants.html` (tous les invariants pass),
+  vérification visuelle navigateur, PUIS commit.
 
 ## Lancer
 
