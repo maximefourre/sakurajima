@@ -706,3 +706,17 @@ unique, zéro perforation, zéro marche, pointe de fin de plage conservée).
   node --check ×2, visuel automne (couronnes pleines, plus de branches dans
   l'herbe, ~71 fps) et printemps (silhouettes préservées, ~64 fps même
   cadrage). Codex sans accès réseau : vérifs navigateur par Claude.
+
+## Chantier B livré — tapis de feuilles (31/07/2026 ~0h, Codex sol)
+
+- Tapis automne ×2.5 (480 928 instances ultra mesurées), tailles 0.34-0.62,
+  quad élargi ×1.28 + cut-out 0.45→0.35 : la silhouette maple LIT au sol.
+- Dispersion : exactement 34 % hors couronnes (quota décroissant, une
+  décision seedée par instance, mêmes rejets eau/mer/pente ; buckets
+  spatiaux pour le test « hors de tout disque de couronne »). Chemins
+  couverts. Printemps STRICTEMENT inchangé (192 371 instances, roses).
+- Plus AUCUNE feuille verte tombée ni en vol : remap green→yellow dans
+  `autumnColor` (petals.js uniquement — les couronnes gardent leurs verts).
+- Review Claude : diff relu (`half`/`WORLD.seaLevel` existants, ordre RNG
+  printemps préservé), node --check, visuel automne (~139 fps, chemin
+  jonché lisible, zéro verte) et printemps (identique à avant).

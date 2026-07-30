@@ -84,11 +84,28 @@ Un chantier à la fois. Grok CLI toujours non authentifié.
   momiji en automne, pétale/corolle sakura au printemps ;
   4) plus de feuilles TOMBÉES vertes : remapper la dominante green → jaune
   pour le tapis ET les feuilles en vol (les couronnes gardent leurs verts).
-- **D — Perf générales / LOD** : cadrage à écrire. Piste : découper feuillage
-  forêt + tapis en chunks spatiaux (InstancedMesh par chunk, culling frustum
-  par bounding sphere + décimation par distance via drawRange sur instances
-  pré-mélangées) — même patron que l'herbe. Profiler d'abord (printemps
-  ≈40 fps ultra, 62 M tris en vue sol).
+- **D — Perf générales / LOD** — CADRAGE (à valider par l'utilisateur avant
+  brief) :
+  - Mesures de référence 30/07 (ultra, M4 Max, mêmes cadrages étalonnés) :
+    printemps ~40 fps vue large île entière et ~40-64 au sol (~62 M tris) ;
+    automne ~71-124 fps. Le poste dominant est le FEUILLAGE FORÊT
+    (≈48 M de quads de fleurs au printemps) — débit vertex GPU, peu de draw
+    calls mais énormes.
+  - **Proposition (option retenue)** : chunking spatial du feuillage forêt —
+    le bake par buckets existe déjà ; en faire ~8×8 InstancedMesh partageant
+    géométrie/matériau (draw calls +~60, négligeable), chacun avec bounding
+    sphere → culling frustum natif three (vue sol : 60-70 % des chunks
+    éliminés), et `drawRange` proportionnel à la distance caméra sur des
+    instances PRÉ-MÉLANGÉES par chunk (tirer 40 % des instances d'un chunk
+    mélangé = éclaircissage uniforme, pas un trou). Même patron que le LOD
+    de l'herbe. Objectif chiffré : printemps ultra au sol ≥ 55 fps sans
+    perte visuelle à mi-distance ; re-mesurer les cadrages étalonnés
+    avant/après.
+  - Extensions si besoin après mesure : même chunking pour le tapis
+    (post-chantier B, ×2.5 en automne) et resserrage des anneaux LOD herbe.
+  - Écarté pour l'instant : impostors/billboards du lointain (gros chantier,
+    complexité élevée pour un projet sans build), réduction de far plane
+    (l'horizon dégagé est un choix d'AD).
 
 ## Reste à faire, par priorité
 

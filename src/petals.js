@@ -72,6 +72,10 @@ const SAKURA_SHAPE_GLSL = /* glsl */ `
   }
 `;
 
+const AUTUMN_CARPET_MULTIPLIER = 2.5;
+const AUTUMN_CARPET_DISPERSED_FRACTION = 0.34;
+const CARPET_CANOPY_SPREAD = 1.12;
+
 /** One petal: a small quad, bent along its length so it is never perfectly flat. */
 function makePetalGeometry() {
   const W = 0.5, H = 0.72, SEG = 3;
@@ -108,7 +112,11 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     }
   }
   function autumnColor(dominant, t, out, o) {
-    const pal = autumnLin[isAutumnDominant(dominant) ? dominant : dominantForIndex(0, seed)];
+    const selected = isAutumnDominant(dominant) ? dominant : dominantForIndex(0, seed);
+    // A fallen or airborne autumn leaf has already turned: keep green in the
+    // crowns, but remap it locally for both petal passes.
+    const fallenDominant = selected === 'green' ? 'yellow' : selected;
+    const pal = autumnLin[fallenDominant];
     let a, b, u;
     if (t < 0.5) {
       a = pal.shadow; b = pal.mid;
@@ -472,7 +480,10 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
    * never enter the transparent sort against the airborne pass.
    */
   let carpet = null, carpetGeo = null, carpetMat = null;
-  const CARPET_COUNT = (quality.fallenPetals | 0) || 0;
+  const baseCarpetCount = (quality.fallenPetals | 0) || 0;
+  const CARPET_COUNT = autumn
+    ? Math.round(baseCarpetCount * AUTUMN_CARPET_MULTIPLIER)
+    : baseCarpetCount;
   if (CARPET_COUNT > 0 && canopies.length) {
     const crng = streamFor(seed, 'petals.carpet');
 
@@ -595,7 +606,9 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
 
           if (uAutumn > 0.5) {
             alpha = mapleAlpha(p, vTint);
-            if (alpha < 0.45) discard;
+            // Keep the pointed lobe tips: at ground scale a 0.45 cutoff made
+            // the shared maple silhouette read as an undifferentiated spot.
+            if (alpha < 0.35) discard;
             float vein = mapleVeins(p, vTint);
             base = vColor;
             base = mix(base, base * 0.72, vein * 0.55);
@@ -629,17 +642,63 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
 
     // Big crowns shed more: canopy choice weighted by crown AREA.
     const cum = new Float64Array(canopies.length);
+    const carpetRadii = new Float64Array(canopies.length);
     let acc = 0;
+    let maxCarpetRadius = 0;
     for (let ci = 0; ci < canopies.length; ci++) {
-      const r = canopies[ci].radius || 6;
-      acc += r * r;
+      const crownRadius = canopies[ci].radius || 6;
+      const r = crownRadius * CARPET_CANOPY_SPREAD;
+      carpetRadii[ci] = r;
+      maxCarpetRadius = Math.max(maxCarpetRadius, r);
+      // Preserve the established crown-area weighting exactly.
+      acc += crownRadius * crownRadius;
       cum[ci] = acc;
     }
-    const pickCanopy = () => {
+    const pickCanopyIndex = () => {
       const t = crng() * acc;
       let lo = 0, hi = cum.length - 1;
       while (lo < hi) { const mid = (lo + hi) >> 1; if (cum[mid] < t) lo = mid + 1; else hi = mid; }
-      return canopies[lo];
+      return lo;
+    };
+
+    // Spatial buckets make the strict "outside every crown disc" test cheap
+    // even on ultra. Canopies are inserted in every cell touched by their
+    // carpet disc, so a lookup of the candidate's single cell is exhaustive.
+    const canopyCellSize = Math.max(1, maxCarpetRadius);
+    const canopyBuckets = new Map();
+    const canopyBucketKey = (ix, iz) => `${ix}:${iz}`;
+    if (autumn) {
+      for (let ci = 0; ci < canopies.length; ci++) {
+        const c = canopies[ci];
+        const r = carpetRadii[ci];
+        const minX = Math.floor((c.x - r) / canopyCellSize);
+        const maxX = Math.floor((c.x + r) / canopyCellSize);
+        const minZ = Math.floor((c.z - r) / canopyCellSize);
+        const maxZ = Math.floor((c.z + r) / canopyCellSize);
+        for (let iz = minZ; iz <= maxZ; iz++) {
+          for (let ix = minX; ix <= maxX; ix++) {
+            const key = canopyBucketKey(ix, iz);
+            let bucket = canopyBuckets.get(key);
+            if (!bucket) canopyBuckets.set(key, bucket = []);
+            bucket.push(ci);
+          }
+        }
+      }
+    }
+    const outsideCanopyDiscs = (x, z) => {
+      const ix = Math.floor(x / canopyCellSize);
+      const iz = Math.floor(z / canopyCellSize);
+      const bucket = canopyBuckets.get(canopyBucketKey(ix, iz));
+      if (!bucket) return true;
+      for (let bi = 0; bi < bucket.length; bi++) {
+        const ci = bucket[bi];
+        const c = canopies[ci];
+        const dx = x - c.x;
+        const dz = z - c.z;
+        const r = carpetRadii[ci];
+        if (dx * dx + dz * dz < r * r) return false;
+      }
+      return true;
     };
 
     const cMesh = new THREE.InstancedMesh(carpetGeo, carpetMat, CARPET_COUNT);
@@ -653,18 +712,44 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     const _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
 
     let placed = 0, attempts = 0;
+    let dispersedLeft = autumn
+      ? Math.round(CARPET_COUNT * AUTUMN_CARPET_DISPERSED_FRACTION)
+      : 0;
     while (placed < CARPET_COUNT && attempts < CARPET_COUNT * 30) {
-      attempts++;
-      const c = pickCanopy();
-      const rad = (c.radius || 6) * 1.12;
-      // pow 0.7 biases toward the trunk: dense centre thinning to a fringe.
-      const rr = Math.pow(crng(), 0.7) * rad;
-      const a = crng() * Math.PI * 2;
-      const x = c.x + Math.cos(a) * rr;
-      const z = c.z + Math.sin(a) * rr;
-      if (exclude && exclude(x, z)) continue;
-      if (slopeAt && slopeAt(x, z) > 0.55) continue;
-      const h = heightAt ? heightAt(x, z) : 0;
+      // One seeded decision per final instance. The shrinking quota keeps the
+      // accepted carpet at exactly 34 % dispersed while randomising the order.
+      // A rejected candidate retries the SAME branch and never redraws it.
+      const dispersionRoll = autumn ? crng() : 1;
+      const dispersed = autumn
+        && dispersionRoll < dispersedLeft / (CARPET_COUNT - placed);
+
+      let c = null, rad = 1, rr = 1, x = 0, z = 0, h = 0;
+      let accepted = false;
+      while (!accepted && attempts < CARPET_COUNT * 30) {
+        attempts++;
+        if (dispersed) {
+          x = R.range(crng, -half, half);
+          z = R.range(crng, -half, half);
+          if (!outsideCanopyDiscs(x, z)) continue;
+        } else {
+          const ci = pickCanopyIndex();
+          c = canopies[ci];
+          rad = carpetRadii[ci];
+          // pow 0.7 biases toward the trunk: dense centre thinning to a fringe.
+          rr = Math.pow(crng(), 0.7) * rad;
+          const a = crng() * Math.PI * 2;
+          x = c.x + Math.cos(a) * rr;
+          z = c.z + Math.sin(a) * rr;
+        }
+        if (exclude && exclude(x, z)) continue;
+        h = heightAt ? heightAt(x, z) : 0;
+        // Uniform candidates span the full terrain tile; sea-level rejection
+        // restricts that branch to the island while exclude handles pond water.
+        if (dispersed && heightAt && h <= WORLD.seaLevel) continue;
+        if (slopeAt && slopeAt(x, z) > 0.55) continue;
+        accepted = true;
+      }
+      if (!accepted) break;
 
       // Random yaw, then a small tilt off the ground plane so faces vary
       // against the light instead of forming one specular sheet.
@@ -675,25 +760,28 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
       const flower = autumn ? 0 : flowerRoll;
       // Spring: petal/corolla skew. Autumn: maple ground size, one skew draw.
       const s = autumn
-        ? R.skew(crng, 0.22, 0.46, 1.6)
+        ? R.skew(crng, 0.34, 0.62, 1.6)
         : R.skew(crng, 0.18, 0.40, 1.6) * (flower ? 1.4 : 1);
       // Perchés sur le HAUT de l'herbe (~1.2 de haut) : à 0.06-0.42 ils
       // lisaient « coincés DANS l'herbe » (consigne joueur). Sur la terre
       // battue des chemins, herbe rase : posés au sol.
       const perch = (onPath && onPath(x, z)) ? R.range(crng, 0.02, 0.10)
                                              : R.range(crng, 0.25, 0.70);
-      _m.compose(_p.set(x, h + perch, z), _q, _s.set(s, s, s));
+      // The source petal quad is taller than it is wide. Widen autumn only so
+      // the five maple lobes retain their recognisable fan on the ground.
+      _m.compose(_p.set(x, h + perch, z), _q, _s.set(autumn ? s * 1.28 : s, s, s));
       cMesh.setMatrixAt(placed, _m);
       aShapeC[placed] = autumn ? 2 : flower;
 
       // The fringe fell first: older (browner, duller) toward the disc edge.
       // Skew 1.7 (était 2.4) : plus de roses moyens, moins de quasi-blancs.
       // Autumn reuses aTintAge.x as the palette phase (no extra RNG).
+      const edge = dispersed ? 1 : rr / rad;
       aTintAge[placed * 3 + 0] = R.skew(crng, 0, 1, 1.7);
-      aTintAge[placed * 3 + 1] = clamp((rr / rad) * 0.6 + crng() * 0.45, 0, 1);
+      aTintAge[placed * 3 + 1] = clamp(edge * 0.6 + crng() * 0.45, 0, 1);
       // Part de soleil : l'intérieur du disque est sous la couronne, la
       // lisière au soleil ; le jitter fait la lumière tachetée des trouées.
-      const st = clamp(((rr / rad) - 0.72) / 0.30, 0, 1);
+      const st = clamp((edge - 0.72) / 0.30, 0, 1);
       aTintAge[placed * 3 + 2] = clamp(st * st * (3 - 2 * st) + (crng() - 0.5) * 0.3, 0, 1);
 
       if (autumn) {
@@ -706,6 +794,7 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
         aColorC[placed * 3 + 1] = 1;
         aColorC[placed * 3 + 2] = 1;
       }
+      if (dispersed) dispersedLeft--;
       placed++;
     }
     cMesh.count = placed;
