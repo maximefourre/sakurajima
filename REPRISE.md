@@ -720,3 +720,23 @@ unique, zéro perforation, zéro marche, pointe de fin de plage conservée).
 - Review Claude : diff relu (`half`/`WORLD.seaLevel` existants, ordre RNG
   printemps préservé), node --check, visuel automne (~139 fps, chemin
   jonché lisible, zéro verte) et printemps (identique à avant).
+
+## PASSATION Fable → Opus (31/07/2026, quota Fable atteint)
+
+État au moment de la passation :
+- Chantiers C, E, A, B livrés/commités (756e0b2..8bcd892), reviews faites.
+- **EN VOL : correctif C-ter** (« le chemin ne colle plus au terrain ») —
+  tâche Codex `task-ms81whro-lz5x7c`, brief : remplacer la base `groundMax`
+  des rubans/patin/`pathSurfaceLiftAt` par un RÉSIDU DE PLAN LOCAL
+  (pente non payée, seules les crêtes le sont), + invariant chiffré
+  d'ÉLÉVATION max (~0.55 u) en plus de l'anti-perforation. Statut/résultat :
+  `node ~/.claude/plugins/cache/openai-codex/codex/1.0.6/scripts/codex-companion.mjs status|result task-ms81whro-lz5x7c`.
+- Après review+commit de C-ter : lancer la REVIEW ADVERSARIALE de toute la
+  série via le skill/commande du plugin `codex:adversarial-review`
+  (le fichier de commande existe dans le plugin ; ne PAS appeler le CLI
+  codex à la main). Rapport → ADVERSARIAL_REVIEW_CLAUDE.md, id ADV-…,
+  table de suivi remplie au traitement.
+- Vérifs type pour C-ter : node --check, invariants (8 pass + borne
+  élévation), visuel pente de la route torii (ruban AU RAS du sol),
+  carrefour, shiba posé ni enterré ni flottant, deux saisons non requises
+  (details.js est asaisonnier).
