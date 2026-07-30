@@ -220,7 +220,7 @@ const ARCHETYPES = {
 				h: [ 0.945, 0.995 ], s: [ 0.30, 0.58 ], l: [ 0.78, 0.92 ], bare: 0.01, leaf: 0.02
 			},
 			autumn: {
-				density: 9.0, start: 0.10, cluster: [ 2, 4 ], size: [ 0.14, 0.22 ], spread: 0.20,
+				density: 9.0, start: 0.10, cluster: [ 2, 4 ], size: [ 0.161, 0.253 ], spread: 0.20,
 				bare: 0.01
 			}
 		}
@@ -252,7 +252,7 @@ const ARCHETYPES = {
 				h: [ 0.933, 0.975 ], s: [ 0.48, 0.78 ], l: [ 0.68, 0.84 ], bare: 0.02, leaf: 0.02
 			},
 			autumn: {
-				density: 8.5, start: 0.04, cluster: [ 2, 4 ], size: [ 0.13, 0.20 ], spread: 0.14,
+				density: 8.5, start: 0.04, cluster: [ 2, 4 ], size: [ 0.1495, 0.23 ], spread: 0.14,
 				bare: 0.02
 			}
 		}
@@ -284,7 +284,7 @@ const ARCHETYPES = {
 				h: [ 0.946, 1.000 ], s: [ 0.28, 0.54 ], l: [ 0.80, 0.93 ], bare: 0.05, leaf: 0.03
 			},
 			autumn: {
-				density: 8.0, start: 0.15, cluster: [ 2, 4 ], size: [ 0.13, 0.21 ], spread: 0.15,
+				density: 8.0, start: 0.15, cluster: [ 2, 4 ], size: [ 0.1495, 0.2415 ], spread: 0.15,
 				bare: 0.05
 			}
 		}
@@ -316,7 +316,7 @@ const ARCHETYPES = {
 				h: [ 0.948, 0.995 ], s: [ 0.26, 0.50 ], l: [ 0.82, 0.94 ], bare: 0.03, leaf: 0.15
 			},
 			autumn: {
-				density: 7.0, start: 0.10, cluster: [ 2, 3 ], size: [ 0.11, 0.18 ], spread: 0.11,
+				density: 7.0, start: 0.10, cluster: [ 2, 3 ], size: [ 0.1265, 0.207 ], spread: 0.11,
 				bare: 0.03
 			}
 		}
@@ -348,7 +348,7 @@ const ARCHETYPES = {
 				h: [ 0.936, 0.995 ], s: [ 0.36, 0.68 ], l: [ 0.74, 0.88 ], bare: 0.08, leaf: 0.05
 			},
 			autumn: {
-				density: 8.5, start: 0.14, cluster: [ 2, 4 ], size: [ 0.15, 0.24 ], spread: 0.19,
+				density: 8.5, start: 0.14, cluster: [ 2, 4 ], size: [ 0.1725, 0.276 ], spread: 0.19,
 				bare: 0.08
 			}
 		}
@@ -452,6 +452,64 @@ function perpendicular( d, out ) {
 
 }
 
+const BRANCH_DIVE_Y = - 0.35;
+const LEAFY_TIP_CLEARANCE = 1.1;
+
+function levelPlungingDirection( d, fallback ) {
+
+	d.normalize();
+	if ( d.y >= BRANCH_DIVE_Y ) return d;
+
+	let hx = d.x, hz = d.z;
+	let hLen = Math.hypot( hx, hz );
+	if ( hLen < 1e-6 ) {
+
+		hx = fallback.x;
+		hz = fallback.z;
+		hLen = Math.hypot( hx, hz );
+
+	}
+	if ( hLen < 1e-6 ) {
+
+		hx = 1;
+		hz = 0;
+		hLen = 1;
+
+	}
+
+	const bend = smoothstep( 0, 1, ( BRANCH_DIVE_Y - d.y ) / ( 1 + BRANCH_DIVE_Y ) );
+	hx /= hLen;
+	hz /= hLen;
+	d.x += ( hx - d.x ) * bend;
+	d.y *= 1 - bend;
+	d.z += ( hz - d.z ) * bend;
+	return d.normalize();
+
+}
+
+function raiseDirectionY( d, minY ) {
+
+	if ( d.y >= minY ) return d;
+
+	const hLen = Math.hypot( d.x, d.z );
+	const targetH = Math.sqrt( Math.max( 0, 1 - minY * minY ) );
+	if ( hLen > 1e-6 ) {
+
+		const scale = targetH / hLen;
+		d.x *= scale;
+		d.z *= scale;
+
+	} else {
+
+		d.x = targetH;
+		d.z = 0;
+
+	}
+	d.y = minY;
+	return d;
+
+}
+
 // -----------------------------------------------------------------------------
 // 4. Recursive branch growth
 // -----------------------------------------------------------------------------
@@ -472,6 +530,7 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 
 	// deadwood decision has to happen here so the bark colour can differ
 	const bare = terminal ? rng.chance( ctx.foliage.bare ) : false;
+	const leafyTip = ! bare && ( terminal || ctx.budget <= 0 );
 
 	const rEnd = terminal ? r0 * 0.09 : r0 * cfg.endTaper;
 	let segs = Math.max( 2, Math.round( len / segLen ) );
@@ -480,7 +539,7 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 	// ---- pass 1: integrate the centre-line -----------------------------------
 	const path = [];
 	const p    = start.clone();
-	const d    = dirIn.clone().normalize();
+	const d    = levelPlungingDirection( dirIn.clone(), ctx.leanDir );
 	const nrf  = perpendicular( d, new THREE.Vector3() );
 	const step = len / segs;
 	let along  = alongIn;
@@ -499,6 +558,7 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 
 		p.addScaledVector( d, step );
 		if ( depth > 0 && p.y < cfg.floorY * 0.5 ) p.y = cfg.floorY * 0.5;
+		if ( leafyTip && s === segs - 1 && p.y < ctx.leafyTipMinY ) p.y = ctx.leafyTipMinY;
 		along += step;
 
 		_t1.copy( d );
@@ -517,7 +577,18 @@ function growBranch( W, rng, cfg, ctx, start, dirIn, len, r0, depth, alongIn ) {
 			_t1.y += ( cfg.floorY + r * 1.5 - p.y ) * 1.4;
 		}
 
-		_t1.normalize();
+		levelPlungingDirection( _t1, d );
+
+		// A leafy terminal keeps enough vertical reach to finish at least 1.1 u
+		// above the trunk base. Preserve its horizontal azimuth; only lift Y.
+		const remaining = segs - s - 1;
+		if ( leafyTip && remaining > 0 ) {
+
+			const minY = THREE.MathUtils.clamp(
+				( ctx.leafyTipMinY - p.y ) / ( step * remaining ), - 1, 1 );
+			raiseDirectionY( _t1, minY );
+
+		}
 
 		// rotation-minimising frame transport (prevents twig twisting)
 		_q.setFromUnitVectors( d, _t1 );
@@ -684,10 +755,12 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 	};
 
 	const W = new MeshWriter();
+	const trunkBaseY = - 0.12;
+	ctx.leafyTipMinY = trunkBaseY + LEAFY_TIP_CLEARANCE;
 
 	// trunk starts slightly below origin so the placer can bury the flare
 	const startDir = new THREE.Vector3( rng.gauss() * 0.06, 1, rng.gauss() * 0.06 ).normalize();
-	growBranch( W, rng, cfg, ctx, new THREE.Vector3( 0, - 0.12, 0 ), startDir,
+	growBranch( W, rng, cfg, ctx, new THREE.Vector3( 0, trunkBaseY, 0 ), startDir,
 		trunkLen, trunkRadius, 0, 0 );
 
 	const geometry = W.toGeometry();

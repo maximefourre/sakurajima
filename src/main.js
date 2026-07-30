@@ -315,7 +315,7 @@ async function boot() {
 
   await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
   const foliageDensity = world.season === 'autumn'
-    ? (q.label === 'ultra' ? 2.1 : q.label === 'high' ? 1.7 : 1.2)
+    ? (q.label === 'ultra' ? 3.6 : q.label === 'high' ? 2.8 : 2.0)
     : (q.label === 'ultra' ? 7.2 : q.label === 'high' ? 5.6 : 3.8);
   world.forest = createSakuraForest({
     seed: SEED,
@@ -328,7 +328,7 @@ async function boot() {
     quality: q.label === 'ultra' ? 1.25 : q.label === 'high' ? 0.9 : 0.6,
     season: world.season,
     // Spring: dense small flowers (validated 3.8/5.6/7.2). Autumn: maple crown
-    // multipliers 1.2/1.7/2.1. Typed-array two-pass bake keeps ultra viable.
+    // multipliers 2.0/2.8/3.6. Typed-array two-pass bake keeps ultra viable.
     foliageDensity,
     prototypeCounts: sakuraPrototypes(q.uniqueTrees),
     // Nothing calls getFoliageSamples (petals use forest.emitters) - keeping the

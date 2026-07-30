@@ -691,3 +691,18 @@ unique, zéro perforation, zéro marche, pointe de fin de plage conservée).
   Review Claude : diff relu, node --check, invariants 8/8 Chrome réel,
   visuel terrasse (rien ne flotte, lanternes intactes, très joli face à la
   mer). Codex n'avait pas accès réseau au serveur — vérifs faites par Claude.
+
+## Chantier A livré — arbres automne (30/07/2026 nuit, Codex sol)
+
+- foliageDensity automne 2.1/1.7/1.2 → 3.6/2.8/2.0 (printemps intact),
+  taille des feuilles maple +15 % sur les 5 archétypes.
+- Branches plongeantes REDRESSÉES (pas supprimées — déterminisme du flux
+  RNG préservé, aucune consommation ajoutée/retirée) :
+  `levelPlungingDirection` plie toute direction sous y<-0.35 vers
+  l'horizontale (smoothstep), et les pointes FEUILLUES sont garanties à
+  ≥1.1 u au-dessus de la base du tronc (`raiseDirectionY` sur les derniers
+  segments). S'applique aux deux saisons (structure partagée, voulu).
+- Review Claude : diff relu (smoothstep importé, ctx.leanDir existant),
+  node --check ×2, visuel automne (couronnes pleines, plus de branches dans
+  l'herbe, ~71 fps) et printemps (silhouettes préservées, ~64 fps même
+  cadrage). Codex sans accès réseau : vérifs navigateur par Claude.
