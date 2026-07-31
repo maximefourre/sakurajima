@@ -545,7 +545,7 @@ function frame() {
   world.grass.setPlayer?.(world.shiba.position, dt);
   // Le tapis de pétales frémit au passage : vitesse normalisée du shiba.
   world.petals.setPlayer?.(world.shiba.position.x, world.shiba.position.z,
-    Math.min(1, world.shiba.speed / 14.8));
+    world.shiba.speedN);
 
   if (world.camMode === 'follow') {
     updateFollowCamera(dt);

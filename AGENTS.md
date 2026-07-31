@@ -38,8 +38,8 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
 - Debug : `globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock }`.
 - `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
 - Chargement ultra ≈ 20 s (bake terrain 769² + placements). Printemps ultra sur
-  M4 Max, cible 3600×1896, caméra verrouillée : **27.8 fps** au cadrage
-  d'ouverture, **24.2** au sol ; automne 59 / 49.3 (le « ~41 fps » d'avant venait
+  M4 Max, cible 3600×1896, caméra verrouillée : **33.7 fps** au cadrage
+  d'ouverture, **24.6** au sol ; automne 59 / 49.3 (le « ~41 fps » d'avant venait
   d'une mesure faussée, cf. piège 9). Le poste dominant est le FEUILLAGE de la
   forêt — 88 % du temps de frame en vue large, 75 % au sol.
 - Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra, Espace pause.

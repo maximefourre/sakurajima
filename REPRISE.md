@@ -939,7 +939,7 @@ indiscernable. C'est un curseur entre deux défauts opposés, pas un réglage li
 ### Le réglage retenu
 
 Courbe mesurée à l'ouverture : min 1.00 → 16.8 fps, 0.60 → 23.7, 0.45 → 28.0,
-0.30 → 34.5. **0.45 retenu** : indiscernable de l'original en A/B direct, pour
+0.30 → 34.5. **0.45 retenu dans un premier temps** : indiscernable de l'original en A/B direct, pour
 +67 %. 0.30 double le fps mais lisse perceptiblement la canopée — écarté au nom
 de la consigne « sans réduire la qualité graphique », et laissé à un caractère
 près si le goût change.
@@ -950,3 +950,32 @@ comparatives au même cadrage avec LOD activé puis neutralisé à chaud ; gros 
 sous couronne identique (les couronnes proches sont à `f = 1` par conception) ;
 automne vérifié. `getFoliageSamples()` rend toujours tout, le tapis n'est pas
 affecté.
+
+## Chantier S0 — découpe mécanique du shiba (31/07/2026, Codex)
+
+`src/shiba.js` a été scindé : constantes et builders géométriques exportés dans
+`src/shiba-geom.js`, comportement et empreintes conservés dans `src/shiba.js`.
+`SHIBA_BUILD` porte le gabarit avant ; les longueurs arrière distinctes
+0.06/0.28/0.25 et la construction existante du pad sont restées inchangées.
+`SHIBA` est exporté et `main.js` consomme désormais `world.shiba.speedN`.
+
+Syntaxe Node et comparaison mécanique ancien/nouveau : OK. Le banc navigateur
+n'a pas pu être lancé dans le bac à sable : ouverture du port 5173 refusée par
+l'OS (`PermissionError: [Errno 1] Operation not permitted`) et Chrome headless
+quitte avec le code 134 avant de produire une sortie.
+
+### Suite : `LOD_MIN_FRACTION` porté à 0.30 (même jour, arbitrage utilisateur)
+
+Comparaison A/B à trois états produite au même chargement, même caméra, même
+lumière — seul l'éclaircissage change : référence sans LOD (50.1 M pétales,
+16.5 fps), 0.45 (22.5 M, 27.7), 0.30 (15.0 M, 33.8). Utilisateur : **0.30**.
+
+Correction d'un jugement antérieur de cette session : le « 0.30 lisse
+perceptiblement la canopée » avait été constaté avec `FOLIAGE_SHUFFLE_BLOCK = 256`,
+qui éclaircissait par paquets. À 64, l'écart entre 0.30 et la référence est bien
+plus faible que ce que cette première capture laissait croire — la granularité du
+mélange pesait plus lourd dans le rendu que la fraction elle-même. À retenir pour
+tout futur réglage : **régler le bloc AVANT de juger la fraction.**
+
+Étalon final printemps ultra : **ouverture 33.7 fps** (contre 15.4 au départ,
+×2.2), sol 24.6.

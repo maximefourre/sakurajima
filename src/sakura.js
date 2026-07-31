@@ -29,7 +29,7 @@ import {
 // proportional to size squared.
 const LOD_NEAR = 140;
 const LOD_FAR = 700;
-const LOD_MIN_FRACTION = 0.45;
+const LOD_MIN_FRACTION = 0.30;
 // Larger blocks preserve more rasterization locality but make prefix sampling
 // coarser; smaller blocks sample more finely but approach the measured locality loss.
 const FOLIAGE_SHUFFLE_BLOCK = 64;

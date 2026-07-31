@@ -83,13 +83,15 @@ Un chantier à la fois. Grok CLI toujours non authentifié.
   - Trois leviers appliqués : buckets 6×6 → 16×16 (culling plus fin), attributs
     d'instance 44 → 18 o (2 102 → 860 Mo de VRAM), éclaircissage par distance à
     couverture constante (`1/√f`) sur instances mélangées par blocs de 64.
-  - Résultat : **ouverture 15.4 → 27.8 fps (+81 %)**, sol 21.4 → 24.2 (+13 %),
+  - Résultat : **ouverture 15.4 → 33.7 fps (×2.2)**, sol 21.4 → 24.6 (+15 %),
     automne 59 / 49.3. L'objectif « ≥ 55 fps au sol » n'est PAS atteint et ne
     l'était pas atteignable ainsi : au sol le feuillage proche est à `f = 1` par
     conception, c'est le prix de l'absence de perte visuelle.
-  - Reste ouvert si on veut aller plus loin : `LOD_MIN_FRACTION` 0.45 → 0.30
-    donne 34.5 fps à l'ouverture mais rend la canopée perceptiblement plus lisse
-    en A/B ; impostors/billboards du lointain (gros chantier) ; chunking du
+  - `LOD_MIN_FRACTION = 0.30`, arbitré par l'utilisateur sur comparaison A/B à
+    trois états (référence 50.1 M pétales / 0.45 / 0.30, même chargement, même
+    caméra). Le premier jugement « 0.30 lisse la canopée » avait été porté avec
+    `FOLIAGE_SHUFFLE_BLOCK = 256` ; à 64 l'écart se referme largement.
+  - Reste ouvert : impostors/billboards du lointain (gros chantier) ; chunking du
     tapis ; resserrage des anneaux LOD herbe. Écarté : réduire le far plane
     (l'horizon dégagé est un choix d'AD), baisser le DPR (ne rapporte rien,
     piège 10).
