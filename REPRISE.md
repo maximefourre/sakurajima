@@ -1179,3 +1179,55 @@ variable restante : la profondeur. Quatre captures, aucune hypothèse.
 État honnête : l'effet est **présent mais discret**. Les deux seuls réglages sont
 `PAW_BURST_COUNT` et `PAW_BURST_SIZE` dans `shiba.js`, plus les tailles par
 matière dans `particles.js`. À monter si l'utilisateur le veut plus franc.
+
+## Vague finale — allures, mer, koi, et revue adversariale (01/08/2026)
+
+Trois chantiers en parallèle sur fichiers disjoints, plus la revue adversariale
+`ADV-2026-08-01-81F0C02` lancée en même temps sur les sept commits précédents.
+
+**Allures** : trois cycles (quatre temps / deux diagonales / galop) blendés par
+leurs SORTIES et non par leurs phases — interpoler des déphasages traverse des
+poses où les pattes se synchronisent puis se désynchronisent. `state.gait` reste
+un accumulateur unique. Empilement sans FSM : quatre scalaires 0..1 dans un ordre
+de `mix()`. Ébrouement déclenché par `wetness` à la sortie de l'eau, tête qui mène
+et queue qui suit 0.14 s plus tard — c'est ce décalage qui fait lire l'onde le
+long du corps. Garde-fou dur à 1.4 s contre le chien paralysé au bord de l'eau.
+
+**Mer** : la route 'plage' s'arrêtait à **h = +14.6, soit ~125 u de l'eau** — il
+fallait courir 8,5 s hors sentier pour se mouiller une patte, et la tolérance de
+l'invariant 5 sur son dernier point était vide de sens. Trois points ajoutés.
+`oceanSwellY` exporté d'`island.js` (même somme de 4 Gerstner que le shader, sans
+le pincement XZ) : le chien flotte sur la VRAIE surface, car à hauteur constante
+il aurait « marché sur l'eau » un creux sur deux, l'amplitude valant 0.10 à 0.66 u
+dans la zone de baignade. Sillage en fragment sous masque, jamais en géométrie :
+la tessellation de l'océan vers r=300 fait 3.6 × 7.4 u.
+
+**Koi** : peur qui monte à 4/s, retombe à 0.35/s. Elles ne quittent pas leur
+trajectoire — c'est son budget qui les garde dans le contour.
+
+### Revue adversariale : 3 findings, 3 confirmés, 3 traités
+
+Détail dans `ADVERSARIAL_REVIEW_CLAUDE.md`. **Deux des trois portaient sur du
+code écrit par Claude lui-même**, ce qui est le meilleur argument pour la
+convention : le garde-fou d'ondes `uDogWake.w > 0` que j'avais spécifié dans un
+brief coupait aussi la durée de vie des anneaux, et mon invariant 14 agrégeait
+par `Math.max` sur tous les bassins, autorisant exactement la régression qu'il
+prétendait attraper.
+
+**Leçon à retenir** : un garde-fou de COÛT (« ne calcule pas ce qui n'est pas
+visible ») et une durée de VIE (« cet effet doit finir de mourir ») ne sont pas la
+même chose. Les avoir fait porter par le même uniform était l'erreur, pas son
+seuil. Deux uniforms distincts, et le problème disparaît.
+
+### Suites finales
+
+`INVARIANTS: 15 pass, 0 fail` en low **et** en `?q=ultra`. En ultra, avec le
+sentier prolongé : 42 936 triangles de ruban couverts, marge exacte 0.0200,
+élévation max 0.2309 pour un plafond de 0.550, 43 lanternes sans orpheline.
+Contrôles en jeu : ondes qui survivent à la sortie du bassin et meurent seules à
+3 s ; `wetness` à 1 après bain, `shake` à 0.98 sur 51 frames puis retour à 0 ;
+`oceanSwellY` qui varie dans le temps.
+
+**Dette laissée ouverte, assumée** : la poussière au sol est présente mais
+DISCRÈTE (voir le journal du chantier), et le sillage de nage est peut-être un
+peu appuyé — deux jugements de goût qui reviennent à l'utilisateur, pas des bugs.
