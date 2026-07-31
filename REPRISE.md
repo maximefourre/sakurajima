@@ -1118,3 +1118,64 @@ crâne, lui, est juste (biais −0.15). L'urajiro réel n'est pas un biais globa
 c'est un masque par ZONE — flancs du museau, joues, sous-mâchoire, gorge, face
 interne des pattes, ventre, dessous de la queue — et le dessus du chanfrein doit
 rester roux. C'est exactement le mandat de S3.
+
+## Chantier urajiro — le masque par zone (31/07/2026, Codex + Claude)
+
+Le crème n'est plus un biais global passé à `coatAt` mais un **masque par zone**
+évalué depuis le 4ᵉ argument `p` du callback de `sweep` : ventre (et pas les
+flancs), sous-mâchoire, flancs du museau, joues, face **interne** des pattes,
+intérieur des oreilles. `coatAt` reste la base (rousseur, selle) ; l'urajiro se
+superpose en `lerp` final. Les biais crème par pièce sont ramenés à −0.15 : c'est
+le masque qui travaille, plus le biais.
+
+**Deux exceptions à connaître.** La QUEUE garde `upness` : elle s'enroule sur plus
+de 270°, donc son « dessous » n'est PAS `p.y < 0` sur toute sa longueur, et
+`upness` — la composante verticale de la normale de section transportée — est
+exactement la bonne quantité. La MANDIBULE peint aussi depuis `p`, parce que son
+pivot tourne : `upness` y vit dans le repère de la mâchoire.
+
+**Correctif de suivi, mesuré en jeu.** La première passe laissait encore une face
+blanche. Cause : `muzzleFlanks` ouvrait sa fenêtre jusqu'à `p.y < 0.060` alors
+que l'axe du museau vit entre −0.008 et −0.040 — **tout** le chanfrein tombait
+donc du côté crème. Fenêtre resserrée à `smoothstep(-0.030, -0.080, p.y)` : le
+crème ne monte plus que sur le bas des flancs, le dessus du chanfrein reste roux.
+C'est la moitié du masque de la race.
+
+## Chantier poussière — la réaction du sol (31/07/2026, Codex + Claude)
+
+`src/particles.js` : un pool unique de grains (192/128/64 selon le tier) plus un
+pool de 32 couronnes d'eau, tous deux calqués sur `createFootprints` — ring
+buffer, `aBorn`, fondu en `(1 − age/vie)`, instances parquées à `y = −9999`,
+`frustumCulled = false`. **+2 draw calls, conformes à la cible.**
+
+La balistique vit dans le VERTEX shader (`pos = origine + v·age + ½g·age²`) :
+zéro travail CPU par grain et zéro upload de matrice par frame — les matrices
+d'instance ne portent que l'origine, écrite une fois à l'émission. La matière
+suit le sol : `isOnPath` → terre battue, `WORLD.beachTop` → sable, service eau →
+gouttes et couronne, sinon prairie (palette d'automne au boot).
+
+**Trois causes cumulées rendaient l'effet INVISIBLE, toutes trouvées à la
+mesure, aucune devinée :**
+
+1. **Les grains naissaient sous le chien.** Émis à l'aplomb de la patte et
+   billboardés, ils étaient masqués par sa propre silhouette. Prouvé en basculant
+   `depthTest` : profondeur désactivée, la bouffée apparaissait ; réactivée, elle
+   disparaissait derrière le corps. Correctif : un **drift** passé à `burst`, qui
+   biaise vitesse ET origine vers l'ARRIÈRE — ce qui est aussi la vérité physique,
+   un animal qui court projette la matière derrière lui.
+2. **La poussière avait la couleur du sol dont elle se lève** (`0xb77b48`, très
+   exactement la teinte de la terre battue). Une poussière en suspension diffuse
+   la lumière et lit toujours plus clair que la surface qu'elle quitte : les
+   palettes sont éclaircies.
+3. **Grains trop petits et trop brefs** : 0.16–0.32 u pour 1.15 s. Portés à
+   0.30–0.58 u et 1.7 s.
+
+**Méthode de diagnostic, à réutiliser** : bissection par substitution de
+matériau. `MeshBasicMaterial` → les instances s'affichent, donc l'instanciation
+est saine. Vertex maison + fragment trivial → s'affiche, donc le vertex est bon.
+Fragment réel + `depthTest: false` → s'affiche, donc le fragment est bon. Seule
+variable restante : la profondeur. Quatre captures, aucune hypothèse.
+
+État honnête : l'effet est **présent mais discret**. Les deux seuls réglages sont
+`PAW_BURST_COUNT` et `PAW_BURST_SIZE` dans `shiba.js`, plus les tailles par
+matière dans `particles.js`. À monter si l'utilisateur le veut plus franc.
