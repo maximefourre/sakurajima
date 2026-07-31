@@ -333,17 +333,26 @@ chaud. Les deux systèmes se dimensionnent à la construction, comme tout le res
 
 ## Vérification
 
-### Invariants — de 10 à 13
+### Invariants — de 10 à 14, en deux temps
 
-`test/invariants.html` doit finir par `INVARIANTS: 13 pass, 0 fail`.
+`test/invariants.html` doit finir par `INVARIANTS: 12 pass, 0 fail` après le
+chantier L, puis `14 pass, 0 fail` après le chantier P.
+
+Chantier L (lucioles) :
 
 11. **Lucioles dans leur habitat** — toute position semée est à l'intérieur du
     rayon d'habitat d'au moins un bassin ; aucune isolée à l'autre bout de l'île.
-12. **Papillons au-dessus de la surface** — pour tout individu, `y > heightAt(x,z)`
-    avec une garde, et XZ dans les bornes de l'île.
-13. **Exclusivité du relais** — à `dayTime = 0.5` aucune luciole visible ; à
-    `dayTime = 0.97` aucun papillon visible. C'est l'invariant qui attrape une
-    fenêtre inversée ou un gate oublié.
+12. **Les lucioles dorment le jour** — à `dayTime = 0.5`, aucune luciole visible.
+
+Chantier P (papillons) :
+
+13. **Papillons au-dessus de la surface** — pour tout individu, `y > heightAt(x,z)`
+    avec une garde, et XZ à l'intérieur du domaine de vol (pas en mer).
+14. **Les papillons dorment la nuit** — à `dayTime = 0.97`, aucun papillon
+    visible.
+
+12 et 14 sont ce qui attrape une fenêtre inversée ou un gate oublié — la panne la
+plus probable de tout ce chantier, et la plus silencieuse.
 
 Rappel du piège de la suite : **le tier du bake se choisit par `?q=`, défaut
 low**, et `low` est le terrain le PLUS LISSE donc le cas le plus facile. Tout ce
@@ -387,10 +396,27 @@ différent : relever la référence nocturne AVANT d'ajouter quoi que ce soit.
 - Pas de cycle de vie, de ponte, ni d'accouplement.
 - Pas de collision avec les arbres ou les lanternes.
 
-## Risque connu — arbre partagé
+## Ordre des chantiers — arbre partagé
 
 Au moment d'écrire ce spec, `src/details.js` porte **172 lignes non commitées**
 d'une autre session (construction d'un sanctuaire : `applyShrineSurface`, mousse,
-lichen, toiture). Ce chantier a besoin d'un petit ajout dans ce même fichier
-(export des positions de fleurs). À arbitrer avant implémentation : attendre le
-commit de l'autre session, isoler en worktree, ou séquencer les deux touches.
+lichen, toiture). `main.js` et `config.js` sont vierges — le sanctuaire vit
+entièrement dans `details.js`.
+
+Or les **lucioles ne touchent pas `details.js`** : leur habitat vient de
+`ponds.js`. Seuls les papillons en ont besoin, pour l'export des positions de
+fleurs. D'où le séquençage retenu :
+
+1. **Chantier L — lucioles.** Démarre immédiatement. Touche `src/fireflies.js`
+   (nouveau), `main.js`, `config.js`, `test/invariants.html`. **Zéro
+   recouvrement** avec le sanctuaire, donc ni worktree ni merge.
+2. **Chantier P — papillons.** Démarre une fois `details.js` commité par l'autre
+   session. Touche `src/butterflies.js` (nouveau), `details.js` (export des
+   fleurs), `main.js`, `config.js`, `test/invariants.html`.
+
+Les invariants montent donc en deux temps : 10 → 12 au chantier L (habitat des
+lucioles, exclusivité de nuit), puis 12 → 14 au chantier P (papillons au-dessus
+de la surface et dans leur domaine, exclusivité de jour). Le compte final attendu
+est `INVARIANTS: 14 pass, 0 fail` — et non 13 : séparer l'exclusivité du relais
+en deux vérifications, une par espèce, la rend diagnostiquable chantier par
+chantier.
