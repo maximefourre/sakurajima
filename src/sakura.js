@@ -1121,17 +1121,21 @@ function createBarkMaterial( wind ) {
 
 }
 
+// Quantized parameter decode ranges, proven by the prototype bake below.
+const FOLIAGE_FLEX_MAX = 1.5;
+const FOLIAGE_AO_MAX = 1.15;
+
 const FOLIAGE_VERT = /* glsl */`
 #include <common>
 #include <fog_pars_vertex>
 ${WIND_GLSL}
 
-attribute vec3  aOffset;
-attribute vec3  aColor;
-attribute vec4  aParams;   // x size, y phase, z flex, w ao
-attribute float aKind;     // 0 flower, 1 spring leaf, 2 maple
+attribute vec3 aOffset;      // normalized Int16, restored by modelMatrix
+attribute vec4 aColorKind;   // normalized Uint8: linear RGB + kind / 255
+attribute vec4 aParams;      // normalized Uint16: size, phase, flex, ao
 
 uniform float uSizeScale;
+uniform float uSizeMax;
 
 varying vec2  vUv2;
 varying vec3  vTint;
@@ -1145,7 +1149,8 @@ void main() {
 
 	float wave = sakuraWindWave( worldAnchor );
 	float gust = sakuraWindGust( worldAnchor );
-	float amp  = uWindStrength * uBlossomSway * aParams.z * gust;
+	float flex = aParams.z * ${FOLIAGE_FLEX_MAX};
+	float amp  = uWindStrength * uBlossomSway * flex * gust;
 
 	vec2 ax2   = sakuraWindAxis();
 	vec3 lat   = vec3( ax2.x, 0.0, ax2.y );
@@ -1157,10 +1162,11 @@ void main() {
 
 	vec4 mvPosition = viewMatrix * vec4( worldAnchor, 1.0 );
 
-	vKind = aKind;
-	float size = aParams.x * uSizeScale;
+	float kind = aColorKind.w * 255.0;
+	vKind = kind;
+	float size = aParams.x * uSizeMax * uSizeScale;
 	// spring lanceolate leaves read a touch larger than flowers on the same twig
-	size *= mix( 1.0, 1.25, step( 0.5, aKind ) * ( 1.0 - step( 1.5, aKind ) ) );
+	size *= mix( 1.0, 1.25, step( 0.5, kind ) * ( 1.0 - step( 1.5, kind ) ) );
 
 	float rot = aParams.y * 6.2831853 + wave * amp * 0.55;
 	float cr  = cos( rot ), sr = sin( rot );
@@ -1170,8 +1176,8 @@ void main() {
 	gl_Position = projectionMatrix * mvPosition;
 
 	vUv2     = uv;
-	vTint    = aColor;
-	vAo      = aParams.w;
+	vTint    = aColorKind.xyz;
+	vAo      = aParams.w * ${FOLIAGE_AO_MAX};
 	vVariant = aParams.y;
 
 	#include <fog_vertex>
@@ -1282,6 +1288,7 @@ function createFoliageMaterial( wind, season ) {
 			uAmbientGround: { value: new THREE.Color( 0.14, 0.15, 0.11 ) },
 			uAlphaTest:     { value: season === 'autumn' ? 0.32 : 0.38 },
 			uSizeScale:     { value: 1.0 },
+			uSizeMax:       { value: 1.0 },
 			uBacklight:     { value: 1.35 }
 		},
 		wind // by reference — shared with bark and (ideally) grass
@@ -1708,9 +1715,9 @@ export function createSakuraForest( options = {} ) {
 		const c = bucketCount[ i ];
 		buckets.push( {
 			off: new Float32Array( c * 3 ),
-			col: new Float32Array( c * 3 ),
+			colorKind: new Uint8Array( c * 4 ),
 			par: new Float32Array( c * 4 ),
-			kind: new Float32Array( c ),
+			sizeMax: 0,
 			n: 0
 		} );
 
@@ -1718,6 +1725,7 @@ export function createSakuraForest( options = {} ) {
 
 	const tmp = new THREE.Vector3();
 	const dominantCounts = { red: 0, orange: 0, yellow: 0, green: 0 };
+	let maxFoliageSize = 0;
 
 	for ( let r = 0; r < placements.length; r ++ ) {
 
@@ -1745,12 +1753,16 @@ export function createSakuraForest( options = {} ) {
 
 			// decorrelate the phase per tree so neighbours never pulse together
 			const phase = THREE.MathUtils.euclideanModulo( fl.params[ i * 4 + 1 ] + r * 0.6180339887, 1 );
-			bucket.par[ w * 4 ] = fl.params[ i * 4 ] * rec.scale;
+			const size = fl.params[ i * 4 ] * rec.scale;
+			bucket.par[ w * 4 ] = size;
 			bucket.par[ w * 4 + 1 ] = phase;
 			bucket.par[ w * 4 + 2 ] = fl.params[ i * 4 + 2 ];
 			bucket.par[ w * 4 + 3 ] = fl.params[ i * 4 + 3 ];
-			bucket.kind[ w ] = fl.kind[ i ];
+			bucket.colorKind[ w * 4 + 3 ] = fl.kind[ i ];
+			if ( size > bucket.sizeMax ) bucket.sizeMax = size;
+			if ( size > maxFoliageSize ) maxFoliageSize = size;
 
+			let cr, cg, cb;
 			if ( autumn && pal ) {
 				// two-segment family ramp from the placement dominant only
 				const t = phase;
@@ -1762,14 +1774,17 @@ export function createSakuraForest( options = {} ) {
 					a = pal.mid; b = pal.sun;
 					u = THREE.MathUtils.smoothstep( t, 0.5, 1 );
 				}
-				bucket.col[ w * 3 ] = a[ 0 ] + ( b[ 0 ] - a[ 0 ] ) * u;
-				bucket.col[ w * 3 + 1 ] = a[ 1 ] + ( b[ 1 ] - a[ 1 ] ) * u;
-				bucket.col[ w * 3 + 2 ] = a[ 2 ] + ( b[ 2 ] - a[ 2 ] ) * u;
+				cr = a[ 0 ] + ( b[ 0 ] - a[ 0 ] ) * u;
+				cg = a[ 1 ] + ( b[ 1 ] - a[ 1 ] ) * u;
+				cb = a[ 2 ] + ( b[ 2 ] - a[ 2 ] ) * u;
 			} else {
-				bucket.col[ w * 3 ] = fl.colors[ i * 3 ];
-				bucket.col[ w * 3 + 1 ] = fl.colors[ i * 3 + 1 ];
-				bucket.col[ w * 3 + 2 ] = fl.colors[ i * 3 + 2 ];
+				cr = fl.colors[ i * 3 ];
+				cg = fl.colors[ i * 3 + 1 ];
+				cb = fl.colors[ i * 3 + 2 ];
 			}
+			bucket.colorKind[ w * 4 ] = Math.round( THREE.MathUtils.clamp( cr, 0, 1 ) * 255 );
+			bucket.colorKind[ w * 4 + 1 ] = Math.round( THREE.MathUtils.clamp( cg, 0, 1 ) * 255 );
+			bucket.colorKind[ w * 4 + 2 ] = Math.round( THREE.MathUtils.clamp( cb, 0, 1 ) * 255 );
 
 		}
 
@@ -1787,51 +1802,104 @@ export function createSakuraForest( options = {} ) {
 	const quadIdx = new THREE.BufferAttribute( new Uint16Array( [ 0, 1, 2, 0, 2, 3 ] ), 1 );
 
 	const foliageMaterial = createFoliageMaterial( wind, season );
+	maxFoliageSize = Math.max( maxFoliageSize, 1e-6 );
+	foliageMaterial.uniforms.uSizeMax.value = maxFoliageSize;
 	const foliageMeshes = [];
-	let maxFoliageSize = 0.3;
 
 	for ( let bi = 0; bi < buckets.length; bi ++ ) {
 
 		const bkt = buckets[ bi ];
-		const n = bkt.kind.length;
+		const n = bkt.colorKind.length / 4;
 		if ( n === 0 ) continue;
+
+		// aOffset is stored in a normalized, bucket-local cube. The mesh's uniform
+		// scale and translation reconstruct the world-space anchors in modelMatrix.
+		let minOx = Infinity, minOy = Infinity, minOz = Infinity;
+		let maxOx = - Infinity, maxOy = - Infinity, maxOz = - Infinity;
+		for ( let i = 0; i < n; i ++ ) {
+
+			const x = bkt.off[ i * 3 ], y = bkt.off[ i * 3 + 1 ], z = bkt.off[ i * 3 + 2 ];
+			if ( x < minOx ) minOx = x; if ( x > maxOx ) maxOx = x;
+			if ( y < minOy ) minOy = y; if ( y > maxOy ) maxOy = y;
+			if ( z < minOz ) minOz = z; if ( z > maxOz ) maxOz = z;
+
+		}
+		const bucketCx = ( minOx + maxOx ) * 0.5;
+		const bucketCy = ( minOy + maxOy ) * 0.5;
+		const bucketCz = ( minOz + maxOz ) * 0.5;
+		const bucketScale = Math.max(
+			( maxOx - minOx ) * 0.5,
+			( maxOy - minOy ) * 0.5,
+			( maxOz - minOz ) * 0.5,
+			1e-6
+		);
+		const packedOff = new Int16Array( n * 3 );
+		const invBucketScale = 1 / bucketScale;
+		for ( let i = 0; i < n; i ++ ) {
+
+			packedOff[ i * 3 ] = Math.round( ( bkt.off[ i * 3 ] - bucketCx ) * invBucketScale * 32767 );
+			packedOff[ i * 3 + 1 ] = Math.round( ( bkt.off[ i * 3 + 1 ] - bucketCy ) * invBucketScale * 32767 );
+			packedOff[ i * 3 + 2 ] = Math.round( ( bkt.off[ i * 3 + 2 ] - bucketCz ) * invBucketScale * 32767 );
+
+		}
+		bkt.off = packedOff;
+		bkt.center = [ bucketCx, bucketCy, bucketCz ];
+		bkt.scale = bucketScale;
+
+		// Bake ranges are phase [0,1), flex [0.15,1.5], and AO [0.25,1.15].
+		// Flex and AO therefore use their explicit maxima as decode constants.
+		const packedPar = new Uint16Array( n * 4 );
+		for ( let i = 0; i < n; i ++ ) {
+
+			packedPar[ i * 4 ] = Math.round( bkt.par[ i * 4 ] / maxFoliageSize * 65535 );
+			packedPar[ i * 4 + 1 ] = Math.round( bkt.par[ i * 4 + 1 ] * 65535 );
+			packedPar[ i * 4 + 2 ] = Math.round( bkt.par[ i * 4 + 2 ] / FOLIAGE_FLEX_MAX * 65535 );
+			packedPar[ i * 4 + 3 ] = Math.round( bkt.par[ i * 4 + 3 ] / FOLIAGE_AO_MAX * 65535 );
+
+		}
+		bkt.par = packedPar;
 
 		const geo = new THREE.InstancedBufferGeometry();
 		geo.setAttribute( 'position', quadPos );
 		geo.setAttribute( 'uv', quadUv );
 		geo.setIndex( quadIdx );
-		geo.setAttribute( 'aOffset', new THREE.InstancedBufferAttribute( bkt.off, 3 ) );
-		geo.setAttribute( 'aColor',  new THREE.InstancedBufferAttribute( bkt.col, 3 ) );
-		geo.setAttribute( 'aParams', new THREE.InstancedBufferAttribute( bkt.par, 4 ) );
-		geo.setAttribute( 'aKind',   new THREE.InstancedBufferAttribute( bkt.kind, 1 ) );
+		geo.setAttribute( 'aOffset', new THREE.InstancedBufferAttribute( bkt.off, 3, true ) );
+		geo.setAttribute( 'aColorKind', new THREE.InstancedBufferAttribute( bkt.colorKind, 4, true ) );
+		geo.setAttribute( 'aParams', new THREE.InstancedBufferAttribute( bkt.par, 4, true ) );
 		geo.instanceCount = n;
 
 		// CRITICAL: the auto bounding sphere would only cover the unit quad, so the
-		// whole chunk would be culled the moment its origin left the frustum.
+		// whole chunk would be culled the moment its origin left the frustum. Its
+		// center/radius must now be expressed in the normalized mesh-local frame.
 		let cx = 0, cy = 0, cz = 0, sMax = 0;
 		for ( let i = 0; i < n; i ++ ) {
 
-			cx += bkt.off[ i * 3 ]; cy += bkt.off[ i * 3 + 1 ]; cz += bkt.off[ i * 3 + 2 ];
-			if ( bkt.par[ i * 4 ] > sMax ) sMax = bkt.par[ i * 4 ];
+			cx += bkt.off[ i * 3 ] / 32767;
+			cy += bkt.off[ i * 3 + 1 ] / 32767;
+			cz += bkt.off[ i * 3 + 2 ] / 32767;
 
 		}
+		sMax = bkt.sizeMax;
 		cx /= n; cy /= n; cz /= n;
 		let rad = 0;
 		for ( let i = 0; i < n; i ++ ) {
 
-			const dx = bkt.off[ i * 3 ] - cx, dy = bkt.off[ i * 3 + 1 ] - cy, dz = bkt.off[ i * 3 + 2 ] - cz;
+			const dx = bkt.off[ i * 3 ] / 32767 - cx;
+			const dy = bkt.off[ i * 3 + 1 ] / 32767 - cy;
+			const dz = bkt.off[ i * 3 + 2 ] / 32767 - cz;
 			const d = dx * dx + dy * dy + dz * dz;
 			if ( d > rad ) rad = d;
 
 		}
-		maxFoliageSize = Math.max( maxFoliageSize, sMax );
 		geo.boundingSphere = new THREE.Sphere(
 			new THREE.Vector3( cx, cy, cz ),
-			Math.sqrt( rad ) + sMax * 1.6 + 1.2   // + wind sway headroom
+			Math.sqrt( rad ) + ( sMax * 1.6 + 1.2 ) / bucketScale
 		);
 
 		const mesh = new THREE.Mesh( geo, foliageMaterial );
 		mesh.name = 'sakuraFoliage_' + bi;
+		mesh.position.set( bucketCx, bucketCy, bucketCz );
+		mesh.scale.setScalar( bucketScale );
 		mesh.castShadow = false;
 		mesh.receiveShadow = false;
 		mesh.renderOrder = 1;
@@ -1849,16 +1917,19 @@ export function createSakuraForest( options = {} ) {
 		let w = 0;
 		for ( const bkt of buckets ) {
 
-			for ( let i = 0; i < bkt.kind.length; i ++ ) {
+			const count = bkt.colorKind.length / 4;
+			for ( let i = 0; i < count; i ++ ) {
 
 				// include flowers (0) and maple (2); exclude spring lanceolate (1)
-				if ( bkt.kind[ i ] > 0.5 && bkt.kind[ i ] < 1.5 ) continue;
-				pos[ w * 3 ] = bkt.off[ i * 3 ];
-				pos[ w * 3 + 1 ] = bkt.off[ i * 3 + 1 ];
-				pos[ w * 3 + 2 ] = bkt.off[ i * 3 + 2 ];
-				col[ w * 3 ] = bkt.col[ i * 3 ];
-				col[ w * 3 + 1 ] = bkt.col[ i * 3 + 1 ];
-				col[ w * 3 + 2 ] = bkt.col[ i * 3 + 2 ];
+				const kind = bkt.colorKind[ i * 4 + 3 ];
+				if ( kind === 1 ) continue;
+				// Decode back to world-space floats; consumers never see bucket-local data.
+				pos[ w * 3 ] = bkt.center[ 0 ] + bkt.off[ i * 3 ] / 32767 * bkt.scale;
+				pos[ w * 3 + 1 ] = bkt.center[ 1 ] + bkt.off[ i * 3 + 1 ] / 32767 * bkt.scale;
+				pos[ w * 3 + 2 ] = bkt.center[ 2 ] + bkt.off[ i * 3 + 2 ] / 32767 * bkt.scale;
+				col[ w * 3 ] = bkt.colorKind[ i * 4 ] / 255;
+				col[ w * 3 + 1 ] = bkt.colorKind[ i * 4 + 1 ] / 255;
+				col[ w * 3 + 2 ] = bkt.colorKind[ i * 4 + 2 ] / 255;
 				w ++;
 
 			}
