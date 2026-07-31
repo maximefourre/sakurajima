@@ -274,43 +274,149 @@ export function buildBody(material) {
   head.position.set(0, 0.15, 0.18);
   neck.add(head);
 
-  /* Skull and muzzle stay in one sweep, but a short radial break now marks the
-   * stop at 60% of the occiput-to-truffle length: skull:muzzle = 3:2. The cream
-   * mask biases the urajiro threshold hard toward cream over the front third —
-   * that is the blunt pale muzzle and the cheek flashes, and it is doing more
-   * work for recognisability than the geometry under it. */
+  /* — skull and muzzle —
+   * A stop is a break in both radius derivative and centreline direction, so a
+   * single continuous sweep necessarily sands it away. The skull therefore
+   * ends on the stop and the straight muzzle starts 0.04 u behind it. As with
+   * the neck overlapping the shoulder above, the hidden overlap masks the join
+   * without asking two sampled rings to meet exactly. */
+  const OCCIPUT_Z = -0.170;
+  const STOP_Z = 0.082;
+  const TRUFFLE_Z = 0.250;
+  const MUZZLE_OVERLAP = 0.040;
+  const MUZZLE_START_Z = STOP_Z - MUZZLE_OVERLAP;
+  const EYE_X = 0.182;
+  const EYE_Y = 0.060;
+  const EYE_Z = 0.030;
+
   mesh(sweep(spine([
-    [0, 0.00, -0.17], [0, 0.035, -0.03], [0, 0.02, 0.10],
-    [0, -0.025, 0.19], [0, -0.04, 0.25],
-  ], 14), {
+    [0, 0.000, OCCIPUT_Z], [0, 0.032, -0.085],
+    [0, 0.048, 0.010], [0, 0.040, STOP_Z],
+  ], 8), {
     radial: 14,
-    // A narrow transition replaces the old head-long chamfer; the nearly
-    // constant front radius gives the short muzzle a square, blunt silhouette.
-    radius: (u) => {
-      const r = 0.235 * (1 - 0.48 * smoothstep(0.60, 0.66, u));
-      return [r * (1 - 0.05 * u), r * (1 - 0.10 * u)];
+    radius: (u) => [
+      0.218 - 0.055 * smoothstep(0.28, 1.00, u),
+      0.225 - 0.052 * smoothstep(0.22, 1.00, u),
+    ],
+    profile: (u, a) => {
+      // For a +Z sweep the transported dorsal direction is -sin(a), while the
+      // two cheeks lie at |cos(a)|. Flatten the crown (with a shallow median
+      // furrow) and add volume laterally only through the cheek stations.
+      const dorsal = Math.max(0, -Math.sin(a));
+      const cheek = smoothstep(0.22, 0.52, u) * (1 - smoothstep(0.86, 1.00, u));
+      const flatCrown = 0.12 * dorsal + 0.018 * dorsal ** 8;
+      return (1 - flatCrown) * (1 + 0.10 * Math.abs(Math.cos(a)) * cheek);
     },
-    // The transported head frame's dorsal direction is -sin(a): compressing it
-    // broadens and flattens the forehead while leaving the muzzle untouched.
-    profile: (u, a) => 1 - 0.12 * (1 - smoothstep(0.55, 0.65, u))
-      * Math.max(0, -Math.sin(a)),
-    color: (u, up, out) => coatAt(up, out, -0.15 + 1.05 * smoothstep(0.38, 0.82, u)),
+    color: (u, up, out, p) => {
+      coatAt(up, out, -0.15 + 0.62 * smoothstep(0.78, 1.00, u));
+
+      // The periocular mask belongs to the skull surface: an outer urajiro
+      // ellipse is painted first, then the smaller dark surround leaves a fine
+      // cream rim. Using p makes this independent of the transported ring.
+      const dx = (Math.abs(p.x) - EYE_X) / 0.050;
+      const dy = (p.y - EYE_Y) / 0.060;
+      const dz = (p.z - EYE_Z) / 0.070;
+      const eyeD = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const creamRing = 1 - smoothstep(0.90, 1.22, eyeD);
+      const darkSurround = 1 - smoothstep(0.48, 0.88, eyeD);
+      out.lerp(COAT.cream, creamRing * 0.92);
+      out.lerp(COAT.dark, darkSurround * 0.72);
+    },
   }), head, 'skull');
+
+  const muzzleSpan = TRUFFLE_Z - MUZZLE_START_Z;
+  const overlapU = MUZZLE_OVERLAP / muzzleSpan;
+  const muzzleAxis = Array.from({ length: 6 }, (_, i) => {
+    const u = i / 5;
+    // Deliberately linear: any curve here would soften the straight chamfer.
+    return new THREE.Vector3(0, -0.008 - 0.032 * u, MUZZLE_START_Z + muzzleSpan * u);
+  });
+  mesh(sweep(muzzleAxis, {
+    radial: 14,
+    radius: (u) => {
+      const visibleU = Math.max(0, (u - overlapU) / (1 - overlapU));
+      const taper = 1 - 0.12 * visibleU;
+      return [0.132 * taper, 0.116 * taper];
+    },
+    profile: (u, a) => 1 + 0.14 * Math.max(0, Math.sin(a))
+      * smoothstep(overlapU, 0.62, u),
+    color: (u, up, out) => coatAt(up, out, 0.52 + 0.16 * u),
+  }), head, 'muzzle');
 
   const nose = mesh(paintSolid(new THREE.SphereGeometry(0.055, 10, 8), COAT.dark), head, 'nose');
   nose.position.set(0, -0.04, 0.28);
   nose.scale.set(1.15, 0.85, 0.9);
 
+  const lids = [];
   for (const side of [-1, 1]) {
-    // The skull sweep's surface at eye height sits at |x| ≈ 0.114 — anything
-    // inboard of that is buried inside the head. Proud by ~half the sphere.
+    // Keep the existing spherical eye: at its on-screen size the lid/surface
+    // intersection carries the almond silhouette more reliably than geometry.
     const eye = mesh(paintSolid(new THREE.SphereGeometry(0.038, 10, 8), COAT.dark), head, 'eye');
-    eye.position.set(side * 0.120, 0.058, 0.148);
+    eye.position.set(side * EYE_X, EYE_Y, EYE_Z);
     eye.scale.set(0.72, 1.0, 0.62);
+
+    const lid = new THREE.Object3D();
+    lid.name = 'lid';
+    lid.position.copy(eye.position);
+    lid.rotation.x = -0.32;
+    head.add(lid);
+    const lidShell = mesh(paintSolid(new THREE.SphereGeometry(
+      0.040, 8, 5, 0, TAU, 0, Math.PI * 0.5
+    ), COAT.red), lid, 'eyelid');
+    // The pivot stays exactly on the eye for blinking; lifting only the shell
+    // leaves roughly the upper third covered in the resting pose.
+    lidShell.position.y = 0.018;
+    lidShell.scale.set(0.74, 1.03, 0.64);
+    lids.push(lid);
+
     // A pin of light: without it a dark eye on a dark mask reads as fur.
     const glint = mesh(paintSolid(new THREE.SphereGeometry(0.010, 6, 5), new THREE.Color(0xf6f2ea)), head, 'eye-glint');
-    glint.position.set(side * 0.127, 0.070, 0.162);
+    glint.position.set(side * (EYE_X + 0.007), EYE_Y + 0.012, EYE_Z + 0.014);
   }
+
+  /* — mouth —
+   * The lower jaw overlaps the muzzle in the closed pose, so no sampled seam is
+   * exposed. Positive rotation.x drops its tip from the commissure. */
+  const jaw = new THREE.Object3D();
+  jaw.name = 'jaw';
+  jaw.position.set(0, -0.122, 0.095);
+  head.add(jaw);
+  mesh(sweep([
+    new THREE.Vector3(0, 0.000, 0.000),
+    new THREE.Vector3(0, -0.004, 0.050),
+    new THREE.Vector3(0, -0.002, 0.104),
+    new THREE.Vector3(0, 0.004, 0.150),
+  ], {
+    radial: 10,
+    radius: (u) => [0.112 - 0.020 * u, 0.044 - 0.008 * u],
+    // upness is local to sweep(), not world space. A jaw is the first dog part
+    // (outside the ears) whose pivot will rotate after build, so painting from
+    // upness would put russet underneath and cream on top. p keeps the lower
+    // surface cream in the jaw's own geometry throughout the rotation.
+    color: (u, up, out, p) => {
+      out.copy(COAT.cream).lerp(COAT.red, smoothstep(-0.026, 0.020, p.y));
+    },
+  }), jaw, 'mandible');
+
+  // The cavity is a volume tucked wholly inside the closed muzzle. Its surfaces
+  // are never coplanar with the coat: muzzle/jaw win the depth test when closed,
+  // and the dark volume is revealed only in the opening between them.
+  const mouth = mesh(paintSolid(new THREE.SphereGeometry(0.075, 8, 6), COAT.dark), head, 'mouth-cavity');
+  mouth.position.set(0, -0.105, 0.180);
+  mouth.scale.set(0.82, 0.55, 0.78);
+
+  const tongue = mesh(sweep([
+    new THREE.Vector3(0, 0, 0.025),
+    new THREE.Vector3(0, 0, 0.082),
+    new THREE.Vector3(0, 0, 0.135),
+  ], {
+    radial: 8,
+    radius: (u) => [0.057 - 0.010 * u, 0.024 - 0.006 * u],
+    profile: (u, a) => 1 + 0.05 * Math.sin(Math.PI * u) * Math.cos(2 * a),
+    color: (u, up, out) => out.copy(COAT.tongue),
+  }), jaw, 'tongue');
+  tongue.position.y = 0.024;
+  tongue.scale.y = 0.35;
 
   /* — ears —
    * Small, thick, triangular, and tipped FORWARD. Ears that stand straight up
@@ -411,5 +517,5 @@ export function buildBody(material) {
     legs.push({ key: s.key, front: s.front, hip, knee, paw });
   }
 
-  return { root, tilt, body, neck, head, ears, tailBase, legs, parts };
+  return { root, tilt, body, neck, head, jaw, lids, ears, tailBase, legs, parts };
 }
