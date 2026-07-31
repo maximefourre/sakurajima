@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { smoothstep } from './noise.js';
+import { makeGrainBump } from './detailtex.js';
 
 export const TAU = Math.PI * 2;
 export const UP = new THREE.Vector3(0, 1, 0);
@@ -24,6 +25,13 @@ export const COAT = {
 // flotter. Les deux vivent ici pour qu'on ne puisse plus les désynchroniser.
 export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, hipDrop: 0.10, thigh: 0.26, shin: 0.23, pad: 0.07 };
 
+/** Generated coat grain for the shared material's bumpMap (bumpScale ≈ 0.02). */
+export function makeCoatBump(seed) {
+  const bump = makeGrainBump(seed);
+  bump.repeat.set(6, 14);
+  return bump;
+}
+
 /* ────────────────────────────────────────────────────────────────
    Geometry: one tapered tube builder, used for every part
    ──────────────────────────────────────────────────────────────── */
@@ -32,6 +40,7 @@ const _t0 = new THREE.Vector3();
 const _t1 = new THREE.Vector3();
 const _qt = new THREE.Quaternion();
 const _off = new THREE.Vector3();
+const _surface = new THREE.Vector3();
 
 /**
  * Sweep an elliptical cross-section along a polyline.
@@ -45,7 +54,8 @@ const _off = new THREE.Vector3();
  * @param {object} o
  * @param {number}   [o.radial]  cross-section segments
  * @param {Function} o.radius    (u) => [halfWidth, halfHeight] at u in 0..1
- * @param {Function} o.color     (u, upness, out) => void, upness in -1..1
+ * @param {Function} [o.profile] (u, angle) => scalar radius multiplier
+ * @param {Function} o.color     (u, upness, out, point) => void, upness in -1..1
  */
 export function sweep(pts, o) {
   const radial = o.radial ?? 10;
@@ -84,17 +94,20 @@ export function sweep(pts, o) {
     for (let s = 0; s <= radial; s++) {
       const a = (s / radial) * TAU;
       const ca = Math.cos(a), sa = Math.sin(a);
-      _off.copy(normals[i]).multiplyScalar(ca * rx)
-        .addScaledVector(binormals[i], sa * ry);
-      const p = w * 3;
-      position[p] = pts[i].x + _off.x;
-      position[p + 1] = pts[i].y + _off.y;
-      position[p + 2] = pts[i].z + _off.z;
-      // How much this ring vertex faces the sky. This is what the urajiro is
-      // painted from, so it has to be the WORLD up and not the local frame.
+      const k = o.profile ? o.profile(u, a) : 1;
+      _off.copy(normals[i]).multiplyScalar(ca * rx * k)
+        .addScaledVector(binormals[i], sa * ry * k);
+      const p = _surface.copy(pts[i]).add(_off);
+      const v = w * 3;
+      position[v] = p.x;
+      position[v + 1] = p.y;
+      position[v + 2] = p.z;
+      // upness comes from the piece's local transported frame, not world space.
+      // That happens to agree for axis-aligned build pivots only; a rotated-pivot
+      // piece (the ears already are one) must paint from p instead of upness.
       const len = Math.max(1e-5, _off.length());
-      o.color(u, _off.y / len, c);
-      color[p] = c.r; color[p + 1] = c.g; color[p + 2] = c.b;
+      o.color(u, _off.y / len, c, p);
+      color[v] = c.r; color[v + 1] = c.g; color[v + 2] = c.b;
       uv[w * 2] = s / radial;
       uv[w * 2 + 1] = u;
       w++;
@@ -105,7 +118,7 @@ export function sweep(pts, o) {
   for (const [idx, i] of [[capA, 0], [capB, n - 1]]) {
     const p = idx * 3;
     position[p] = pts[i].x; position[p + 1] = pts[i].y; position[p + 2] = pts[i].z;
-    o.color(i === 0 ? 0 : 1, 0, c);
+    o.color(i === 0 ? 0 : 1, 0, c, _surface.copy(pts[i]));
     color[p] = c.r; color[p + 1] = c.g; color[p + 2] = c.b;
   }
   w += 2;
@@ -135,6 +148,12 @@ export function sweep(pts, o) {
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
+  const normal = g.getAttribute('normal');
+  for (let i = 0; i < n; i++) {
+    const seam = i * (radial + 1);
+    _t0.fromBufferAttribute(normal, seam).add(_t1.fromBufferAttribute(normal, seam + radial)).normalize();
+    normal.setXYZ(seam, _t0.x, _t0.y, _t0.z); normal.setXYZ(seam + radial, _t0.x, _t0.y, _t0.z);
+  }
   return g;
 }
 
@@ -169,6 +188,13 @@ export function coatAt(upness, out, creamBias = 0) {
   return out;
 }
 
+/** Low-relief tufts: periodic around the ring, tapered only along the piece. */
+function tuftProfile(ampAt) {
+  return (u, a) => 1 + ampAt(u) * (
+    0.55 * Math.cos(6 * a) + 0.45 * Math.cos(11 * a + 3 * u)
+  );
+}
+
 /* ────────────────────────────────────────────────────────────────
    The animal
    ──────────────────────────────────────────────────────────────── */
@@ -201,14 +227,14 @@ export function buildBody(material) {
 
   /* — torso —
    * Deep chest at the shoulder, tucked waist, and a slight rise over the croup.
-   * A shiba is squarely built: as tall at the withers as it is long in the back,
-   * which is what keeps it from reading as a fox. */
+   * Bounding the swept surface (not just its author points) keeps the breed's
+   * measured withers-height : body-length ratio at 10:11. */
   const torso = spine([
-    [0, 0.00, -0.55], [0, 0.05, -0.30], [0, 0.07, 0.00],
-    [0, 0.08, 0.24], [0, 0.04, 0.45],
+    [0, 0.00, -0.547], [0, 0.05, -0.298], [0, 0.07, 0.00],
+    [0, 0.08, 0.239], [0, 0.04, 0.447],
   ], 22);
   mesh(sweep(torso, {
-    radial: 14,
+    radial: 16,
     // Narrow and deep rather than round. A tube with equal radii reads as a
     // sausage; the 0.80 / 1.12 split is what gives him a keel-shaped chest and a
     // profile you can recognise from the side.
@@ -217,6 +243,11 @@ export function buildBody(material) {
       const waist = 1 - 0.22 * Math.exp(-((u - 0.42) ** 2) / 0.02);
       return [chest * waist * 0.80, chest * waist * 1.12];
     },
+    // Culotte over the rear thighs, plus the smaller chest bib at the front.
+    profile: tuftProfile((u) => Math.max(
+      0.05 * smoothstep(0.02, 0.12, u) * (1 - smoothstep(0.28, 0.45, u)),
+      0.04 * smoothstep(0.62, 0.78, u) * (1 - smoothstep(0.92, 1.00, u))
+    )),
     color: (u, up, out) => coatAt(up, out, -0.10 + 0.30 * smoothstep(0.55, 1.0, u)),
   }), body, 'torso');
 
@@ -234,6 +265,8 @@ export function buildBody(material) {
     // Short and thick, and it overlaps the shoulder rather than meeting it — the
     // ruff around a shiba's neck is dense enough that there is no visible join.
     radius: (u) => { const r = 0.215 - 0.045 * u; return [r * 0.90, r]; },
+    profile: tuftProfile((u) => 0.06
+      * smoothstep(0.00, 0.20, u) * (1 - smoothstep(0.78, 1.00, u))),
     color: (u, up, out) => coatAt(up, out, -0.05),
   }), neck, 'neck');
 
@@ -241,28 +274,31 @@ export function buildBody(material) {
   head.position.set(0, 0.15, 0.18);
   neck.add(head);
 
-  /* Skull and muzzle in one sweep so the stop between them is a smooth
-   * narrowing rather than a seam. The cream mask is painted by biasing the
-   * urajiro threshold hard toward cream over the front third — that is the
-   * blunt pale muzzle and the cheek flashes, and it is doing more work for
-   * recognisability than the geometry under it. */
+  /* Skull and muzzle stay in one sweep, but a short radial break now marks the
+   * stop at 60% of the occiput-to-truffle length: skull:muzzle = 3:2. The cream
+   * mask biases the urajiro threshold hard toward cream over the front third —
+   * that is the blunt pale muzzle and the cheek flashes, and it is doing more
+   * work for recognisability than the geometry under it. */
   mesh(sweep(spine([
     [0, 0.00, -0.17], [0, 0.035, -0.03], [0, 0.02, 0.10],
-    [0, -0.025, 0.20], [0, -0.04, 0.27],
+    [0, -0.025, 0.19], [0, -0.04, 0.25],
   ], 14), {
     radial: 14,
-    // The muzzle is SHORT and stops blunt. Taper it much past this and the whole
-    // animal turns into a fox, which is the failure mode every stylised shiba
-    // falls into.
+    // A narrow transition replaces the old head-long chamfer; the nearly
+    // constant front radius gives the short muzzle a square, blunt silhouette.
     radius: (u) => {
-      const r = 0.235 * (1 - 0.50 * smoothstep(0.28, 0.92, u));
-      return [r * (1 - 0.12 * u), r * (1 - 0.20 * u)];
+      const r = 0.235 * (1 - 0.48 * smoothstep(0.60, 0.66, u));
+      return [r * (1 - 0.05 * u), r * (1 - 0.10 * u)];
     },
+    // The transported head frame's dorsal direction is -sin(a): compressing it
+    // broadens and flattens the forehead while leaving the muzzle untouched.
+    profile: (u, a) => 1 - 0.12 * (1 - smoothstep(0.55, 0.65, u))
+      * Math.max(0, -Math.sin(a)),
     color: (u, up, out) => coatAt(up, out, -0.15 + 1.05 * smoothstep(0.38, 0.82, u)),
   }), head, 'skull');
 
   const nose = mesh(paintSolid(new THREE.SphereGeometry(0.055, 10, 8), COAT.dark), head, 'nose');
-  nose.position.set(0, -0.04, 0.30);
+  nose.position.set(0, -0.04, 0.28);
   nose.scale.set(1.15, 0.85, 0.9);
 
   for (const side of [-1, 1]) {
@@ -282,8 +318,8 @@ export function buildBody(material) {
   const ears = [];
   for (const side of [-1, 1]) {
     const pivot = new THREE.Object3D();
-    pivot.position.set(side * 0.125, 0.155, -0.035);
-    pivot.rotation.set(-0.32, side * 0.34, side * 0.20);
+    pivot.position.set(side * 0.145, 0.155, -0.035);
+    pivot.rotation.set(-0.46, side * 0.34, side * 0.20);
     head.add(pivot);
     mesh(sweep(spine([
       [0, 0.00, 0], [0, 0.10, 0.014], [0, 0.20, 0.024],
@@ -313,9 +349,11 @@ export function buildBody(material) {
     radial: 10,
     // Plumed: thin at the root, thickest through the curl, tapering at the tip.
     radius: (u) => {
-      const r = 0.075 + 0.075 * Math.sin(Math.PI * Math.min(1, u * 1.15));
+      const r = 0.075 + 0.100 * Math.sin(Math.PI * Math.min(1, u * 1.15));
       return [r, r];
     },
+    profile: tuftProfile((u) => 0.07
+      * smoothstep(0.00, 0.15, u) * (1 - smoothstep(0.82, 1.00, u))),
     color: (u, up, out) => coatAt(up, out, -0.30),
   }), tailBase, 'tail');
 
@@ -375,4 +413,3 @@ export function buildBody(material) {
 
   return { root, tilt, body, neck, head, ears, tailBase, legs, parts };
 }
-
