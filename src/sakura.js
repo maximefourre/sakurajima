@@ -15,13 +15,24 @@
 
 import * as THREE from 'three';
 import { LAND_SCALE } from './config.js';
-import { smoothstep } from './noise.js';
+import { smoothstep, streamFor } from './noise.js';
 import {
 	AUTUMN_PALETTES,
 	dominantForIndex,
 	isAutumnDominant,
 	MAPLE_SHAPE_GLSL,
 } from './seasonal-foliage.js';
+
+// Distance LOD keeps optical coverage approximately constant: retaining a
+// fraction f of the instances scales each surviving quad by 1 / sqrt( f ).
+// Do not replace this with a linear size compensation: covered area is
+// proportional to size squared.
+const LOD_NEAR = 140;
+const LOD_FAR = 700;
+const LOD_MIN_FRACTION = 0.45;
+// Larger blocks preserve more rasterization locality but make prefix sampling
+// coarser; smaller blocks sample more finely but approach the measured locality loss.
+const FOLIAGE_SHUFFLE_BLOCK = 64;
 
 // -----------------------------------------------------------------------------
 // 0. Deterministic RNG + tiny value noise
@@ -1805,6 +1816,11 @@ export function createSakuraForest( options = {} ) {
 	maxFoliageSize = Math.max( maxFoliageSize, 1e-6 );
 	foliageMaterial.uniforms.uSizeMax.value = maxFoliageSize;
 	const foliageMeshes = [];
+	// This stream is independent from the placement/prototype stream above, so
+	// changing the LOD shuffle can never move or regenerate a tree.
+	const foliageShuffleRng = streamFor( o.seed, 'sakura-foliage-lod-shuffle-v1' );
+	const lodSphere = new THREE.Sphere();
+	const lodCameraPosition = new THREE.Vector3();
 
 	for ( let bi = 0; bi < buckets.length; bi ++ ) {
 
@@ -1833,16 +1849,48 @@ export function createSakuraForest( options = {} ) {
 			( maxOz - minOz ) * 0.5,
 			1e-6
 		);
+
+		// Trees were appended one at a time. Shuffle whole runs before packing so
+		// every geometry prefix remains spatially uniform at block granularity,
+		// while instances inside each run retain their rasterization locality.
+		const order = new Uint32Array( n );
+		const blockCount = Math.ceil( n / FOLIAGE_SHUFFLE_BLOCK );
+		const blockOrder = new Uint32Array( blockCount );
+		for ( let i = 0; i < blockCount; i ++ ) blockOrder[ i ] = i;
+		for ( let i = blockCount - 1; i > 0; i -- ) {
+
+			const j = Math.floor( foliageShuffleRng() * ( i + 1 ) );
+			const t = blockOrder[ i ];
+			blockOrder[ i ] = blockOrder[ j ];
+			blockOrder[ j ] = t;
+
+		}
+		let orderAt = 0;
+		for ( let i = 0; i < blockCount; i ++ ) {
+
+			const blockStart = blockOrder[ i ] * FOLIAGE_SHUFFLE_BLOCK;
+			const blockEnd = Math.min( blockStart + FOLIAGE_SHUFFLE_BLOCK, n );
+			for ( let src = blockStart; src < blockEnd; src ++ ) order[ orderAt ++ ] = src;
+
+		}
+
 		const packedOff = new Int16Array( n * 3 );
+		const shuffledColorKind = new Uint8Array( n * 4 );
 		const invBucketScale = 1 / bucketScale;
 		for ( let i = 0; i < n; i ++ ) {
 
-			packedOff[ i * 3 ] = Math.round( ( bkt.off[ i * 3 ] - bucketCx ) * invBucketScale * 32767 );
-			packedOff[ i * 3 + 1 ] = Math.round( ( bkt.off[ i * 3 + 1 ] - bucketCy ) * invBucketScale * 32767 );
-			packedOff[ i * 3 + 2 ] = Math.round( ( bkt.off[ i * 3 + 2 ] - bucketCz ) * invBucketScale * 32767 );
+			const src = order[ i ];
+			packedOff[ i * 3 ] = Math.round( ( bkt.off[ src * 3 ] - bucketCx ) * invBucketScale * 32767 );
+			packedOff[ i * 3 + 1 ] = Math.round( ( bkt.off[ src * 3 + 1 ] - bucketCy ) * invBucketScale * 32767 );
+			packedOff[ i * 3 + 2 ] = Math.round( ( bkt.off[ src * 3 + 2 ] - bucketCz ) * invBucketScale * 32767 );
+			shuffledColorKind[ i * 4 ] = bkt.colorKind[ src * 4 ];
+			shuffledColorKind[ i * 4 + 1 ] = bkt.colorKind[ src * 4 + 1 ];
+			shuffledColorKind[ i * 4 + 2 ] = bkt.colorKind[ src * 4 + 2 ];
+			shuffledColorKind[ i * 4 + 3 ] = bkt.colorKind[ src * 4 + 3 ];
 
 		}
 		bkt.off = packedOff;
+		bkt.colorKind = shuffledColorKind;
 		bkt.center = [ bucketCx, bucketCy, bucketCz ];
 		bkt.scale = bucketScale;
 
@@ -1851,10 +1899,11 @@ export function createSakuraForest( options = {} ) {
 		const packedPar = new Uint16Array( n * 4 );
 		for ( let i = 0; i < n; i ++ ) {
 
-			packedPar[ i * 4 ] = Math.round( bkt.par[ i * 4 ] / maxFoliageSize * 65535 );
-			packedPar[ i * 4 + 1 ] = Math.round( bkt.par[ i * 4 + 1 ] * 65535 );
-			packedPar[ i * 4 + 2 ] = Math.round( bkt.par[ i * 4 + 2 ] / FOLIAGE_FLEX_MAX * 65535 );
-			packedPar[ i * 4 + 3 ] = Math.round( bkt.par[ i * 4 + 3 ] / FOLIAGE_AO_MAX * 65535 );
+			const src = order[ i ];
+			packedPar[ i * 4 ] = Math.round( bkt.par[ src * 4 ] / maxFoliageSize * 65535 );
+			packedPar[ i * 4 + 1 ] = Math.round( bkt.par[ src * 4 + 1 ] * 65535 );
+			packedPar[ i * 4 + 2 ] = Math.round( bkt.par[ src * 4 + 2 ] / FOLIAGE_FLEX_MAX * 65535 );
+			packedPar[ i * 4 + 3 ] = Math.round( bkt.par[ src * 4 + 3 ] / FOLIAGE_AO_MAX * 65535 );
 
 		}
 		bkt.par = packedPar;
@@ -1903,6 +1952,25 @@ export function createSakuraForest( options = {} ) {
 		mesh.castShadow = false;
 		mesh.receiveShadow = false;
 		mesh.renderOrder = 1;
+		mesh.onBeforeRender = ( renderer, scene, camera, geometry, material ) => {
+
+			lodSphere.copy( geometry.boundingSphere ).applyMatrix4( mesh.matrixWorld );
+			lodCameraPosition.setFromMatrixPosition( camera.matrixWorld );
+			const distance = Math.max(
+				0,
+				lodCameraPosition.distanceTo( lodSphere.center ) - lodSphere.radius
+			);
+			const fade = smoothstep( LOD_NEAR, LOD_FAR, distance );
+			const fraction = 1 - ( 1 - LOD_MIN_FRACTION ) * fade;
+			// Keep only the unavoidable one-instance steps: extra quantization would
+			// make transitions coarser, while each changed quad is sub-pixel here.
+			geometry.instanceCount = Math.max( 1, Math.round( n * fraction ) );
+			material.uniforms.uSizeScale.value = 1 / Math.sqrt( fraction );
+			// ShaderMaterial uniforms are otherwise uploaded only once for consecutive
+			// draws sharing this material. Re-arm the upload for every bucket draw.
+			material.uniformsNeedUpdate = true;
+
+		};
 		group.add( mesh );
 		foliageMeshes.push( mesh );
 
