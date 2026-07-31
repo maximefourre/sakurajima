@@ -120,7 +120,9 @@ export function carvePonds(x, z, h) {
    ──────────────────────────────────────────────────────────────── */
 
 const SHORE_N = 96;          // rays used to measure and to tessellate the outline
-const RIPPLE_SLOTS = 8;
+export const RIPPLE_SLOTS = 11;
+export const KOI_SLOTS = 8;
+export const DOG_SLOTS = 3;
 
 const WATER_VERT = /* glsl */ `
   attribute float aDepth;
@@ -151,6 +153,8 @@ const WATER_FRAG = /* glsl */ `
   uniform vec3  uHorizon;
   uniform float uReflect;
   uniform vec4  uRipples[${RIPPLE_SLOTS}];
+  uniform vec4  uDogWake;   // xy = position, z = amplitude, w = active
+  uniform vec2  uDogTrail;  // position delayed by about 0.35 s
 
   varying float vDepth;
   varying vec3  vWorld;
@@ -165,6 +169,18 @@ const WATER_FRAG = /* glsl */ `
                mix(pk_h21(i + vec2(0, 1)), pk_h21(i + vec2(1, 1)), u.x), u.y);
   }
 
+  float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-5), 0.0, 1.0);
+    return length(pa - ba * h);
+  }
+
+  float pk_wake(vec2 p) {
+    float d = sdSegment(p, uDogWake.xy, uDogTrail);
+    return -uDogWake.z * exp(-d * d * 1.6)
+         +  uDogWake.z * 0.55 * exp(-pow(d - 1.15, 2.0) * 3.2);
+  }
+
   // Surface height in world units. Two contributions: a breeze chop whose
   // amplitude is driven by the shared gust train, so the pond roughens when a
   // squall crosses the island and goes glassy in the lulls; and expanding rings
@@ -175,7 +191,7 @@ const WATER_FRAG = /* glsl */ `
     float amp = 0.010 + 0.052 * min(uWindStrength, 1.7);
     float h = (chop - 0.5) * amp;
 
-    for (int i = 0; i < ${RIPPLE_SLOTS}; i++) {
+    for (int i = 0; i < ${KOI_SLOTS}; i++) {
       vec4 r = uRipples[i];
       float age = uTime - r.z;
       float front = age * 1.15;
@@ -184,6 +200,23 @@ const WATER_FRAG = /* glsl */ `
       // whole event fade, so a slot that is never refreshed simply dies.
       float env = r.w * step(0.0, age) * exp(-age * 0.55) * exp(-abs(d - front) * 1.4);
       h += sin((d - front) * 7.5) * env * 0.055;
+    }
+    if (uDogWake.w > 0.0) {
+      for (int i = ${KOI_SLOTS}; i < ${RIPPLE_SLOTS}; i++) {
+        vec4 r = uRipples[i];
+        float age = uTime - r.z;
+        float front = age * 1.9;
+        float d = distance(p, r.xy);
+        float env = r.w * step(0.0, age) * exp(-age * 2.3) * exp(-abs(d - front) * 2.4);
+        // 0.16, pas 0.075 : le clapot de brise monte deja a 0.098 (voir amp
+        // ci-dessus), donc une onde de patte a 0.054 de crete se noie dans le
+        // bruit de fond. Mesure faite en jeu : le pipeline repondait, l'effet
+        // etait simplement sous le seuil de lecture. Nombre d'onde ramene de
+        // 12 a 9.5 pour la meme raison : a lambda 0.52 u les anneaux se
+        // referment avant d'etre lus, a 0.66 u ils se voient.
+        h += sin((d - front) * 9.5) * env * 0.16;
+      }
+      h += pk_wake(p);
     }
     return h;
   }
@@ -866,6 +899,8 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
     uHorizon: { value: new THREE.Color(0xcfe2f2) },
     uReflect: { value: 0.66 },   // update() drives this; see the note there
     uRipples: { value: Array.from({ length: RIPPLE_SLOTS }, () => new THREE.Vector4(0, 0, -999, 0)) },
+    uDogWake: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uDogTrail: { value: new THREE.Vector2(0, 0) },
     uTime: wind.uniforms.uTime,
     uWindDir: wind.uniforms.uWindDir,
     uWindStrength: wind.uniforms.uWindStrength,
@@ -1062,11 +1097,38 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
   const koi = [];
 
   /* ── ripple ring buffer ──────────────────────────────────── */
-  let rippleNext = 0;
+  let koiRippleNext = 0;
+  let dogRippleNext = KOI_SLOTS;
   function spawnRipple(x, z, t, strength) {
-    const slot = waterUniforms.uRipples.value[rippleNext];
+    const slot = waterUniforms.uRipples.value[koiRippleNext];
     slot.set(x, z, t, strength);
-    rippleNext = (rippleNext + 1) % RIPPLE_SLOTS;
+    koiRippleNext = (koiRippleNext + 1) % KOI_SLOTS;
+  }
+
+  // At about 1.8 front-paw plants/s, three dog slots are reused every
+  // 3 / 1.8 = 1.67 s; exp(-2.3 * 1.67) = 0.02, so replacement cannot pop.
+  function spawnDogRipple(x, z, t, strength) {
+    const slot = waterUniforms.uRipples.value[dogRippleNext];
+    slot.set(x, z, t, strength);
+    dogRippleNext = KOI_SLOTS + ((dogRippleNext - KOI_SLOTS + 1) % DOG_SLOTS);
+  }
+
+  const _dogWakePos = new THREE.Vector2();
+  let dogWakeActive = false;
+  function setSwimmer(x, z, active, amp, dt) {
+    const wake = waterUniforms.uDogWake.value;
+    const inPond = active && pondWaterYAt(x, z) !== null;
+    if (!inPond) {
+      wake.w = 0;
+      dogWakeActive = false;
+      return;
+    }
+
+    _dogWakePos.set(x, z);
+    if (!dogWakeActive) waterUniforms.uDogTrail.value.copy(_dogWakePos);
+    wake.set(x, z, Math.max(0, amp), 1);
+    waterUniforms.uDogTrail.value.lerp(_dogWakePos, Math.min(1, (dt || 0.016) * 3.0));
+    dogWakeActive = true;
   }
 
   /**
@@ -1534,5 +1596,9 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
     group.clear();
   }
 
-  return { group, PONDS, carvePonds, isInPond, pondWaterYAt, attach, update, dispose };
+  return {
+    group, PONDS, carvePonds, isInPond, pondWaterYAt,
+    spawnDogRipple, setSwimmer,
+    attach, update, dispose,
+  };
 }

@@ -440,8 +440,12 @@ async function boot() {
       // La mer. La houle sera ajoutée ici au chantier W4 ; pour l'instant, plat.
       return world.heightAt(x, z) < world.island.seaLevel ? world.island.seaLevel : null;
     },
-    impact: () => {},      // rempli au chantier W2 (ondes)
-    setSwimmer: () => {},  // rempli au chantier W2 (sillage)
+    // uTime is the shared object read by the pond shader and was updated at the
+    // start of this same frame, so an impact cannot be born a frame early/late.
+    impact: (x, z, strength) => world.ponds.spawnDogRipple(
+      x, z, world.wind.uniforms.uTime.value, strength
+    ),
+    setSwimmer: (x, z, active, amp, dt) => world.ponds.setSwimmer(x, z, active, amp, dt),
   };
   world.shiba = createShiba({
     seed: SEED,

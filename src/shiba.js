@@ -352,6 +352,10 @@ export function createShiba({
       if (down && !legPlanted[i]) {
         legPlanted[i] = true;
         if (state.moving && !state.swimming) stampPrint(leg);
+        if (state.depth > 0.10 && leg.front) {
+          leg.paw.getWorldPosition(_pawWorld);
+          water.impact(_pawWorld.x, _pawWorld.z, 0.6 + 0.5 * speedN);
+        }
       } else if (!down) {
         legPlanted[i] = false;
       }
@@ -575,6 +579,12 @@ export function createShiba({
     _qWant.copy(_qAlign).multiply(_qYaw);
     rig.root.quaternion.slerp(_qWant, Math.min(1, dt * 12));
 
+    // Keep dog ripples enabled while wading as well as swimming; the analytic
+    // hull depression itself fades in only with the swimming pose.
+    // 0.22 et non 0.08 : le creux de coque doit dominer le clapot de brise, qui
+    // culmine deja a 0.098 dans pk_surface. Mesure en jeu avant correction : le
+    // sillage etait present mais illisible.
+    water.setSwimmer(position.x, position.z, state.depth > 0.10, 0.22 * state.swimBlend, dt);
     animate(t, dt, speedN);
   }
 
