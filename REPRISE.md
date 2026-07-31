@@ -865,3 +865,88 @@ Visuel ultra inchangé, 60 fps.
 géométrique affirmée en commentaire et jamais mesurée. Sur les chemins, tout ce
 qui prétend dominer le terrain doit être mesuré exactement, aux deux tiers,
 avant d'être cru.
+
+## Chantier D — performance sans perte de qualité (31/07/2026, Opus)
+
+Question utilisateur : « peut-on aller chercher de la perf, sans réduire la
+qualité graphique ? » Réponse : oui, **ouverture 15.4 → 27.8 fps (+81 %)**, sol
+21.4 → 24.2, automne 59 / 49.3. Trois commits : `f558ee3`, `97cfc7f`, `0de1818`.
+
+### D'abord : les chiffres du 30/07 étaient faux
+
+Deux défauts de méthode, tous deux consignés en pièges 9 et 10 d'AGENTS.md :
+
+- **`__sk.frame()` ne fait que soumettre à la GPU**, il ne l'attend pas. La
+  boucle forcée annonçait **1413 fps**. Il faut resynchroniser par
+  `gl.readPixels(0,0,1,1,…)` après chaque frame.
+- **La caméra bougeait toute seule.** `OrbitControls.autoRotate` est actif au
+  boot, et surtout `world.camMode` valait `'follow'` : le rig tierce personne la
+  ramenait derrière le shiba à chaque frame. Elle **dérivait de 992 u** pendant
+  un banc qu'on croyait cadré. Verrouiller `setCamMode('orbit')`, `autoRotate`
+  et `enableDamping` à false, puis VÉRIFIER que la dérive est nulle.
+
+Avec les deux, les mesures tiennent à ±0.3 fps. Sans, on écrit n'importe quoi
+dans la doc — c'est ce qui s'était passé.
+
+### Le diagnostic
+
+Par extinction de chaque système : **la forêt est 88 %** du temps de frame en vue
+large et **75 %** au sol. Rien d'autre ne pèse. 50 104 523 quads de feuillage
+contre 7 M de triangles d'écorce.
+
+Deux faits qui ont décidé de tout :
+- **le coût est géométrique, pas fill-rate** : DPR 2 → 1 → 0.5 donne
+  21.3 / 21.6 / 21.8 fps. Baisser la résolution ne rapporte rien — donc il n'y
+  avait aucune qualité d'image à sacrifier, seulement des sommets à ne pas
+  soumettre ;
+- **le coût est linéaire en instances** : 100 % → 66.8 ms, 50 % → 39.9,
+  25 % → 28.1.
+
+### Les trois leviers
+
+**B — buckets 6×6 → 16×16.** La granularité du bucketing EST celle du frustum
+culling. Ouverture 15.4 → 16.3, sol 21.4 → 24.3. 24×24 testé : ça sature.
+Aucun changement visuel, instances identiques.
+
+**A — attributs 44 → 18 octets.** `aOffset` Int16×3, `aColor`+`aKind` fusionnés
+en Uint8×4, `aParams` Uint16×4. L'astuce : la dénormalisation des offsets passe
+par la transformation DU MESH (`mesh.position` = centre du bucket, `mesh.scale` =
+demi-diamètre), donc le `modelMatrix * vec4(aOffset,1)` déjà présent fait le
+travail et **la déclaration GLSL ne change pas**. 2 102 → 860 Mo de VRAM.
+**Gain fps marginal (~1.5 %)** : sur cette machine le coût par instance n'est pas
+la bande passante mais le vertex shader et le setup des primitives. Consigné tel
+quel — le gain réel est la portabilité, pas le fps.
+
+**C — éclaircissage par distance à couverture constante.** À l'ouverture, 100 %
+des pétales sont à plus de 600 u et 63.7 % au-delà de 900 u, où un pétale fait
+0.72 pixel. Garder une fraction `f` et grossir de `1/√f` conserve la surface
+couverte (elle va comme le carré de la taille — ne pas « simplifier » en linéaire).
+
+### Le piège que C a révélé, et qui vaut pour tout LOD par instanceCount
+
+Réduire `instanceCount` ne prend qu'un **préfixe**. Les instances étant écrites
+arbre par arbre, il faut mélanger — mais un Fisher-Yates **par instance** détruit
+la localité de rasterisation. Mesuré en isolant le mélange de l'éclaircissage
+(fraction forcée à 1) : **sol 24.6 → 20.2 fps (−18 %)**, ouverture inchangée.
+Sous-pixel ça ne coûte rien ; dès que les pétales couvrent des pixels, ça se paie.
+
+D'où le mélange par **blocs** (`FOLIAGE_SHUFFLE_BLOCK`) : un préfixe reste
+uniforme à la granularité du bloc, chaque run garde sa localité. Bloc 256 rendait
+le sol à 25.2 mais éclaircissait par paquets **visibles** (trous groupés dans les
+couronnes) ; bloc 64 donne le même fps à l'ouverture et une canopée redevenue
+indiscernable. C'est un curseur entre deux défauts opposés, pas un réglage libre.
+
+### Le réglage retenu
+
+Courbe mesurée à l'ouverture : min 1.00 → 16.8 fps, 0.60 → 23.7, 0.45 → 28.0,
+0.30 → 34.5. **0.45 retenu** : indiscernable de l'original en A/B direct, pour
++67 %. 0.30 double le fps mais lisse perceptiblement la canopée — écarté au nom
+de la consigne « sans réduire la qualité graphique », et laissé à un caractère
+près si le goût change.
+
+Vérifications : instances 50 104 523 et arbres 1867 identiques à chaque étape
+(rien n'est perdu au bake, l'éclaircissage est un choix de rendu) ; captures
+comparatives au même cadrage avec LOD activé puis neutralisé à chaud ; gros plan
+sous couronne identique (les couronnes proches sont à `f = 1` par conception) ;
+automne vérifié. `getFoliageSamples()` rend toujours tout, le tapis n'est pas
+affecté.

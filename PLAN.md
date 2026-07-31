@@ -71,28 +71,28 @@ Un chantier à la fois. Grok CLI toujours non authentifié.
   (480 928 instances ultra), tailles 0.34-0.62, quad élargi, 34 % dispersées
   hors couronnes, plus aucune feuille verte tombée ni en vol, printemps
   strictement inchangé.
-- **D — Perf générales / LOD** — CADRAGE (à valider par l'utilisateur avant
-  brief) :
-  - Mesures de référence 30/07 (ultra, M4 Max, mêmes cadrages étalonnés) :
-    printemps ~40 fps vue large île entière et ~40-64 au sol (~62 M tris) ;
-    automne ~71-124 fps. Le poste dominant est le FEUILLAGE FORÊT
-    (≈48 M de quads de fleurs au printemps) — débit vertex GPU, peu de draw
-    calls mais énormes.
-  - **Proposition (option retenue)** : chunking spatial du feuillage forêt —
-    le bake par buckets existe déjà ; en faire ~8×8 InstancedMesh partageant
-    géométrie/matériau (draw calls +~60, négligeable), chacun avec bounding
-    sphere → culling frustum natif three (vue sol : 60-70 % des chunks
-    éliminés), et `drawRange` proportionnel à la distance caméra sur des
-    instances PRÉ-MÉLANGÉES par chunk (tirer 40 % des instances d'un chunk
-    mélangé = éclaircissage uniforme, pas un trou). Même patron que le LOD
-    de l'herbe. Objectif chiffré : printemps ultra au sol ≥ 55 fps sans
-    perte visuelle à mi-distance ; re-mesurer les cadrages étalonnés
-    avant/après.
-  - Extensions si besoin après mesure : même chunking pour le tapis
-    (post-chantier B, ×2.5 en automne) et resserrage des anneaux LOD herbe.
-  - Écarté pour l'instant : impostors/billboards du lointain (gros chantier,
-    complexité élevée pour un projet sans build), réduction de far plane
-    (l'horizon dégagé est un choix d'AD).
+- **D — Perf générales / LOD** — **SOLDÉ le 31/07** (`f558ee3`, `97cfc7f`,
+  `0de1818`), sans aucune perte de qualité graphique.
+  - Les chiffres de référence du 30/07 (« ~40 fps ») étaient **faux** : mesurés
+    sans resynchronisation GPU et avec une caméra qui dérivait. Voir pièges 9 et
+    10 d'AGENTS.md — c'est la leçon principale du chantier.
+  - Étalon refait : printemps ultra 15.4 fps à l'ouverture, 21.4 au sol. Le
+    feuillage forêt est **88 %** du temps de frame en vue large et **75 %** au
+    sol, pour 50.1 M quads. Rien d'autre ne pèse (herbe 13 % au sol, passe
+    d'ombre 4-7 %, tapis/pétales/détails/nuages ≤ 3 %).
+  - Trois leviers appliqués : buckets 6×6 → 16×16 (culling plus fin), attributs
+    d'instance 44 → 18 o (2 102 → 860 Mo de VRAM), éclaircissage par distance à
+    couverture constante (`1/√f`) sur instances mélangées par blocs de 64.
+  - Résultat : **ouverture 15.4 → 27.8 fps (+81 %)**, sol 21.4 → 24.2 (+13 %),
+    automne 59 / 49.3. L'objectif « ≥ 55 fps au sol » n'est PAS atteint et ne
+    l'était pas atteignable ainsi : au sol le feuillage proche est à `f = 1` par
+    conception, c'est le prix de l'absence de perte visuelle.
+  - Reste ouvert si on veut aller plus loin : `LOD_MIN_FRACTION` 0.45 → 0.30
+    donne 34.5 fps à l'ouverture mais rend la canopée perceptiblement plus lisse
+    en A/B ; impostors/billboards du lointain (gros chantier) ; chunking du
+    tapis ; resserrage des anneaux LOD herbe. Écarté : réduire le far plane
+    (l'horizon dégagé est un choix d'AD), baisser le DPR (ne rapporte rien,
+    piège 10).
 
 ## Reste à faire, par priorité
 
