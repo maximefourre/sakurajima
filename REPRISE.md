@@ -822,3 +822,46 @@ Leçon générale : les deux régressions de chemins ont la même signature — 
 garantie géométrique affirmée en commentaire, jamais mesurée, et un banc qui ne
 couvrait pas le tier réellement joué. Les invariants numériques valent ce que
 vaut leur couverture.
+
+## Review adversariale ADV-2026-07-31-6F5081A traitée (31/07/2026, Opus)
+
+Un seul finding, en `high`, et il était **fondé** : `clearRibbonTriangles`
+échantillonnait 21 points barycentriques fixes par triangle alors que `heightAt`
+est linéaire par morceaux sur une triangulation CONNUE (`island.js:563-580`,
+diagonale `fx + fz = 1`). Le vrai maximum de `heightAt − plan du ruban` vit sur
+les arêtes de la grille du terrain, que le treillis ne touche pas — et
+l'invariant rejouait le même angle mort avec un treillis plus grossier encore.
+
+Contre-vérification Claude avant d'accepter le claim : vérificateur EXACT écrit
+séparément (clipping de chaque triangle de ruban par les sous-triangles du
+terrain, zéro échantillonnage), passé sur les 36 088 triangles réellement
+construits.
+
+| tier  | marge exacte, bande intérieure | marge exacte, TOUS triangles | marge annoncée par le banc |
+|-------|--------------------------------|------------------------------|----------------------------|
+| low   | 0.0230                         | 0.0230                       | 0.023 (exact)              |
+| ultra | 0.0191                         | **0.0063**                   | 0.025 (**surestimé ×4**)   |
+
+Le chemin ne perforait pas, mais la garantie n'était pas prouvée et la marge
+réelle en ultra valait 1.26× le seuil au lieu des 5× annoncés. Le point qui a
+tranché : le calcul exact coûte **~30 ms** sur l'ensemble des triangles — rien
+ne justifiait de continuer à échantillonner.
+
+Correctif (Codex sol effort high) : `island` expose `heightGrid = {seg, step,
+half}` — contrepartie honnête du contrat « `heightAt` est la source de vérité
+unique », qui doit raisonner exactement doit connaître la discrétisation.
+`measureRibbonTriangleExact` (details.js, exportée) est partagée par le builder
+ET par les invariants 8-9 : une seule implémentation, pas deux qui divergent.
+L'échantillonnage subsiste comme repli sans `heightGrid`, documenté comme repli.
+
+Après correctif, marge exacte sur TOUS les triangles : low 0.0230, **ultra
+0.0200** (contre 0.0063) — soit exactement `RIBBON_CLEARANCE_MARGIN`, par
+construction et non plus par chance. Élévation inchangée (0.2142 / 0.2331),
+convergence 1-2 passes. `INVARIANTS: 10 pass, 0 fail` aux deux tiers, recoupés
+par le vérificateur indépendant de Claude (mêmes valeurs, mêmes localisations).
+Visuel ultra inchangé, 60 fps.
+
+**Le motif est désormais établi, trois fois sur le même fichier** : une garantie
+géométrique affirmée en commentaire et jamais mesurée. Sur les chemins, tout ce
+qui prétend dominer le terrain doit être mesuré exactement, aux deux tiers,
+avant d'être cru.

@@ -38,7 +38,7 @@ import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
-import { initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, pathSurfaceLiftAt, RIBBON_COLS } from '../src/details.js';
+import { initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 
 let pass = 0, fail = 0;
@@ -158,61 +158,77 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
 
 /* ── 8-10. terre battue : dégagée, collée, hauteur logique fidèle ───────── */
 {
-  // Le ruban interpole SES triangles, le terrain les SIENS : une crête de
-  // terrain entre deux sommets du ruban peut le transpercer (patchs verts
-  // anguleux SUR le chemin, capture joueur). On rebâtit ici la géométrie
-  // EXACTE des rubans (mêmes builders que createDetails) et on échantillonne
-  // chaque triangle de la bande intérieure (~0.7·largeur, colonnes 1..7, pas
-  // ~0.3 u) en barycentrique : la surface interpolée doit dominer heightAt.
-  // Le patin de carrefour est testé sur TOUS ses triangles.
-  const meshes = computeRibbonMeshes(island.heightAt);
-  meshes.push(computeJunctionPad(island.heightAt));
-  let worst = Infinity, worstAt = '', highest = -Infinity, highestAt = '', checked = 0;
+  // Le ruban interpole SES triangles, le terrain les SIENS. Le builder et ce
+  // banc partagent la même évaluation exacte : chaque triangle de ruban est
+  // clippé par les sous-triangles de la grille bakée, puis les extrema de la
+  // différence de deux plans sont évalués aux sommets de l'arrangement.
+  const meshes = computeRibbonMeshes(island.heightAt, island.heightGrid);
+  meshes.push(computeJunctionPad(island.heightAt, island.heightGrid));
+  let worst = Infinity, worstAt = '', worstAll = Infinity, worstAllAt = '';
+  let highest = -Infinity, highestAt = '';
+  let covered = 0, coveredAll = 0, pieces = 0;
   let liftError = -Infinity, liftErrorAt = '';
-  const S = 3; // grille barycentrique par triangle (10 points, pas ~0.3 u)
   for (const m of meshes) {
     const { pos, idx } = m;
     for (let t3 = 0; t3 < idx.length; t3 += 3) {
       const iA = idx[t3], iB = idx[t3 + 1], iC = idx[t3 + 2];
+      let interior = true;
       if (m.cols === RIBBON_COLS) {
         // Bande intérieure ≈ largeur×0.7 : on exclut les cellules touchant
-        // les colonnes de bord (0 et 6), effilochées/discardées par le shader.
+        // les colonnes de bord, effilochées/discardées par le shader.
         const cA = iA % RIBBON_COLS, cB = iB % RIBBON_COLS, cC = iC % RIBBON_COLS;
-        if (Math.min(cA, cB, cC) < 1 || Math.max(cA, cB, cC) > RIBBON_COLS - 2) continue;
+        interior = Math.min(cA, cB, cC) >= 1
+          && Math.max(cA, cB, cC) <= RIBBON_COLS - 2;
       }
       const ax = pos[iA * 3], ay = pos[iA * 3 + 1], az = pos[iA * 3 + 2];
       const bx = pos[iB * 3], by = pos[iB * 3 + 1], bz = pos[iB * 3 + 2];
       const cx = pos[iC * 3], cy = pos[iC * 3 + 1], cz = pos[iC * 3 + 2];
-      // Un barycentre par triangle suffit pour borner l'ecart de la hauteur
-      // logique (shiba/camera) a la surface visible sur la bande interieure.
-      const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
-      const my = (ay + by + cy) / 3;
-      const logicalLift = pathSurfaceLiftAt(island.heightAt, mx, mz);
-      const actualLift = my - island.heightAt(mx, mz);
-      const err = Math.abs(logicalLift - actualLift);
-      if (err > liftError) {
-        liftError = err;
-        liftErrorAt = `${m.name}@(${mx.toFixed(1)},${mz.toFixed(1)})`;
+      if (interior) {
+        // Invariant 10 inchangé : un barycentre par triangle borne l'écart de
+        // la hauteur logique (shiba/caméra) à la surface visible.
+        const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
+        const my = (ay + by + cy) / 3;
+        const logicalLift = pathSurfaceLiftAt(island.heightAt, mx, mz);
+        const actualLift = my - island.heightAt(mx, mz);
+        const err = Math.abs(logicalLift - actualLift);
+        if (err > liftError) {
+          liftError = err;
+          liftErrorAt = `${m.name}@(${mx.toFixed(1)},${mz.toFixed(1)})`;
+        }
       }
-      for (let i = 0; i <= S; i++) {
-        for (let j = 0; j <= S - i; j++) {
-          const l1 = i / S, l2 = j / S, l0 = 1 - l1 - l2;
-          const x = l0 * ax + l1 * bx + l2 * cx;
-          const z = l0 * az + l1 * bz + l2 * cz;
-          const y = l0 * ay + l1 * by + l2 * cy;
-          const d = y - island.heightAt(x, z);
-          checked++;
-          if (d < worst) { worst = d; worstAt = `${m.name}@(${x.toFixed(1)},${z.toFixed(1)})`; }
-          if (d > highest) { highest = d; highestAt = `${m.name}@(${x.toFixed(1)},${z.toFixed(1)})`; }
+
+      const measure = measureRibbonTriangleExact(
+        island.heightAt, island.heightGrid, pos, iA, iB, iC);
+      if (!measure) continue; // triangle sans aire en XZ (pointe de plage)
+      coveredAll++;
+      pieces += measure.pieces;
+      if (measure.min < worstAll) {
+        worstAll = measure.min;
+        worstAllAt = `${m.name}@(${measure.minPoint.x.toFixed(1)},${measure.minPoint.z.toFixed(1)})`;
+      }
+      if (measure.max > highest) {
+        highest = measure.max;
+        highestAt = `${m.name}@(${measure.maxPoint.x.toFixed(1)},${measure.maxPoint.z.toFixed(1)})`;
+      }
+      if (interior) {
+        covered++;
+        if (measure.min < worst) {
+          worst = measure.min;
+          worstAt = `${m.name}@(${measure.minPoint.x.toFixed(1)},${measure.minPoint.z.toFixed(1)})`;
         }
       }
     }
   }
+  const convergencePasses = Math.max(...meshes.map((m) => m.clearancePasses));
   // Trois claims DISTINCTS, trois checks : un échec doit dire lequel a cassé.
   check('surface des rubans au-dessus du terrain', worst > 0.005,
-    `${checked} échantillons, marge min ${worst.toFixed(3)} (${worstAt})`);
+    `${covered} triangles intérieurs / ${coveredAll} tous, ${pieces} intersections, `
+    + `marge exacte intérieure ${worst.toFixed(4)} (${worstAt}), `
+    + `tous triangles ${worstAll.toFixed(4)} (${worstAllAt}), `
+    + `convergence ${convergencePasses} passes`);
   check('surface des rubans collée au terrain', highest <= 0.55,
-    `élévation max ${highest.toFixed(3)} (${highestAt}), plafond 0.550`);
+    `${coveredAll} triangles couverts, élévation exacte max ${highest.toFixed(4)} `
+    + `(${highestAt}), plafond 0.550`);
   // Le prototype Chrome low+ultra borne le lift reel dans [0, 0.232] u sur ce
   // maillage 9 cols / 0.5 u / patin 10x72 ; le bombe logique reste dans
   // [0, 0.12]. Leur ecart absolu est donc <= 0.232 aux points mesures :

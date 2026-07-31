@@ -419,6 +419,7 @@ async function boot() {
   world.details = createDetails({
     seed: SEED, quality: q,
     heightAt: world.heightAt,
+    heightGrid: world.island.heightGrid,
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     inWater: world.inWater,

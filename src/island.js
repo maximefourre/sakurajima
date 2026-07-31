@@ -1223,6 +1223,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     terrain,
     water,
     heightAt,
+    heightGrid: { seg: SEG, step: STEP, half: HALF },
     slopeAt,
     normalAt,
     colorAt,

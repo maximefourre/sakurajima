@@ -332,31 +332,169 @@ const RIBBON_CLEARANCE_MAX_PASSES = 6;
 const RIBBON_CLEARANCE_EPSILON = 1e-4;
 
 /**
- * Lift triangle planes monotonically until their barycentric samples clear the
- * real baked terrain. Raising all three vertices by the same deficit translates
- * the whole plane without changing its slope; later triangles can only raise a
- * shared vertex, so an already-safe sample never moves down.
+ * Clip a subject polygon in XZ against one terrain sub-triangle.
+ * The clipper orientation is deliberately inferred from its third vertex:
+ * callers do not have to rely on a particular winding.
  */
-function clearRibbonTriangles(heightAt, pos, idx) {
+function clipPolygonByTriangle(subject, q0, q1, q2) {
+  let polygon = subject;
+  const clip = [q0, q1, q2];
+  for (let edge = 0; edge < 3; edge++) {
+    if (polygon.length < 3) return null;
+    const e0 = clip[edge];
+    const e1 = clip[(edge + 1) % 3];
+    const insideVertex = clip[(edge + 2) % 3];
+    const ex = e1.x - e0.x, ez = e1.z - e0.z;
+    const side = ex * (insideVertex.z - e0.z) - ez * (insideVertex.x - e0.x);
+    const orientation = side >= 0 ? 1 : -1;
+    const output = [];
+    let previous = polygon[polygon.length - 1];
+    let previousDistance = orientation
+      * (ex * (previous.z - e0.z) - ez * (previous.x - e0.x));
+    let previousInside = previousDistance >= -1e-10;
+    for (const current of polygon) {
+      const currentDistance = orientation
+        * (ex * (current.z - e0.z) - ez * (current.x - e0.x));
+      const currentInside = currentDistance >= -1e-10;
+      if (currentInside !== previousInside) {
+        const denominator = previousDistance - currentDistance;
+        const t = Math.abs(denominator) > 1e-15
+          ? previousDistance / denominator
+          : 0;
+        output.push({
+          x: previous.x + (current.x - previous.x) * t,
+          z: previous.z + (current.z - previous.z) * t,
+        });
+      }
+      if (currentInside) output.push(current);
+      previous = current;
+      previousDistance = currentDistance;
+      previousInside = currentInside;
+    }
+    polygon = output;
+  }
+  return polygon.length >= 3 ? polygon : null;
+}
+
+/**
+ * Exact extrema of ribbon-plane clearance over one triangle in XZ.
+ *
+ * `heightAt` is affine on each of the two baked terrain triangles in a cell.
+ * After clipping, plane(x,z) - heightAt(x,z) is therefore affine on every
+ * intersection polygon and reaches both extrema at one of its vertices.
+ *
+ * @param {Function} heightAt
+ * @param {{seg:number, step:number, half:number}} heightGrid
+ * @param {number[]} pos packed xyz ribbon positions
+ * @param {number} iA
+ * @param {number} iB
+ * @param {number} iC
+ * @returns {{min:number,max:number,minPoint:{x:number,z:number},
+ *            maxPoint:{x:number,z:number},pieces:number}|null}
+ *          null for a triangle degenerate in XZ or outside the baked grid
+ */
+export function measureRibbonTriangleExact(heightAt, heightGrid, pos, iA, iB, iC) {
+  const seg = heightGrid?.seg;
+  const step = heightGrid?.step;
+  const half = heightGrid?.half;
+  if (!Number.isInteger(seg) || seg < 1
+      || !(step > 0) || !Number.isFinite(half)) return null;
+
+  const a3 = iA * 3, b3 = iB * 3, c3 = iC * 3;
+  const ax = pos[a3], ay = pos[a3 + 1], az = pos[a3 + 2];
+  const bx = pos[b3], by = pos[b3 + 1], bz = pos[b3 + 2];
+  const cx = pos[c3], cy = pos[c3 + 1], cz = pos[c3 + 2];
+  const det = (bx - ax) * (cz - az) - (cx - ax) * (bz - az);
+  if (Math.abs(det) < 1e-12) return null;
+
+  const pa = ((by - ay) * (cz - az) - (cy - ay) * (bz - az)) / det;
+  const pb = ((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / det;
+  const pc = ay - pa * ax - pb * az;
+
+  const clampCell = (v) => Math.max(0, Math.min(seg - 1, v));
+  const minX = Math.min(ax, bx, cx), maxX = Math.max(ax, bx, cx);
+  const minZ = Math.min(az, bz, cz), maxZ = Math.max(az, bz, cz);
+  if (maxX < -half || minX > half || maxZ < -half || minZ > half) return null;
+  const c0 = clampCell(Math.floor((minX + half) / step));
+  const c1 = clampCell(Math.floor((maxX + half) / step));
+  const r0 = clampCell(Math.floor((minZ + half) / step));
+  const r1 = clampCell(Math.floor((maxZ + half) / step));
+  const subject = [{ x: ax, z: az }, { x: bx, z: bz }, { x: cx, z: cz }];
+
+  let min = Infinity, max = -Infinity;
+  let minPoint = null, maxPoint = null, pieces = 0;
+  const measurePiece = (terrainTriangle) => {
+    const polygon = clipPolygonByTriangle(
+      subject, terrainTriangle[0], terrainTriangle[1], terrainTriangle[2]);
+    if (!polygon) return;
+    pieces++;
+    for (const v of polygon) {
+      const clearance = pa * v.x + pb * v.z + pc - heightAt(v.x, v.z);
+      if (clearance < min) {
+        min = clearance;
+        minPoint = { x: v.x, z: v.z };
+      }
+      if (clearance > max) {
+        max = clearance;
+        maxPoint = { x: v.x, z: v.z };
+      }
+    }
+  };
+
+  for (let rr = r0; rr <= r1; rr++) {
+    const z0 = rr * step - half, z1 = (rr + 1) * step - half;
+    for (let cc = c0; cc <= c1; cc++) {
+      const x0 = cc * step - half, x1 = (cc + 1) * step - half;
+      measurePiece([
+        { x: x0, z: z0 }, { x: x1, z: z0 }, { x: x0, z: z1 },
+      ]);
+      measurePiece([
+        { x: x1, z: z1 }, { x: x0, z: z1 }, { x: x1, z: z0 },
+      ]);
+    }
+  }
+
+  return pieces > 0 ? { min, max, minPoint, maxPoint, pieces } : null;
+}
+
+/**
+ * Lift triangle planes monotonically until they clear the baked terrain.
+ * With `heightGrid`, clearance is evaluated exactly at the vertices of the
+ * ribbon/terrain-triangulation arrangement. Without it, the historical fixed
+ * barycentric sampling remains only as a backward-compatible fallback; it is
+ * not equivalent to, and does not prove, exact clearance.
+ *
+ * Raising all three vertices by the same deficit translates the whole plane
+ * without changing its slope; later triangles can only raise a shared vertex,
+ * so an already-safe point never moves down.
+ */
+function clearRibbonTriangles(heightAt, heightGrid, pos, idx) {
+  const exact = heightGrid != null;
   for (let pass = 0; pass < RIBBON_CLEARANCE_MAX_PASSES; pass++) {
     let moved = false;
     for (let t3 = 0; t3 < idx.length; t3 += 3) {
       const iA = idx[t3], iB = idx[t3 + 1], iC = idx[t3 + 2];
       const a3 = iA * 3, b3 = iB * 3, c3 = iC * 3;
-      const ax = pos[a3], ay = pos[a3 + 1], az = pos[a3 + 2];
-      const bx = pos[b3], by = pos[b3 + 1], bz = pos[b3 + 2];
-      const cx = pos[c3], cy = pos[c3 + 1], cz = pos[c3 + 2];
       let deficit = 0;
-      for (let i = 0; i <= RIBBON_CLEARANCE_SB; i++) {
-        for (let j = 0; j <= RIBBON_CLEARANCE_SB - i; j++) {
-          const l1 = i / RIBBON_CLEARANCE_SB;
-          const l2 = j / RIBBON_CLEARANCE_SB;
-          const l0 = 1 - l1 - l2;
-          const x = l0 * ax + l1 * bx + l2 * cx;
-          const z = l0 * az + l1 * bz + l2 * cz;
-          const y = l0 * ay + l1 * by + l2 * cy;
-          deficit = Math.max(deficit,
-            heightAt(x, z) + RIBBON_CLEARANCE_MARGIN - y);
+      if (exact) {
+        const measure = measureRibbonTriangleExact(
+          heightAt, heightGrid, pos, iA, iB, iC);
+        if (measure) deficit = Math.max(0, RIBBON_CLEARANCE_MARGIN - measure.min);
+      } else {
+        const ax = pos[a3], ay = pos[a3 + 1], az = pos[a3 + 2];
+        const bx = pos[b3], by = pos[b3 + 1], bz = pos[b3 + 2];
+        const cx = pos[c3], cy = pos[c3 + 1], cz = pos[c3 + 2];
+        for (let i = 0; i <= RIBBON_CLEARANCE_SB; i++) {
+          for (let j = 0; j <= RIBBON_CLEARANCE_SB - i; j++) {
+            const l1 = i / RIBBON_CLEARANCE_SB;
+            const l2 = j / RIBBON_CLEARANCE_SB;
+            const l0 = 1 - l1 - l2;
+            const x = l0 * ax + l1 * bx + l2 * cx;
+            const z = l0 * az + l1 * bz + l2 * cz;
+            const y = l0 * ay + l1 * by + l2 * cy;
+            deficit = Math.max(deficit,
+              heightAt(x, z) + RIBBON_CLEARANCE_MARGIN - y);
+          }
         }
       }
       if (deficit > RIBBON_CLEARANCE_EPSILON) {
@@ -366,8 +504,9 @@ function clearRibbonTriangles(heightAt, pos, idx) {
         moved = true;
       }
     }
-    if (!moved) break;
+    if (!moved) return pass + 1;
   }
+  return RIBBON_CLEARANCE_MAX_PASSES;
 }
 
 /**
@@ -399,18 +538,19 @@ export const RIBBON_COLS = 9;
 /**
  * Ribbon vertex/index data for every route. Deterministic (seeded fbm only).
  *
- * - 9 colonnes et pas axial <= 0.5 u : tessellation conservee car le prototype
- *   Chrome mesure 0.232 u d'elevation max en ultra pour 65 ms de degagement.
+ * - 9 colonnes et pas axial <= 0.5 u : tessellation conservee ; le degagement
+ *   exact parcourt l'arrangement avec les triangles de la grille bakee.
  * - Pose initiale collee: y = heightAt + lift, lift 0.06 (bord) -> 0.12
  *   (axe), puis chaque triangle est degage contre le terrain reel.
  * - liftBias par route resserre encore (0/0.02/0.04, avant 0/0.03/0.06) : les
  *   etages du carrefour lisaient comme des marches.
  *
  * @param {Function} heightAt
+ * @param {{seg:number, step:number, half:number}} [heightGrid]
  * @returns {{name:string, cols:number, rows:number, pos:number[],
  *            edge:number[], edgeRaw:number[], idx:number[]}[]}
  */
-export function computeRibbonMeshes(heightAt) {
+export function computeRibbonMeshes(heightAt, heightGrid = null) {
   const out = [];
   const p = new THREE.Vector3(), tn = new THREE.Vector3();
   for (const route of _routes) {
@@ -473,8 +613,17 @@ export function computeRibbonMeshes(heightAt) {
         }
       }
     }
-    clearRibbonTriangles(heightAt, pos, idx);
-    out.push({ name: route.name, cols: RIBBON_COLS, rows: N + 1, pos, edge, edgeRaw, idx });
+    const clearancePasses = clearRibbonTriangles(heightAt, heightGrid, pos, idx);
+    out.push({
+      name: route.name,
+      cols: RIBBON_COLS,
+      rows: N + 1,
+      pos,
+      edge,
+      edgeRaw,
+      idx,
+      clearancePasses,
+    });
   }
   return out;
 }
@@ -489,9 +638,10 @@ export function computeRibbonMeshes(heightAt) {
  * terrain. Aucune lanterne n'y est generee.
  *
  * @param {Function} heightAt
+ * @param {{seg:number, step:number, half:number}} [heightGrid]
  * @returns {{name:string, pos:number[], edge:number[], edgeRaw:number[], idx:number[]}}
  */
-export function computeJunctionPad(heightAt) {
+export function computeJunctionPad(heightAt, heightGrid = null) {
   const [jx, jz] = PATHS.routes[0].points[0];
   const RINGS = 10, SEGS = 72;
   const R0 = PATHS.width * 1.6;
@@ -520,8 +670,8 @@ export function computeJunctionPad(heightAt) {
       idx.push(i0, i1, o0, i1, o1, o0);
     }
   }
-  clearRibbonTriangles(heightAt, pos, idx);
-  return { name: 'carrefour', pos, edge, edgeRaw, idx };
+  const clearancePasses = clearRibbonTriangles(heightAt, heightGrid, pos, idx);
+  return { name: 'carrefour', pos, edge, edgeRaw, idx, clearancePasses };
 }
 
 /* ── art direction ───────────────────────────────────────────────
@@ -883,6 +1033,7 @@ function makeToriiGeometry() {
  * @param {number}   [opts.seed]
  * @param {object}   opts.quality   one of config.QUALITY
  * @param {Function} opts.heightAt
+ * @param {{seg:number, step:number, half:number}} [opts.heightGrid]
  * @param {Function} [opts.slopeAt]
  * @param {Function} [opts.normalAt]
  * @param {Function} [opts.inWater]  (x, z) => bool — ponds
@@ -893,6 +1044,7 @@ export function createDetails({
   seed = 1337,
   quality = null,
   heightAt,
+  heightGrid = null,
   slopeAt = null,
   normalAt = null,
   inWater = null,
@@ -1191,8 +1343,8 @@ export function createDetails({
     // par les builders PURS partages avec test/invariants.html (invariant 8 :
     // la surface interpolee des rubans reste au-dessus de heightAt partout).
     // La geometrie testee est EXACTEMENT celle rendue.
-    const surfaces = computeRibbonMeshes(heightAt);
-    surfaces.push(computeJunctionPad(heightAt));
+    const surfaces = computeRibbonMeshes(heightAt, heightGrid);
+    surfaces.push(computeJunctionPad(heightAt, heightGrid));
     for (const surf of surfaces) {
       const col = [];
       for (let vi = 0; vi < surf.edgeRaw.length; vi++) {

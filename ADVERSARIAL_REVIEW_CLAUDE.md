@@ -353,3 +353,99 @@ les contrôles de midi, de nuit et de golden hour autumn ultra.
 Grok CLI était non authentifié et `codex-rescue` a échoué au démarrage du
 modèle ; les implémentations et relectures de fallback déléguées ont été
 utilisées à la place, ce qui est enregistré explicitement ici.
+
+---
+
+# Revue ADV-2026-07-31-6F5081A — chantiers C-quater / feuilles / hokora
+
+## Suivi de traitement
+
+| Champ | Valeur |
+|---|---|
+| Identifiant unique | `ADV-2026-07-31-6F5081A` |
+| Date de la revue | 31/07/2026 |
+| Plage auditée | `d767222..6f5081a` (9 commits, 8 fichiers, +1069/−155) |
+| Outil | skill `codex:adversarial-review`, base `d767222`, exécution en tâche de fond |
+| Verdict Codex | **needs-attention** — « do not ship » |
+| Statut global | **Traité** — finding unique CONFIRMÉ par contre-vérification exacte, puis corrigé et re-vérifié |
+| Contre-vérifié par | Claude — vérificateur exact (clipping ruban × triangulation du terrain, aucun échantillonnage), les deux tiers, Chrome réel |
+| Commit(s) de résolution | voir `git log --grep=ADV-2026-07-31-6F5081A` |
+
+### Findings et traitement
+
+| Finding | Statut | Résolution, justification ou commit |
+|---|---|---|
+| [high] Échantillonnage barycentrique fixe (21 points) de `clearRibbonTriangles` : une arête du terrain traversant le triangle entre deux échantillons peut porter le maximum de `heightAt − plan du ruban` ; la marge 0.02 ne borne pas ce maximum non échantillonné. L'invariant ajouté rejoue le même angle mort avec un treillis S=3 plus grossier, donc il peut passer alors que le terrain perfore encore. (`src/details.js:329-360`) | **Traité** | Contre-vérifié exactement (voir ci-dessous) : mécanisme réel, écart important, conséquence pas encore réalisée. Corrigé — l'échantillonnage a disparu du builder ET du banc au profit de l'évaluation exacte. Marge exacte ultra sur TOUS les triangles : **0.0063 → 0.0200**. Commit `git log --grep=ADV-2026-07-31-6F5081A`. |
+
+### Contre-vérification indépendante (Claude, Chrome réel)
+
+`heightAt` est linéaire par morceaux sur une triangulation CONNUE (`island.js:563-580` :
+grille régulière, chaque cellule coupée par la diagonale `fx + fz = 1`). Le maximum de
+`heightAt − plan du ruban` sur un triangle de ruban est donc atteint sur un sommet de
+l'arrangement « triangle de ruban ∩ sous-triangles du terrain » — calculable EXACTEMENT
+par clipping, sans aucun échantillonnage. Vérificateur écrit et exécuté sur les 36 088
+triangles réellement construits :
+
+| tier  | marge exacte, bande intérieure | marge exacte, TOUS triangles | marge annoncée par le banc |
+|-------|--------------------------------|------------------------------|----------------------------|
+| low   | 0.0230                         | 0.0230                       | 0.023 (exact)              |
+| ultra | **0.0191**                     | **0.0063**                   | 0.025 (**surestimé ×4**)   |
+
+Élévation max exacte 0.2142 (low) / 0.2331 (ultra) — cohérente avec le banc.
+
+Conclusion : **le finding est fondé**. L'échantillonnage rate bien le vrai minimum, et
+au tier ultra il annonce une marge quatre fois plus épaisse que la réalité — 0.0063,
+soit 1.26× le seuil 0.005. Le chemin ne perfore pas aujourd'hui, mais la garantie
+n'était pas prouvée et sa marge réelle est mince. Le calcul exact coûte **~30 ms** sur
+l'ensemble des triangles en ultra : rien ne justifie de continuer à échantillonner.
+
+Correctif : évaluation exacte dans le builder ET dans le banc, `island` exposant le
+descripteur de sa grille bakée (contrepartie honnête du contrat « `heightAt` est la
+source de vérité unique » : qui doit raisonner exactement doit connaître la
+discrétisation). Délégué à Codex sol effort high.
+
+Recommandation Codex (retenue telle quelle) : évaluer les extrema induits par les
+intersections entre chaque triangle de ruban et la grille bakée du terrain, ou
+subdiviser adaptativement avec une borne d'erreur prouvée ; faire porter l'invariant
+sur ces points d'intersection exacts, cellules de frange comprises, en `?q=ultra`.
+
+### Résolution (Codex sol effort high, vérifications Claude)
+
+`island` expose `heightGrid = { seg, step, half }` ; `measureRibbonTriangleExact`
+(details.js, exportée) clippe chaque triangle de ruban par les deux sous-triangles
+de chaque cellule bakée qu'il recouvre, et évalue `plan − heightAt` sur les sommets
+du polygone d'intersection. La différence étant affine sur chaque morceau, ses deux
+extrema y sont atteints : le résultat est EXACT, pas échantillonné. Le builder
+(`clearRibbonTriangles`) et les invariants 8-9 partagent cette unique
+implémentation ; l'échantillonnage barycentrique subsiste uniquement comme repli
+sans `heightGrid`, documenté comme repli et non comme équivalent.
+
+Mesuré après correctif, sur les 36 088 triangles réellement construits :
+
+| tier  | marge exacte, TOUS triangles | élévation exacte max | passes |
+|-------|------------------------------|----------------------|--------|
+| low   | 0.0230                       | 0.2142               | 1      |
+| ultra | **0.0200** (était 0.0063)    | 0.2331               | 2      |
+
+La marge n'est plus un accident d'échantillonnage : elle vaut exactement
+`RIBBON_CLEARANCE_MARGIN`, par construction. `INVARIANTS: 10 pass, 0 fail` aux deux
+tiers, recoupé par un vérificateur écrit indépendamment par Claude (mêmes valeurs,
+mêmes localisations). Visuel ultra inchangé, 60 fps.
+
+## Rapport Codex (verbatim)
+
+# Codex Adversarial Review
+
+Target: branch diff against d767222
+Verdict: needs-attention
+
+Do not ship: the central anti-perforation fix still relies on sampling that cannot guarantee terrain clearance.
+
+Findings:
+- [high] Fixed sampling can miss terrain peaks inside ribbon triangles (src/details.js:329-360)
+  `clearRibbonTriangles` checks only 21 fixed barycentric points per triangle. `heightAt` is piecewise planar over a separate terrain triangulation, so a terrain edge crossing the ribbon between those samples can contain the maximum of `heightAt - ribbonPlane`; the 0.02 margin provides no bound for that unsampled maximum. The added invariant repeats this blind spot with an even coarser S=3 lattice and therefore can pass while terrain still perforates the visible path. This risks reintroducing the exact green-patch regression the change claims to eliminate.
+  Recommendation: Evaluate all extrema induced by intersections between each ribbon triangle and the baked terrain grid, or adaptively subdivide with a proven error bound. Update the invariant to verify those exact intersection points, including rendered fringe cells.
+
+Next steps:
+- Replace fixed barycentric clearance sampling with an exact or bounded method.
+- Add a regression assertion covering terrain-grid/ribbon intersections at ultra quality.
