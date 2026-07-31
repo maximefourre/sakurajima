@@ -1050,3 +1050,71 @@ Proportions mesurées, avant → après : garrot 0.9672 → 0.9731, longueur
 `makeCoatBump(seed)` est exportée mais **pas encore branchée** : le `bumpMap` du
 matériau se pose dans `shiba.js`, hors du périmètre de ce chantier. À faire avec
 S3, avec `bumpScale ≈ 0.02`.
+
+## Chantier ondes d'étang — le chien fait de l'eau (31/07/2026, Codex + Claude)
+
+Le banc d'ondes concentriques existait déjà dans `ponds.js` mais n'était nourri
+que par les koi, et son ring buffer était unique : brancher le chien dessus
+l'aurait fait évincer les carpes. `RIPPLE_SLOTS` passe de 8 à 11, en **deux
+plages disjointes à bornes littérales** — koi 0..7 avec leur curseur modulo 8,
+chien 8..10 avec le sien modulo 3. Le quota devient structurel : aucun impact du
+chien ne peut plus toucher un slot de koi, et l'invariant 15 le verrouille.
+
+La boucle du chien est encadrée par `if (uDogWake.w > 0.0)` : hors de l'eau,
+l'étang ne paie qu'une branche uniforme, pas trois itérations de plus par
+évaluation — et `pk_surface` est évaluée **3 fois par fragment** (normale en
+différences finies), donc chaque itération compte triple.
+
+Le sillage n'est pas fait d'anneaux mais d'un terme analytique unique : capsule
+2D entre la position et un point traînant (le patron `uPlayer`/`uPlayerTrail` de
+`grass.js`, réutilisé tel quel), creux gaussien sous la coque plus bourrelet
+clair au pourtour. Le liseré blanc est gratuit : le fragment transforme déjà
+toute hauteur positive en crête claire.
+
+**Réglage corrigé après mesure en jeu.** Première livraison : onde de patte à
+0.075 d'amplitude (crête réelle 0.054 après le facteur de force) et sillage à
+0.08. Or le clapot de brise ambiant de `pk_surface` monte à `0.010 + 0.052 ×
+1.7 = 0.098` : l'effet était **sous le bruit de fond**, présent mais illisible.
+Le diagnostic express du projet a tranché en une frame — `uDogWake.z` forcé à
+1.2 depuis la console faisait apparaître le creux, donc pipeline bon, réglage
+sourd. Relevé à **0.16** pour l'onde de patte (et nombre d'onde 12 → 9.5, car à
+λ = 0.52 u les anneaux se referment avant d'être lus) et **0.22** pour le
+sillage. Vérifié : le creux et son bourrelet se lisent à distance de jeu.
+
+Chaîne d'émission vérifiée de bout en bout, touches clavier comprises : en gué
+à 0.81 u de profondeur, deux ondes naissent aux positions des pattes AVANT avec
+une force de 0.72, `uDogWake.w = 1` et son amplitude reste **nulle** tant qu'il
+n'a pas perdu pied — le creux de coque n'appartient qu'à la nage.
+
+## Chantier tête — stop, gueule et regard (31/07/2026, Codex)
+
+Le crâne et le museau étaient **un seul sweep**, ce qui interdit structurellement
+un stop : un stop est une discontinuité de la dérivée du rayon ET de la ligne
+d'axe, qu'un `radius(u)` continu sur 14 stations lisse toujours. Scindés :
+crâne de 8 stations à couronne aplatie (le front large et plat du standard),
+museau de 6 stations à chanfrein **rectiligne**, démarrant 0.04 u à l'intérieur
+du crâne — le recouvrement masque le joint, comme le cou sur l'épaule.
+
+La gueule est un **volume**, pas une tache : mandibule sur un pivot `jaw`, et
+cavité buccale sphérique **entièrement à l'intérieur** du museau. Fermée, le
+depth test la cache ; ouverte, elle apparaît dans l'écart. Aucun z-fighting
+n'est possible, les surfaces ne sont jamais coplanaires. C'est le pendant
+volumétrique du choix SDF fait pour les empreintes. `COAT.tongue`, déclarée et
+inutilisée depuis le premier jour, sert enfin.
+
+La mandibule est le premier pivot tourné hors oreilles : elle peint depuis `p`
+et non depuis `upness`, qui vit dans le repère local de la pièce.
+
+Paupières en demi-sphère sur un pivot centré sur l'œil : c'est leur intersection
+avec la sphère de l'œil qui donne l'amande, et `lid.rotation.x` donnera le
+clignement. `jaw` et `lids` sont exposés par `buildBody` pour S4.
+
+**DÉFAUT CONNU, à corriger en S3 : la face est presque entièrement crème.** Vue
+de face le chien lit comme un chien à masque blanc, pas comme un shiba. Cause
+identifiée, ce n'est pas la géométrie : le museau porte un biais crème constant
+de `0.52 + 0.16 u` passé à `coatAt`, dont la fenêtre `smoothstep(-0.55 + biais,
+0.15 + biais, upness)` bascule alors presque tout le chanfrein du côté crème. Le
+crâne, lui, est juste (biais −0.15). L'urajiro réel n'est pas un biais global :
+c'est un masque par ZONE — flancs du museau, joues, sous-mâchoire, gorge, face
+interne des pattes, ventre, dessous de la queue — et le dessus du chanfrein doit
+rester roux. C'est exactement le mandat de S3.
