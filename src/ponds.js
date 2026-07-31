@@ -155,6 +155,7 @@ const WATER_FRAG = /* glsl */ `
   uniform vec4  uRipples[${RIPPLE_SLOTS}];
   uniform vec4  uDogWake;   // xy = position, z = amplitude, w = active
   uniform vec2  uDogTrail;  // position delayed by about 0.35 s
+  uniform float uDogRings;  // 1 while any dog ring may still be alive
 
   varying float vDepth;
   varying vec3  vWorld;
@@ -201,7 +202,12 @@ const WATER_FRAG = /* glsl */ `
       float env = r.w * step(0.0, age) * exp(-age * 0.55) * exp(-abs(d - front) * 1.4);
       h += sin((d - front) * 7.5) * env * 0.055;
     }
-    if (uDogWake.w > 0.0) {
+    // Deux garde-fous DISTINCTS, et c'est le fond du correctif ADV-2026-08-01.
+    // uDogRings suit la duree de vie des ANNEAUX ; uDogWake.w suit la presence
+    // du chien. Les avoir confondus faisait disparaitre les anneaux d'un coup
+    // des qu'il sortait du bassin, au lieu de les laisser mourir : leur
+    // decroissance exponentielle etait coupee net a la berge.
+    if (uDogRings > 0.0) {
       for (int i = ${KOI_SLOTS}; i < ${RIPPLE_SLOTS}; i++) {
         vec4 r = uRipples[i];
         float age = uTime - r.z;
@@ -216,8 +222,10 @@ const WATER_FRAG = /* glsl */ `
         // referment avant d'etre lus, a 0.66 u ils se voient.
         h += sin((d - front) * 9.5) * env * 0.16;
       }
-      h += pk_wake(p);
     }
+    // Le sillage, LUI, appartient bien a la presence du chien : il n'a pas de
+    // duree de vie propre, il suit le corps.
+    if (uDogWake.w > 0.0) h += pk_wake(p);
     return h;
   }
 
@@ -901,6 +909,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
     uRipples: { value: Array.from({ length: RIPPLE_SLOTS }, () => new THREE.Vector4(0, 0, -999, 0)) },
     uDogWake: { value: new THREE.Vector4(0, 0, 0, 0) },
     uDogTrail: { value: new THREE.Vector2(0, 0) },
+    uDogRings: { value: 0 },
     uTime: wind.uniforms.uTime,
     uWindDir: wind.uniforms.uWindDir,
     uWindStrength: wind.uniforms.uWindStrength,
@@ -1092,7 +1101,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
   /** @type {{pond:number,ox:number,oz:number,a:number,b:number,h1:number,h2:number,
    *          f1:number,f2:number,f3:number,f4:number,rot:number,rate:number,
    *          theta:number,cruise:number,riseRate:number,risePhase:number,
-   *          scale:number,heading:number,bank:number,prevY:number,rise:number,
+   *          scale:number,heading:number,bank:number,prevY:number,rise:number,fear:number,
    *          x:number,y:number,z:number}[]} */
   const koi = [];
 
@@ -1107,10 +1116,18 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
 
   // At about 1.8 front-paw plants/s, three dog slots are reused every
   // 3 / 1.8 = 1.67 s; exp(-2.3 * 1.67) = 0.02, so replacement cannot pop.
+  //
+  // The ring loop's gate follows the RINGS, never the dog: exp(-2.3 * 2.6)
+  // = 0.0025, so 2.6 s after the last impact nothing is left to draw. Gating
+  // it on the dog's presence instead cut the rings dead at the bank.
+  const DOG_RING_TTL = 2.6;
+  let lastDogRipple = -1e9;
   function spawnDogRipple(x, z, t, strength) {
     const slot = waterUniforms.uRipples.value[dogRippleNext];
     slot.set(x, z, t, strength);
     dogRippleNext = KOI_SLOTS + ((dogRippleNext - KOI_SLOTS + 1) % DOG_SLOTS);
+    lastDogRipple = t;
+    waterUniforms.uDogRings.value = 1;
   }
 
   const _dogWakePos = new THREE.Vector2();
@@ -1118,6 +1135,11 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
   function setSwimmer(x, z, active, amp, dt) {
     const wake = waterUniforms.uDogWake.value;
     const inPond = active && pondWaterYAt(x, z) !== null;
+    for (const k of koi) {
+      const dx = x - k.x, dz = z - k.z;
+      const fear = inPond ? clamp(1 - (dx * dx + dz * dz) / 144, 0, 1) : 0;
+      k.fear += (fear - k.fear) * Math.min(1, (dt || 0.016) * (fear > k.fear ? 4.0 : 0.35));
+    }
     if (!inPond) {
       wake.w = 0;
       dogWakeActive = false;
@@ -1293,7 +1315,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
           // opening camera anything smaller stops being a fleck of orange and
           // becomes nothing at all.
           scale: R.skew(rng, 0.85, 1.50, 1.4),
-          heading: 0, bank: 0, prevY: b.waterY - 0.5, rise: 0,
+          heading: 0, bank: 0, prevY: b.waterY - 0.5, rise: 0, fear: 0,
           x: b.x, y: b.waterY - 0.5, z: b.z,
         });
       }
@@ -1496,6 +1518,12 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
   }
 
   function update(t, dt, phase) {
+    // Éteindre la boucle d'anneaux du chien quand le dernier a fini de mourir,
+    // et PAS quand le chien sort de l'eau : sinon la berge tranche net des
+    // ondes en pleine décroissance (revue adversariale ADV-2026-08-01).
+    if (waterUniforms.uDogRings.value > 0 && t - lastDogRipple > DOG_RING_TTL) {
+      waterUniforms.uDogRings.value = 0;
+    }
     if (phase) {
       const dir = phase.keyDir || phase.sunDirection;
       const col = phase.keyColor || phase.sunColor;
@@ -1533,19 +1561,22 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
       const k = koi[i];
       const b = basins[k.pond];
 
-      k.theta += dt * k.rate * (1 + 0.4 * Math.sin(t * 0.23 + k.f1));
+      // Flight stays on the closed, shore-budgeted path: only its pace changes.
+      k.theta += dt * k.rate * (1 + 0.4 * Math.sin(t * 0.23 + k.f1)) * (1 + 2.2 * k.fear);
       pathAt(k, k.theta, _pos);
       const x = b.x + _pos.x, z = b.z + _pos.z;
 
       // A long calm with occasional rises: the eighth power leaves the fish deep
       // most of the time and brings it up in short, distinct events.
-      const prevRise = k.rise;
+      const prevRise = k.rise * (1 - k.fear);
       k.rise = Math.pow(0.5 + 0.5 * Math.sin(t * k.riseRate * TAU + k.risePhase), 8);
-      let y = b.waterY - k.cruise * (1 - k.rise) + 0.03 * k.rise;
+      const rise = k.rise * (1 - k.fear);
+      let y = b.waterY - (k.cruise + 0.9 * k.fear) * (1 - rise) + 0.03 * rise;
       const bed = sampleHeight(x, z) + 0.16;
       if (y < bed) y = bed;
 
-      if (k.rise > 0.62 && prevRise <= 0.62) spawnRipple(x, z, t, 0.7 + 0.5 * k.scale);
+      // Suppressed surface breaks let koi ripple slots rest exactly while the dog needs its own.
+      if (rise > 0.62 && prevRise <= 0.62) spawnRipple(x, z, t, 0.7 + 0.5 * k.scale);
 
       // Forward from the path derivative, with the vertical rate folded in so a
       // rising fish noses up instead of sliding sideways at a constant pitch.
