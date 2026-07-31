@@ -1328,7 +1328,15 @@ export function createSakuraForest( options = {} ) {
 		quality: 1.0,
 		season: 'spring',
 		foliageDensity: 1.0,
-		foliageChunks: 6,
+		// Granularite du bucketing spatial du feuillage = granularite du frustum
+		// culling. Un bucket entier est soumis des qu'il touche le frustum, donc
+		// des buckets grossiers font payer des massifs entiers hors champ. Mesure
+		// (printemps ultra, vue au sol) : 6x6 soumettait 59.7 % des instances,
+		// 16x16 en soumet ~41 % pour un plancher theorique de 31.7 % par instance.
+		// Les buckets vides sont sautes, le cout est donc en draw calls, pas en
+		// memoire. Ne pas monter beaucoup plus haut sans re-mesurer : au-dela le
+		// gain sature et les draw calls, eux, continuent de grimper.
+		foliageChunks: 16,
 		terrainAlign: 0.25,
 		castShadow: true,
 		receiveShadow: true,
