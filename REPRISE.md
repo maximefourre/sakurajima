@@ -740,3 +740,85 @@ unique, zéro perforation, zéro marche, pointe de fin de plage conservée).
   élévation), visuel pente de la route torii (ruban AU RAS du sol),
   carrefour, shiba posé ni enterré ni flottant, deux saisons non requises
   (details.js est asaisonnier).
+
+## C-ter REJETÉ, C-quater livré — chemins collés au terrain (31/07/2026, Opus)
+
+Reprise de la passation. Le correctif C-ter était livré mais **jamais mesuré** :
+Codex l'avait écrit et validé `node --check`, puis son sandbox avait refusé
+d'ouvrir un port pour le banc, et le job est mort avec la veille de la machine.
+Piège d'outillage à connaître : **le champ `elapsed` du plugin Codex masque les
+heures** — il affichait « 8m 26s » pour 8 h 26, et le registre de jobs a été
+purgé au démarrage de la session suivante. Le rapport final se récupère malgré
+tout dans `~/.codex/sessions/<AAAA>/<MM>/<JJ>/rollout-*-<threadId>.jsonl`.
+
+### La review a rejeté C-ter — il échouait son propre invariant
+
+|                    | marge min | élévation max | plafond |
+|--------------------|-----------|---------------|---------|
+| C-ter @tier low    | 0.032 ✓   | **0.932** ✗   | 0.55    |
+| C-ter @tier ultra  | 0.026 ✓   | **1.108** ✗   | 0.55    |
+
+Trois causes, toutes mesurées, pas déduites :
+
+1. **La grille de sondes est un CARRÉ de demi-côté R, pas un disque.** Ses coins
+   portent à R·√2 = 1.70 u pour une sonde annoncée à 1.2. Au point coupable le
+   résidu maximal était atteint exactement au coin (−1.2, −1.2). Restreindre au
+   disque faisait tomber l'élévation de 0.932 à 0.634 — mieux, toujours hors
+   plafond.
+2. **Le résidu paie aussi la CONCAVITÉ.** Un sommet posé dans un creux voit ses
+   voisins au-dessus de son plan tangent et se soulève — or un creux ne perfore
+   jamais, la corde passe au-dessus. Structurel à la formulation, pas réglable.
+3. **La précondition du garde-fou était fausse.** Mesurée pour la première fois :
+   arête XZ max **1.530 u** sur le patin de carrefour, au-delà de la sonde 1.2
+   ET de l'ancienne 1.5. Cause : le contour fbm du patin fait varier `rr` de
+   0.74 u entre deux angles voisins. **Le carrefour n'a jamais été garanti,
+   depuis `756e0b2`** — l'anti-perforation « définitive » reposait sur une
+   précondition affirmée en commentaire et jamais vérifiée.
+
+### C-quater : la formulation honnête
+
+Abandon de toute sonde de voisinage. La contrainte réelle est locale au
+triangle : son plan doit dominer le terrain sous LUI. `clearRibbonTriangles`
+(details.js) pose les sommets collés (`y = heightAt + bombé`) puis relève chaque
+triangle du déficit mesuré sur un treillis barycentrique (SB=5, marge 0.02), en
+montant les TROIS sommets du même montant — ce qui translate le plan sans le
+pencher, donc la passe est monotone et converge (≤ 2 passes mesurées, 6 max).
+
+Conséquence directe : **plus aucune précondition de tessellation à tenir**. Un
+maillage plus grossier se fait juste relever un peu plus. `RIBBON_PROBE_R`,
+`ribbonRiseAt` et l'invariant de tessellation ont été supprimés avec la sonde.
+
+`pathSurfaceLiftAt` redevient un **bombé pur** : le dégagement appartient aux
+triangles et ne se rejoue pas par requête ponctuelle. L'approximation n'est plus
+espérée mais bornée par un invariant.
+
+Mesures finales, Chrome réel, **10 pass / 0 fail aux deux tiers** :
+
+|       | marge min | élévation max | écart shiba |
+|-------|-----------|---------------|-------------|
+| low   | 0.023     | **0.199**     | 0.096       |
+| ultra | 0.025     | **0.232**     | 0.098       |
+
+Coût ~758 k appels `heightAt`, **moins** que les ~1.1 M de la sonde remplacée.
+Visuel ultra à midi : montée aux torii au ras du sol sans liseré ni socle,
+carrefour fondu en clairière unique, shiba quatre pattes sur la terre battue au
+carrefour et sur la montée. Implémentation Codex sol effort high (Grok toujours
+non authentifié, vérifié), review et vérifications Claude. Commit `ae2bd1c`.
+
+### Le banc d'essai avait trois trous — comblés
+
+- **Il ne bâtissait l'île qu'au tier low**, le terrain le plus LISSE (pas de
+  grille ~4.6 u contre ~1.9 u en ultra) : le cas le plus facile. C'est ultra qui
+  a fait tomber C-ter (1.11 contre 0.93). Le tier se choisit désormais par
+  `?q=low|high|ultra`, défaut low pour garder un bake court. **Toute retouche de
+  la géométrie des chemins se repasse en `?q=ultra`.**
+- **Les claims étaient agrégés** dans un seul `check()` : un échec ne disait pas
+  lequel avait cassé. Séparés en trois (dégagement, adhérence, fidélité).
+- **La fidélité de `pathSurfaceLiftAt` à la surface visible n'était pas testée**
+  du tout — c'est pourtant elle qui décide si le shiba est enterré ou flottant.
+  Invariant ajouté, seuil 0.25, mesuré 0.098.
+
+Leçon générale : les deux régressions de chemins ont la même signature — une
+garantie géométrique affirmée en commentaire, jamais mesurée, et un banc qui ne
+couvrait pas le tier réellement joué. Les invariants numériques valent ce que
+vaut leur couverture.
