@@ -56,34 +56,21 @@ plugin — vérifié prêt et authentifié le 30/07) pour économiser le quota d
 modèle principal ; brief précis + review Claude entre chaque chantier.
 Un chantier à la fois. Grok CLI toujours non authentifié.
 
-- **C — Chemins** *(EN COURS le 30/07 soir, agent de repli Claude)* :
-  1) taches vertes anguleuses SUR le ruban = triangles du terrain qui
-  regonflent à travers entre deux échantillons (récurrent, le passage à
-  5 colonnes n'a pas suffi) — correctif définitif exigé (max de `heightAt`
-  sur un voisinage par sommet et/ou section plus dense, PAS une simple
-  rehausse : le relief actuel est déjà jugé trop visible) + nouvel invariant
-  anti-perforation dans `test/invariants.html` (→ 8 pass) ;
-  2) jonction au carrefour (~(19, −95)) : supprimer le pincement de départ
-  des routes ouvertes (`tap = smoothstep(0, 0.035, t)`, details.js ~873),
-  pleine largeur à t=0 + patin de carrefour façon terrasse (étage le plus
-  bas). Garder le fuselage de FIN de 'plage', les lanternes intactes.
-- **E — Autel de divinité canine** : petit hokora de pierre au BOUT de la
-  route 'torii', sur la terrasse de la falaise (details.js ~936-966) —
-  statuette chien gardien ou kitsune, 100 % procédural façon lanternes/torii.
-  Après C (même fichier).
-- **A — Arbres automne** : couronnes momiji trop dégarnies → monter
-  `foliageDensity` automne (main.js ~315 : 2.1/1.7/1.2, l'automne a de la
-  marge fps vs printemps) « beau, pas réaliste dégarni » ; ET supprimer les
-  branches qui descendent près du sol / pointent vers le bas sans raison
-  (sakura.js, récursion des branches ~461) — plancher de hauteur des pointes
-  feuillues, silhouettes printemps à préserver.
-- **B — Tapis de feuilles au sol** : 1) automne trop clairsemé →
-  multiplicateur sur `CARPET_COUNT` (petals.js ~475) + tailles ~0.34-0.62 ;
-  2) une part dispersée hors couronnes (vent) y compris sur les chemins ;
-  3) silhouettes illisibles à cette taille — les feuilles doivent LIRE
-  momiji en automne, pétale/corolle sakura au printemps ;
-  4) plus de feuilles TOMBÉES vertes : remapper la dominante green → jaune
-  pour le tapis ET les feuilles en vol (les couronnes gardent leurs verts).
+- **C — Chemins** — **SOLDÉ le 31/07** (`756e0b2`, puis `ae2bd1c`). Perforations
+  et carrefour réglés dès `756e0b2` ; il a fallu deux tentatives de plus pour
+  que le ruban COLLE au sol (le feedback « il est surélevé » venait de
+  l'anti-perforation elle-même). Solution finale : dégagement itératif par
+  triangle, aucune sonde de voisinage — voir REPRISE et le contrat dans
+  AGENTS.md. Ne pas réintroduire de max ni de résidu sur un voisinage.
+- **E — Autel de divinité canine** — **SOLDÉ le 30/07** (`e16631b`) : hokora de
+  pierre + deux gardiens canins au bout de la route 'torii', sur la terrasse.
+- **A — Arbres automne** — **SOLDÉ le 30/07** (`964f282`) : `foliageDensity`
+  automne 3.6/2.8/2.0, feuilles maple +15 %, branches plongeantes redressées
+  (pas supprimées — flux RNG préservé), silhouettes printemps intactes.
+- **B — Tapis de feuilles au sol** — **SOLDÉ le 31/07** (`8bcd892`) : ×2.5
+  (480 928 instances ultra), tailles 0.34-0.62, quad élargi, 34 % dispersées
+  hors couronnes, plus aucune feuille verte tombée ni en vol, printemps
+  strictement inchangé.
 - **D — Perf générales / LOD** — CADRAGE (à valider par l'utilisateur avant
   brief) :
   - Mesures de référence 30/07 (ultra, M4 Max, mêmes cadrages étalonnés) :
