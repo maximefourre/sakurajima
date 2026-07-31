@@ -289,6 +289,48 @@ const WATER_VERT = /* glsl */ `
   }
 `;
 
+// The exported sampler follows the most recently constructed ocean. Keeping
+// the live uniforms by reference is intentional: setting uWaveAmp to zero from
+// the console must flatten the rendered sea and the swimmer in the same frame.
+let oceanHeightAt = null;
+let oceanWaveUniforms = null;
+
+/**
+ * Vertical displacement of the rendered ocean at a world-space point.
+ *
+ * This is the four-wave sum immediately above, including the identical shallow
+ * and horizon attenuation. It deliberately omits the Gerstner XZ pinch: in the
+ * bathing shelf that horizontal offset stays below about 0.6 world units, while
+ * evaluating heightAt at the dog's actual XZ keeps the flotation rule stable.
+ */
+export function oceanSwellY(x, z, t) {
+  if (!oceanHeightAt || !oceanWaveUniforms) return 0;
+
+  const depth = oceanWaveUniforms.uSeaLevel.value - oceanHeightAt(x, z);
+  const shore = sstep(0.15, 4.0, depth);
+  const dist = Math.hypot(x, z);
+  const far = 1.0 - 0.82 * sstep(1450.0, 4250.0, dist);
+  const amp = oceanWaveUniforms.uWaveAmp.value * shore * far;
+  const scale = oceanWaveUniforms.uWaveScale.value;
+
+  const k1 = TAU / (108.0 * scale);
+  const k2 = TAU / (61.0 * scale);
+  const k3 = TAU / (33.0 * scale);
+  const k4 = TAU / (17.0 * scale);
+
+  const p1 = (x * 0.860 + z * 0.510) * k1 - t * 0.72;
+  const p2 = (x * -0.420 + z * 0.907) * k2 - t * 1.02;
+  const p3 = (x * 0.150 + z * -0.989) * k3 - t * 1.48;
+  const p4 = (x * 0.640 + z * -0.768) * k4 - t * 2.10;
+
+  return amp * (
+    Math.sin(p1)
+    + 0.62 * Math.sin(p2)
+    + 0.34 * Math.sin(p3)
+    + 0.17 * Math.sin(p4)
+  );
+}
+
 const WATER_FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec3  uDeep;
@@ -304,6 +346,8 @@ const WATER_FRAG = /* glsl */ `
   uniform float uSunSpec;
   uniform float uReflect;
   uniform float uOpacityMin;
+  uniform vec4  uWake;
+  uniform vec2  uWakeTrail;
 
   varying vec3 vWorld;
   varying vec2 vSwell;
@@ -321,6 +365,12 @@ const WATER_FRAG = /* glsl */ `
     float c = wh21(i + vec2(0.0, 1.0));
     float d = wh21(i + vec2(1.0, 1.0));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
+  float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+    return length(pa - ba * h);
   }
 
   /**
@@ -349,6 +399,20 @@ const WATER_FRAG = /* glsl */ `
   void main() {
     float depth = max(uSeaLevel - terrainH(vWorld.xz), 0.0);
 
+    // Global wake cost stops here: one relative position, one squared distance
+    // and a uniform branch. Segment distance, exponential falloff and the wake
+    // normal are evaluated only inside the small influence disc.
+    float wakeM = 0.0;
+    vec2 wakeSlope = vec2(0.0);
+    vec2 dp = vWorld.xz - uWake.xy;
+    float wakeR2 = dot(dp, dp);
+    if (uWake.w > 0.0 && wakeR2 < uWake.w) {
+      float d = sdSegment(vWorld.xz, uWake.xy, uWakeTrail);
+      float m = exp(-d * d * 0.55) * uWake.z;
+      wakeSlope = dp * inversesqrt(max(wakeR2, 0.04)) * m * 0.22;
+      wakeM = m;
+    }
+
     vec3  toCam  = cameraPosition - vWorld;
     float camDst = length(toCam);
     vec3  V      = toCam / max(camDst, 1e-4);
@@ -356,7 +420,9 @@ const WATER_FRAG = /* glsl */ `
     // Fade the ripple normal with distance or the horizon turns into aliasing.
     float rip = 1.0 - smoothstep(40.0, 260.0, camDst);
     vec3 N = rippleNormal(vWorld.xz, uTime * 0.55, uRipple * (0.22 + 0.78 * rip));
-    N = normalize(vec3(N.x - vSwell.x * 1.4, N.y, N.z - vSwell.y * 1.4));
+    N = normalize(vec3(N.x - vSwell.x * 1.4 - wakeSlope.x,
+                       N.y,
+                       N.z - vSwell.y * 1.4 - wakeSlope.y));
 
     float ndv  = max(dot(N, V), 0.0);
     float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
@@ -396,6 +462,9 @@ const WATER_FRAG = /* glsl */ `
     float foam = smoothstep(0.42, 0.86, band * (0.62 + 0.55 * n1 + 0.28 * n2));
     float lip  = (1.0 - smoothstep(0.0, 0.40, depth)) * (0.45 + 0.55 * n2);
     foam = clamp(max(foam, lip), 0.0, 1.0) * uFoamAmt;
+    if (wakeM > 0.0) {
+      foam = clamp(max(foam, wakeM * (0.55 + 0.45 * n2)), 0.0, 1.0);
+    }
 
     col = mix(col, uFoam, foam);
 
@@ -832,6 +901,8 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     uSunSpec: { value: 1.0 },
     uReflect: { value: 1.0 },
     uOpacityMin: { value: 0.14 },
+    uWake: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWakeTrail: { value: new THREE.Vector2() },
     uDeep: { value: new THREE.Color(WATER_DAY.deep) },
     uShallow: { value: new THREE.Color(WATER_DAY.shallow) },
     uFoam: { value: new THREE.Color(WATER_DAY.foam) },
@@ -840,6 +911,9 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     uSkyColor: { value: new THREE.Color(0x7fb0e8) },
     uHorizonColor: { value: new THREE.Color(0xcfe2f2) },
   });
+
+  oceanHeightAt = heightAt;
+  oceanWaveUniforms = waterUniforms;
 
   const waterMat = new THREE.ShaderMaterial({
     uniforms: waterUniforms,
@@ -1199,6 +1273,10 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   }
 
   function dispose() {
+    if (oceanWaveUniforms === waterUniforms) {
+      oceanHeightAt = null;
+      oceanWaveUniforms = null;
+    }
     geo.dispose();
     terrainMat.dispose();
     grainBump.dispose();

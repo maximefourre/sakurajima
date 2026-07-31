@@ -14,7 +14,7 @@ import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DAY_LENGTH, START_TIME, 
 import { SEASON_QUERY_PARAM, SEASON_STORAGE_KEY, isSeason, resolveSeason } from './season.js';
 import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
-import { createIsland } from './island.js';
+import { createIsland, oceanSwellY } from './island.js';
 import { createPonds } from './ponds.js';
 import { createSakuraForest } from './sakura.js';
 import { createGrass } from './grass.js';
@@ -438,8 +438,9 @@ async function boot() {
     surfaceAt: (x, z, t) => {
       const p = world.ponds.pondWaterYAt(x, z);
       if (p !== null) return p;
-      // La mer. La houle sera ajoutée ici au chantier W4 ; pour l'instant, plat.
-      return world.heightAt(x, z) < world.island.seaLevel ? world.island.seaLevel : null;
+      return world.heightAt(x, z) < world.island.seaLevel
+        ? world.island.seaLevel + oceanSwellY(x, z, t)
+        : null;
     },
     // uTime is the shared object read by the pond shader and was updated at the
     // start of this same frame, so an impact cannot be born a frame early/late.
@@ -560,6 +561,28 @@ function frame() {
   // imperceptible; the reverse order makes fast turns feel like ice.
   world.particles.update(t);
   world.shiba.update(t, dt, { camera });
+
+  // Fragment wake: keep the expensive shader work inside a 15-unit disc, with
+  // a short segment trailing the dog's actual heading. The pond surface is
+  // deliberately rejected here; ponds own their separate ripple budget.
+  const wakeU = world.island.waterUniforms;
+  const dog = world.shiba;
+  const dogX = dog.position.x, dogZ = dog.position.z;
+  const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
+    && world.heightAt(dogX, dogZ) < world.island.seaLevel;
+  if (inSea) {
+    const speedN = dog.speedN;
+    const contact = Math.min(1, dog.state.depth / 0.35);
+    const trailLength = 4 + 10 * speedN;
+    wakeU.uWake.value.set(dogX, dogZ, (0.32 + 0.68 * speedN) * contact, 15 * 15);
+    wakeU.uWakeTrail.value.set(
+      dogX - Math.sin(dog.heading) * trailLength,
+      dogZ - Math.cos(dog.heading) * trailLength
+    );
+  } else {
+    wakeU.uWake.value.w = 0;
+  }
+
   world.birds.setRepeller?.(world.shiba.position);
   // The meadow parts around him. Placed after shiba.update so the uniform is
   // this frame's position, and unconditional: it applies in both camera modes —
