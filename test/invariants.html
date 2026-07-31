@@ -38,7 +38,7 @@ import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
-import { initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, RIBBON_COLS } from '../src/details.js';
+import { initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, pathSurfaceLiftAt, RIBBON_COLS } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 
 let pass = 0, fail = 0;
@@ -50,12 +50,22 @@ function check(name, cond, detail = '') {
 seedNoise(SEED);
 say('modules chargés', 'ok');
 
+/* Tier du bake, par ?q=low|high|ultra — low par DÉFAUT (bake court, flux
+ * documenté dans AGENTS.md inchangé). heightAt interpole la grille BAKÉE, dont
+ * le pas dépend du tier (~4.6 u en low, ~1.9 u en ultra) : low est le terrain
+ * le plus lisse, donc le cas le PLUS FACILE pour les invariants de rubans.
+ * Repasser le banc en ?q=ultra après toute retouche de la géométrie des chemins. */
+const TIER = (() => {
+  const q = new URLSearchParams(location.search).get('q');
+  return q === 'ultra' || q === 'high' ? q : 'low';
+})();
+
 const wind = createWind();
-const ponds = createPonds({ seed: SEED, wind, quality: QUALITY.low, heightAt: null });
+const ponds = createPonds({ seed: SEED, wind, quality: QUALITY[TIER], heightAt: null });
 const carve = (x, z, h) => ponds.carvePonds(x, z, h);
 const t0 = performance.now();
-const island = createIsland({ seed: SEED, quality: { label: 'low', rocks: 8 }, carve });
-say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier low)`);
+const island = createIsland({ seed: SEED, quality: { label: TIER, rocks: 8 }, carve });
+say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier ${TIER})`);
 
 /* ── 1. fin de la montée aux torii sur la terre ferme ────────────────────── */
 {
@@ -146,18 +156,19 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     `${spots.length} lanternes, marge ${margin}${orphans.length ? `, ${orphans.length} orphelines` : ''}`);
 }
 
-/* ── 8. la surface des rubans reste au-dessus du terrain ─────────────────── */
+/* ── 8-10. terre battue : dégagée, collée, hauteur logique fidèle ───────── */
 {
   // Le ruban interpole SES triangles, le terrain les SIENS : une crête de
   // terrain entre deux sommets du ruban peut le transpercer (patchs verts
   // anguleux SUR le chemin, capture joueur). On rebâtit ici la géométrie
   // EXACTE des rubans (mêmes builders que createDetails) et on échantillonne
-  // chaque triangle de la bande intérieure (~0.7·largeur, colonnes 1..5, pas
+  // chaque triangle de la bande intérieure (~0.7·largeur, colonnes 1..7, pas
   // ~0.3 u) en barycentrique : la surface interpolée doit dominer heightAt.
   // Le patin de carrefour est testé sur TOUS ses triangles.
   const meshes = computeRibbonMeshes(island.heightAt);
   meshes.push(computeJunctionPad(island.heightAt));
-  let worst = Infinity, worstAt = '', checked = 0;
+  let worst = Infinity, worstAt = '', highest = -Infinity, highestAt = '', checked = 0;
+  let liftError = -Infinity, liftErrorAt = '';
   const S = 3; // grille barycentrique par triangle (10 points, pas ~0.3 u)
   for (const m of meshes) {
     const { pos, idx } = m;
@@ -172,6 +183,17 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
       const ax = pos[iA * 3], ay = pos[iA * 3 + 1], az = pos[iA * 3 + 2];
       const bx = pos[iB * 3], by = pos[iB * 3 + 1], bz = pos[iB * 3 + 2];
       const cx = pos[iC * 3], cy = pos[iC * 3 + 1], cz = pos[iC * 3 + 2];
+      // Un barycentre par triangle suffit pour borner l'ecart de la hauteur
+      // logique (shiba/camera) a la surface visible sur la bande interieure.
+      const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
+      const my = (ay + by + cy) / 3;
+      const logicalLift = pathSurfaceLiftAt(island.heightAt, mx, mz);
+      const actualLift = my - island.heightAt(mx, mz);
+      const err = Math.abs(logicalLift - actualLift);
+      if (err > liftError) {
+        liftError = err;
+        liftErrorAt = `${m.name}@(${mx.toFixed(1)},${mz.toFixed(1)})`;
+      }
       for (let i = 0; i <= S; i++) {
         for (let j = 0; j <= S - i; j++) {
           const l1 = i / S, l2 = j / S, l0 = 1 - l1 - l2;
@@ -181,12 +203,22 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
           const d = y - island.heightAt(x, z);
           checked++;
           if (d < worst) { worst = d; worstAt = `${m.name}@(${x.toFixed(1)},${z.toFixed(1)})`; }
+          if (d > highest) { highest = d; highestAt = `${m.name}@(${x.toFixed(1)},${z.toFixed(1)})`; }
         }
       }
     }
   }
+  // Trois claims DISTINCTS, trois checks : un échec doit dire lequel a cassé.
   check('surface des rubans au-dessus du terrain', worst > 0.005,
     `${checked} échantillons, marge min ${worst.toFixed(3)} (${worstAt})`);
+  check('surface des rubans collée au terrain', highest <= 0.55,
+    `élévation max ${highest.toFixed(3)} (${highestAt}), plafond 0.550`);
+  // Le prototype Chrome low+ultra borne le lift reel dans [0, 0.232] u sur ce
+  // maillage 9 cols / 0.5 u / patin 10x72 ; le bombe logique reste dans
+  // [0, 0.12]. Leur ecart absolu est donc <= 0.232 aux points mesures :
+  // le plafond 0.25 conserve 0.018 u de marge d'echantillonnage.
+  check('hauteur logique des chemins fidèle à la surface visible', liftError <= 0.25,
+    `écart max ${liftError.toFixed(3)} (${liftErrorAt}), plafond 0.250`);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;

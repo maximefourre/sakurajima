@@ -326,45 +326,56 @@ export let lanternSpots = [];
    the game renders, not a reimplementation of it.
    ──────────────────────────────────────────────────────────────── */
 
-/** Probe radius for groundMax — must cover the DIAMETER of the largest ribbon
- *  or pad triangle (~1.3 u here) so every triangle rests on ground it has
- *  probed. Grow it if the tessellation below ever gets coarser. */
-const GROUND_PROBE_R = 1.5;
+const RIBBON_CLEARANCE_MARGIN = 0.02;
+const RIBBON_CLEARANCE_SB = 5;
+const RIBBON_CLEARANCE_MAX_PASSES = 6;
+const RIBBON_CLEARANCE_EPSILON = 1e-4;
 
 /**
- * Max of heightAt over a 7x7 grid spanning +-r around (x, z).
- *
- * Correctif DEFINITIF des perforations (patchs verts anguleux SUR le chemin) :
- * le ruban interpole SES triangles entre SES sommets, le terrain bake les
- * SIENS (pas 1.9 a 4.6 u selon le tier) — une crete de terrain tombant entre
- * deux sommets du ruban remontait a travers la terre battue. Rehausser a
- * l'aveugle ne fait que deplacer le seuil. Ici chaque sommet prend le MAX du
- * sol sur un disque couvrant tous les triangles auxquels il appartient : toute
- * combinaison convexe de tels sommets reste alors au-dessus de toute crete
- * sous le triangle, quel que soit le tier — avec un lift PLUS PETIT qu'avant.
+ * Lift triangle planes monotonically until their barycentric samples clear the
+ * real baked terrain. Raising all three vertices by the same deficit translates
+ * the whole plane without changing its slope; later triangles can only raise a
+ * shared vertex, so an already-safe sample never moves down.
  */
-function groundMax(heightAt, x, z, r = GROUND_PROBE_R) {
-  let m = -Infinity;
-  const s = r / 3;
-  for (let j = -3; j <= 3; j++) {
-    for (let i = -3; i <= 3; i++) {
-      const h = heightAt(x + i * s, z + j * s);
-      if (h > m) m = h;
+function clearRibbonTriangles(heightAt, pos, idx) {
+  for (let pass = 0; pass < RIBBON_CLEARANCE_MAX_PASSES; pass++) {
+    let moved = false;
+    for (let t3 = 0; t3 < idx.length; t3 += 3) {
+      const iA = idx[t3], iB = idx[t3 + 1], iC = idx[t3 + 2];
+      const a3 = iA * 3, b3 = iB * 3, c3 = iC * 3;
+      const ax = pos[a3], ay = pos[a3 + 1], az = pos[a3 + 2];
+      const bx = pos[b3], by = pos[b3 + 1], bz = pos[b3 + 2];
+      const cx = pos[c3], cy = pos[c3 + 1], cz = pos[c3 + 2];
+      let deficit = 0;
+      for (let i = 0; i <= RIBBON_CLEARANCE_SB; i++) {
+        for (let j = 0; j <= RIBBON_CLEARANCE_SB - i; j++) {
+          const l1 = i / RIBBON_CLEARANCE_SB;
+          const l2 = j / RIBBON_CLEARANCE_SB;
+          const l0 = 1 - l1 - l2;
+          const x = l0 * ax + l1 * bx + l2 * cx;
+          const z = l0 * az + l1 * bz + l2 * cz;
+          const y = l0 * ay + l1 * by + l2 * cy;
+          deficit = Math.max(deficit,
+            heightAt(x, z) + RIBBON_CLEARANCE_MARGIN - y);
+        }
+      }
+      if (deficit > RIBBON_CLEARANCE_EPSILON) {
+        pos[a3 + 1] += deficit;
+        pos[b3 + 1] += deficit;
+        pos[c3 + 1] += deficit;
+        moved = true;
+      }
     }
+    if (!moved) break;
   }
-  return m;
 }
 
 /**
  * Surface de MARCHE de la terre battue, en hauteur AU-DESSUS de heightAt(x,z).
  *
- * Depuis le passage des rubans sur groundMax (anti-perforation), en pente la
- * surface visible peut être ~1 u au-dessus du terrain nu : un mover posé sur
- * heightAt + constante s'enfonce dedans (« je glitch à travers », capture
- * joueur). Ici on suit la VRAIE surface : groundMax + bombé du ruban
- * (0.06 bord → 0.12 axe via la proximité), et le patin de carrefour
- * (groundMax + 0.04, fondu vers le pourtour effiloché). Fondu par la
- * proximité pour rejoindre le terrain nu à la berge.
+ * Approximation ponctuelle volontaire : le degagement iteratif appartient aux
+ * triangles et ne peut pas etre rejoue ici. On suit donc le bombe pur (0.06
+ * bord -> 0.12 axe) ou le patin (0.04), avec le meme fondu vers la berge.
  */
 export function pathSurfaceLiftAt(heightAt, x, z) {
   const prox = pathProximity(x, z);
@@ -377,22 +388,21 @@ export function pathSurfaceLiftAt(heightAt, x, z) {
     padProx = clamp(1 - (Math.sqrt(d2) - padR * 0.55) / (padR * 0.40), 0, 1);
   }
   if (prox <= 0 && padProx <= 0) return 0;
-  const rise = Math.max(0, groundMax(heightAt, x, z) - heightAt(x, z));
-  const ribbon = prox > 0 ? prox * (rise + 0.04 + 0.08 * prox) : 0;
-  const pad = padProx > 0 ? padProx * (rise + 0.04) : 0;
+  const ribbon = prox > 0 ? prox * (0.04 + 0.08 * prox) : 0;
+  const pad = padProx > 0 ? padProx * 0.04 : 0;
   return Math.max(ribbon, pad);
 }
 
-/** Columns across the ribbon. f = 1 - c/3 runs +1 (left edge) -> -1 (right). */
-export const RIBBON_COLS = 7;
+/** Columns across the ribbon. f runs +1 (left edge) -> -1 (right). */
+export const RIBBON_COLS = 9;
 
 /**
  * Ribbon vertex/index data for every route. Deterministic (seeded fbm only).
  *
- * - 7 colonnes (les 5 d'avant laissaient ~1.35 u entre echantillons lateraux)
- *   et pas axial ~0.7 u : les triangles restent sous GROUND_PROBE_R.
- * - Chaque sommet: y = groundMax + lift, lift 0.06 (bord) -> 0.12 (axe), sous
- *   les 0.07 -> 0.14 d'avant — zero perforation avec un relief MOINDRE.
+ * - 9 colonnes et pas axial <= 0.5 u : tessellation conservee car le prototype
+ *   Chrome mesure 0.232 u d'elevation max en ultra pour 65 ms de degagement.
+ * - Pose initiale collee: y = heightAt + lift, lift 0.06 (bord) -> 0.12
+ *   (axe), puis chaque triangle est degage contre le terrain reel.
  * - liftBias par route resserre encore (0/0.02/0.04, avant 0/0.03/0.06) : les
  *   etages du carrefour lisaient comme des marches.
  *
@@ -405,7 +415,7 @@ export function computeRibbonMeshes(heightAt) {
   const p = new THREE.Vector3(), tn = new THREE.Vector3();
   for (const route of _routes) {
     const len = route.curve.getLength();
-    const N = Math.max(260, Math.min(640, Math.round(len / 0.7)));
+    const N = Math.max(260, Math.ceil(len / 0.5));
     const pos = [], edge = [], edgeRaw = [], idx = [];
     for (let i = 0; i <= N; i++) {
       const t = i / N;
@@ -443,14 +453,14 @@ export function computeRibbonMeshes(heightAt) {
       const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
       const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
       for (let c = 0; c < RIBBON_COLS; c++) {
-        const f = 1 - c / 3;               // +1 (bord gauche) .. -1 (bord droit)
+        const f = 1 - (2 * c) / (RIBBON_COLS - 1);
         const w = f >= 0 ? wL : wR;
         const cx = p.x + nx * w * f, cz = p.z + nz * w * f;
         const edg = Math.abs(f);
         const lift = 0.06 + 0.06 * (1 - edg);   // camber: 0.06 bord -> 0.12 axe
         edgeRaw.push(edg);
         edge.push(edg * edgeK);
-        pos.push(cx, groundMax(heightAt, cx, cz) + lift + liftBias, cz);
+        pos.push(cx, heightAt(cx, cz) + lift + liftBias, cz);
       }
       if (i < N) {
         // Winding chosen so the faces point UP — the trap that has now bitten
@@ -463,6 +473,7 @@ export function computeRibbonMeshes(heightAt) {
         }
       }
     }
+    clearRibbonTriangles(heightAt, pos, idx);
     out.push({ name: route.name, cols: RIBBON_COLS, rows: N + 1, pos, edge, edgeRaw, idx });
   }
   return out;
@@ -474,18 +485,18 @@ export function computeRibbonMeshes(heightAt) {
  * contour fbm que la terrasse des torii, aPathEdge -> 1 au pourtour pour
  * l'effilochage. Pose a l'etage LE PLUS BAS (lift 0.04, sous le bord de ruban
  * 0.06) : les trois rubans pleine largeur le recouvrent sans marche. Tesselle
- * en anneaux (pas ~1 u) et pose sur groundMax — meme garantie anti-
- * perforation que les rubans. Aucune lanterne n'y est generee.
+ * en anneaux 10x72, pose collee puis degage chaque vrai triangle contre le
+ * terrain. Aucune lanterne n'y est generee.
  *
  * @param {Function} heightAt
  * @returns {{name:string, pos:number[], edge:number[], edgeRaw:number[], idx:number[]}}
  */
 export function computeJunctionPad(heightAt) {
   const [jx, jz] = PATHS.routes[0].points[0];
-  const RINGS = 8, SEGS = 56;
+  const RINGS = 10, SEGS = 72;
   const R0 = PATHS.width * 1.6;
   const pos = [], edge = [], edgeRaw = [], idx = [];
-  pos.push(jx, groundMax(heightAt, jx, jz) + 0.04, jz);
+  pos.push(jx, heightAt(jx, jz) + 0.04, jz);
   edge.push(0); edgeRaw.push(0);
   for (let k = 1; k <= RINGS; k++) {
     for (let s = 0; s < SEGS; s++) {
@@ -493,7 +504,7 @@ export function computeJunctionPad(heightAt) {
       const rr = R0 * (0.82 + 0.28 * fbm2(Math.cos(a) * 2.1 + 5.0, Math.sin(a) * 2.1, 2));
       const r = rr * (k / RINGS);
       const px = jx + Math.cos(a) * r, pz = jz + Math.sin(a) * r;
-      pos.push(px, groundMax(heightAt, px, pz) + 0.04, pz);
+      pos.push(px, heightAt(px, pz) + 0.04, pz);
       edge.push(k / RINGS); edgeRaw.push(k / RINGS);
     }
   }
@@ -509,6 +520,7 @@ export function computeJunctionPad(heightAt) {
       idx.push(i0, i1, o0, i1, o1, o0);
     }
   }
+  clearRibbonTriangles(heightAt, pos, idx);
   return { name: 'carrefour', pos, edge, edgeRaw, idx };
 }
 

@@ -92,6 +92,17 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   la route 'torii'. `main.js` appelle `initPath()` AVANT `createGrass`, et
   les cerisiers excluent `isOnPath(x, z, 4)` (aucun arbre sur un chemin,
   consigne utilisateur).
+- **Les rubans se posent COLLÉS puis se dégagent triangle par triangle**
+  (`clearRibbonTriangles`, details.js) : `y = heightAt + bombé`, puis chaque
+  triangle est relevé du déficit mesuré sur un treillis barycentrique jusqu'à
+  dominer le terrain (marge 0.02, convergence en ≤ 2 passes). Relever les TROIS
+  sommets du même montant translate le plan sans le pencher — la passe est
+  monotone, donc elle converge. Ne PAS revenir à une sonde de voisinage : un max
+  (ou un résidu de plan) sur un disque paie la pente et la concavité, qui ne
+  perforent jamais, et fait FLOTTER le chemin (~1 u, deux régressions payées).
+  `pathSurfaceLiftAt` — surface de marche du shiba et de la caméra — ne peut pas
+  rejouer ce dégagement par requête ponctuelle : c'est un bombé pur, dont
+  l'écart à la surface visible est BORNÉ par un invariant (≤ 0.25, mesuré 0.098).
 - **`createSakuraForest` et `createGrass` ignorent en silence les options
   inconnues.** sakura veut `isLand`, `windUniforms`, `quality` **numérique**
   (un objet → budget NaN → arbres sans branches). grass veut `count`, `bounds`,
@@ -117,9 +128,15 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
 ## Vérification type
 
 1. **`test/invariants.html`** (via serve.py) : la console doit finir par
-   `INVARIANTS: 7 pass, 0 fail` — chemin sur terre ferme, far plane, nuages,
+   `INVARIANTS: 10 pass, 0 fail` — chemin sur terre ferme, far plane, nuages,
    étangs carvés, routes hors étangs, la route des torii grimpe à la falaise,
-   aucune lanterne orpheline.
+   aucune lanterne orpheline, puis les trois de la terre battue (dégagée du
+   terrain, collée à ≤ 0.55 u, hauteur logique fidèle à la surface visible).
+   **Le tier du bake se choisit par `?q=low|high|ultra`, défaut low.** `heightAt`
+   interpole la grille BAKÉE : low (~4.6 u de pas) est le terrain le plus lisse,
+   donc le cas le PLUS FACILE. Toute retouche de la géométrie des chemins se
+   repasse en `?q=ultra` — c'est là que le correctif C-ter s'est fait prendre
+   (élévation 1.11 u en ultra contre 0.93 en low, pour un plafond de 0.55).
 2. Visuel — midi (`__sk.world.dayTime = 0.5`) : mer jusqu'à l'horizon sans
    ligne rasoir, ombres présentes (si absentes → near-plane, piège sky.js).
    Herbe SANS zone nue (plancher 0.55). Nuit (0.97) : lune basse au sud avec

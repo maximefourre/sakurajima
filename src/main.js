@@ -302,8 +302,9 @@ async function boot() {
   // groundAt is the mover surface (dog, follow camera): the terrain PLUS la
   // surface de terre battue de la sente — sans quoi les pattes du shiba
   // traversent le ruban (il marchait sur le terrain SOUS le chemin).
-  // pathSurfaceLiftAt suit la VRAIE surface des rubans (groundMax + bombé) :
-  // un lift constant les sous-estimait d'~1 u en pente depuis l'anti-perforation.
+  // pathSurfaceLiftAt est le bombé pur du ruban : le dégagement anti-perforation
+  // appartient aux triangles et ne se rejoue pas par requête ponctuelle. Son
+  // écart à la surface visible est borné par un invariant (≤ 0.25, mesuré 0.098).
   world.groundAt = (x, z) => world.heightAt(x, z) + pathSurfaceLiftAt(world.heightAt, x, z);
 
   await step('étangs et carpes');
@@ -432,7 +433,7 @@ async function boot() {
     // groundAt, pas heightAt : le chien marche SUR la terre battue des sentes
     // (le commentaire de groundAt le promettait, le câblage passait le terrain
     // nu — invisible tant que le ruban collait au sol, enfouissement d'~1 u en
-    // pente depuis le passage des rubans sur groundMax).
+    // pente quand les rubans se sont mis à flotter).
     heightAt: world.groundAt,
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
