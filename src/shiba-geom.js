@@ -188,6 +188,34 @@ export function coatAt(upness, out, creamBias = 0) {
   return out;
 }
 
+// Urajiro is a set of anatomical markings, not a global underside gradient.
+// Every mask is evaluated in the piece's authoring space, except for the tail:
+// its transported section normal remains meaningful throughout the 270° curl.
+const URAJIRO = {
+  torso: (p) => smoothstep(-0.02, -0.10, p.y)
+    * smoothstep(0.19, 0.10, Math.abs(p.x)),
+  head: (p, u) => {
+    const x = Math.abs(p.x);
+    const underJaw = smoothstep(-0.025, -0.085, p.y)
+      * smoothstep(0.14, 0.09, x);
+    // Mesuré en jeu : avec une fenêtre en p.y ouverte jusqu'à 0.060, TOUT le
+    // museau (dont l'axe vit entre -0.008 et -0.040) tombait du côté crème et
+    // le chien lisait comme un masque blanc. Le crème ne monte que sur le BAS
+    // des flancs ; le dessus du chanfrein reste roux, c'est la moitié du
+    // masque de la race.
+    const muzzleFlanks = smoothstep(0.055, 0.098, x)
+      * smoothstep(-0.030, -0.080, p.y)
+      * smoothstep(-0.020, 0.035, p.z);
+    const cheeks = smoothstep(0.075, 0.135, x)
+      * smoothstep(0.095, 0.025, p.y)
+      * smoothstep(0.18, 0.45, u);
+    return Math.max(underJaw, muzzleFlanks, cheeks);
+  },
+  leg: (p, side) => smoothstep(0.02, -0.04, p.x * side),
+  ear: (p) => smoothstep(0.0, -0.02, p.z),
+  tail: (upness) => smoothstep(-0.15, -0.55, upness),
+};
+
 /** Low-relief tufts: periodic around the ring, tapered only along the piece. */
 function tuftProfile(ampAt) {
   return (u, a) => 1 + ampAt(u) * (
@@ -248,7 +276,10 @@ export function buildBody(material) {
       0.05 * smoothstep(0.02, 0.12, u) * (1 - smoothstep(0.28, 0.45, u)),
       0.04 * smoothstep(0.62, 0.78, u) * (1 - smoothstep(0.92, 1.00, u))
     )),
-    color: (u, up, out) => coatAt(up, out, -0.10 + 0.30 * smoothstep(0.55, 1.0, u)),
+    color: (u, up, out, p) => {
+      coatAt(up, out, -0.15);
+      out.lerp(COAT.cream, URAJIRO.torso(p));
+    },
   }), body, 'torso');
 
   /* — neck and head —
@@ -308,7 +339,8 @@ export function buildBody(material) {
       return (1 - flatCrown) * (1 + 0.10 * Math.abs(Math.cos(a)) * cheek);
     },
     color: (u, up, out, p) => {
-      coatAt(up, out, -0.15 + 0.62 * smoothstep(0.78, 1.00, u));
+      coatAt(up, out, -0.15);
+      out.lerp(COAT.cream, URAJIRO.head(p, u));
 
       // The periocular mask belongs to the skull surface: an outer urajiro
       // ellipse is painted first, then the smaller dark surround leaves a fine
@@ -340,7 +372,10 @@ export function buildBody(material) {
     },
     profile: (u, a) => 1 + 0.14 * Math.max(0, Math.sin(a))
       * smoothstep(overlapU, 0.62, u),
-    color: (u, up, out) => coatAt(up, out, 0.52 + 0.16 * u),
+    color: (u, up, out, p) => {
+      coatAt(up, out, -0.15);
+      out.lerp(COAT.cream, URAJIRO.head(p, u));
+    },
   }), head, 'muzzle');
 
   const nose = mesh(paintSolid(new THREE.SphereGeometry(0.055, 10, 8), COAT.dark), head, 'nose');
@@ -432,8 +467,8 @@ export function buildBody(material) {
     ], 6), {
       radial: 3,
       radius: (u) => { const r = 0.125 * (1 - u * 0.92); return [r, r * 0.45]; },
-      color: (u, up, out) => {
-        out.copy(up < -0.1 ? COAT.earIn : COAT.red);
+      color: (u, up, out, p) => {
+        out.copy(COAT.red).lerp(COAT.cream, URAJIRO.ear(p));
         out.lerp(COAT.dark, smoothstep(0.62, 1.0, u) * 0.45);
       },
     }), pivot, 'ear');
@@ -460,7 +495,10 @@ export function buildBody(material) {
     },
     profile: tuftProfile((u) => 0.07
       * smoothstep(0.00, 0.15, u) * (1 - smoothstep(0.82, 1.00, u))),
-    color: (u, up, out) => coatAt(up, out, -0.30),
+    color: (u, up, out) => {
+      coatAt(up, out, -0.30);
+      out.lerp(COAT.cream, URAJIRO.tail(up));
+    },
   }), tailBase, 'tail');
 
   /* — legs —
@@ -476,6 +514,9 @@ export function buildBody(material) {
   ];
 
   for (const s of legSpec) {
+    // The inner face reverses between left and right legs. Capture that side
+    // here; sweep's callback contract stays identical for every other piece.
+    const legUrajiro = (p) => URAJIRO.leg(p, Math.sign(s.x));
     const hip = new THREE.Object3D();
     hip.position.set(s.x, s.front ? -SHIBA_BUILD.hipDrop : -0.06, s.z);
     body.add(hip);
@@ -488,7 +529,10 @@ export function buildBody(material) {
       7), {
       radial: 8,
       radius: (u) => { const r = 0.130 - 0.045 * u; return [r * 0.85, r]; },
-      color: (u, up, out) => coatAt(up, out, 0.15 + 0.40 * u),
+      color: (u, up, out, p) => {
+        coatAt(up, out, -0.15);
+        out.lerp(COAT.cream, legUrajiro(p));
+      },
     }), hip, 'thigh');
 
     const knee = new THREE.Object3D();
@@ -505,9 +549,12 @@ export function buildBody(material) {
       // Starts a hair WIDER than the thigh ends (0.085), so the knee reads as a
       // joint rather than as a step down onto a thinner pipe.
       radius: (u) => { const r = 0.092 - 0.032 * u; return [r * 0.85, r]; },
-      // Socks, not stockings. The cream starts low on the cannon bone; running
-      // it all the way up the leg turns him into a beagle.
-      color: (u, up, out) => { out.copy(COAT.red).lerp(COAT.cream, smoothstep(0.30, 0.80, u)); },
+      // Urajiro follows only the inner cannon; a full cream stocking reads as
+      // a beagle rather than a shiba.
+      color: (u, up, out, p) => {
+        coatAt(up, out, -0.15);
+        out.lerp(COAT.cream, legUrajiro(p));
+      },
     }), knee, 'shin');
 
     const paw = mesh(paintSolid(new THREE.SphereGeometry(0.082, 8, 6), COAT.cream), knee, 'paw');
