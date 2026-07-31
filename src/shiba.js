@@ -20,6 +20,8 @@
 import * as THREE from 'three';
 import { streamFor, R, clamp, mix } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
+import { isOnPath } from './details.js';
+import { PARTICLE_KIND } from './particles.js';
 import { TAU, UP, SHIBA_BUILD, buildBody } from './shiba-geom.js';
 
 export const SHIBA = {
@@ -39,6 +41,12 @@ export const SHIBA = {
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
 };
+
+// Ground-reaction tuning: these two formulas are deliberately the only knobs.
+// If the gait ever reads as permanent fog, lower their floors (1 and 0.6), not
+// the event structure or the progressive response from walk through run.
+const PAW_BURST_COUNT = (speedN) => 1 + Math.round(3 * speedN);
+const PAW_BURST_SIZE = (speedN) => 0.6 + 0.8 * speedN;
 
 // Hard flotation invariant: 0.66 * 1.35 = 0.891 > 0.85. The back therefore
 // clears the water by 0.041 u and the muzzle by about 0.36 u. At swimFloat 0.55
@@ -146,6 +154,7 @@ function createFootprints(count, life) {
  * @param {Function} [opts.normalAt] (x, z, out) => Vector3
  * @param {object}   opts.water      exposes surfaceAt(x, z, t) => y|null
  * @param {object}   [opts.wind]     from createWind(); read for ear and tail flutter
+ * @param {object}   [opts.particles] exposes burst(kind, x, y, z, count, strength)
  */
 export function createShiba({
   seed = 1337,
@@ -154,12 +163,16 @@ export function createShiba({
   normalAt = null,
   water = null,
   wind = null,
+  particles = null,
 } = {}) {
   if (typeof heightAt !== 'function') {
     throw new Error('[shiba] createShiba requires heightAt(x, z) -> y');
   }
   if (!water || typeof water.surfaceAt !== 'function') {
     throw new Error('[shiba] createShiba requires water.surfaceAt(x, z, t) -> y|null');
+  }
+  if (particles && typeof particles.burst !== 'function') {
+    throw new Error('[shiba] particles must expose burst(kind, x, y, z, count, strength)');
   }
 
   // Imported world datum, not a second water rule: only passable() uses it to
@@ -284,6 +297,33 @@ export function createShiba({
     return false;
   }
 
+  /**
+   * Emit one material-aware event at the visible support surface.
+   *
+   * The dust is thrown BEHIND him, not straight up from the paw. A symmetric
+   * puff at the contact point spawns under the belly, where his own silhouette
+   * hides it — measured in game by toggling the depth test, and it is also what
+   * really happens: a running animal kicks material backwards.
+   */
+  function emitSurfaceBurst(x, z, count, strength, crownCount = 1, knownWaterY = undefined) {
+    if (!particles) return;
+    const back = state.moving ? 1.15 * (0.35 + 0.65 * clamp(state.speed / SHIBA.runSpeed, 0, 1)) : 0;
+    const dx = -Math.sin(state.heading) * back;
+    const dz = -Math.cos(state.heading) * back;
+
+    const waterY = knownWaterY === undefined ? water.surfaceAt(x, z, nowT) : knownWaterY;
+    if (waterY !== null) {
+      particles.burst(PARTICLE_KIND.WATER, x, waterY, z, count, strength, crownCount, dx, dz);
+      return;
+    }
+
+    const h = heightAt(x, z);
+    const kind = isOnPath(x, z)
+      ? PARTICLE_KIND.DIRT
+      : h < WORLD.beachTop ? PARTICLE_KIND.SAND : PARTICLE_KIND.MEADOW;
+    particles.burst(kind, x, h, z, count, strength, 0, dx, dz);
+  }
+
   /* ── animation ─────────────────────────────────────────────── */
 
   const legPhase = [0, Math.PI, Math.PI, 0]; // FL FR BL BR — a diagonal trot
@@ -351,7 +391,16 @@ export function createShiba({
       const down = s < 0 && Math.cos(ph) > 0;
       if (down && !legPlanted[i]) {
         legPlanted[i] = true;
-        if (state.moving && !state.swimming) stampPrint(leg);
+        if (state.moving) {
+          leg.paw.getWorldPosition(_pawWorld);
+          emitSurfaceBurst(
+            _pawWorld.x,
+            _pawWorld.z,
+            PAW_BURST_COUNT(speedN),
+            PAW_BURST_SIZE(speedN)
+          );
+          if (!state.swimming) stampPrint(leg);
+        }
         if (state.depth > 0.10 && leg.front) {
           leg.paw.getWorldPosition(_pawWorld);
           water.impact(_pawWorld.x, _pawWorld.z, 0.6 + 0.5 * speedN);
@@ -525,8 +574,14 @@ export function createShiba({
     // LA question, posée une fois par frame. profondeur = 0 signifie sec.
     const s = water.surfaceAt(position.x, position.z, t);
     const depth = s === null ? 0 : Math.max(0, s - ground);
+    const wasWading = state.wading;
     state.depth = depth;
     state.wading = depth > 0.04;
+    if (state.wading && !wasWading) {
+      // Rising edge only: one large entry event, never a per-frame fountain.
+      emitSurfaceBurst(position.x, position.z, 12, 1.35, 1, s);
+      water.impact(position.x, position.z, 1.35);
+    }
 
     // The 0.12 u hysteresis absorbs triangle noise at the lose-footing line;
     // without it the ground and swimming poses beat against one another.
@@ -539,15 +594,29 @@ export function createShiba({
     state.swimBlend = clamp(state.swimBlend, 0, 1);
 
     const targetY = state.swimming ? s - SHIBA.swimFloat : ground;
+    let landed = false;
     if (state.airborne) {
       // Ballistic: gravity only, land when the arc meets the current support.
       state.vy -= 26 * dt;
       position.y += state.vy * dt;
-      if (position.y <= targetY) { position.y = targetY; state.vy = 0; state.airborne = false; }
+      if (position.y <= targetY) {
+        position.y = targetY;
+        state.vy = 0;
+        state.airborne = false;
+        landed = true;
+      }
     } else {
       // Settle onto the ground rather than snapping: a hard clamp to heightAt makes
       // him judder over the terrain's triangle edges at speed.
       position.y += (targetY - position.y) * Math.min(1, dt * 18);
+    }
+    if (landed) {
+      if (s !== null) {
+        emitSurfaceBurst(position.x, position.z, 20, 1.7, 2, s);
+        water.impact(position.x, position.z, 1.8);
+      } else {
+        emitSurfaceBurst(position.x, position.z, 20, 1.8, 0, null);
+      }
     }
 
     /* — sit / stand — */

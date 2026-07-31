@@ -22,6 +22,7 @@ import { createPetals } from './petals.js';
 import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createClouds } from './clouds.js';
+import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
 import { createDetails, isOnPath, initPath, pathSurfaceLiftAt } from './details.js';
 
@@ -447,6 +448,8 @@ async function boot() {
     ),
     setSwimmer: (x, z, active, amp, dt) => world.ponds.setSwimmer(x, z, active, amp, dt),
   };
+  world.particles = createParticles({ quality: q, seed: SEED, season: world.season });
+  scene.add(world.particles.group);
   world.shiba = createShiba({
     seed: SEED,
     // groundAt, pas heightAt : le chien marche SUR la terre battue des sentes
@@ -457,6 +460,7 @@ async function boot() {
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     water,
+    particles: world.particles,
     wind: world.wind,
   });
   scene.add(world.shiba.group);
@@ -554,6 +558,7 @@ function frame() {
   // The dog reads the camera to work out which way "forward" is, so he updates
   // before the camera moves this frame. One frame of lag in the control frame is
   // imperceptible; the reverse order makes fast turns feel like ice.
+  world.particles.update(t);
   world.shiba.update(t, dt, { camera });
   world.birds.setRepeller?.(world.shiba.position);
   // The meadow parts around him. Placed after shiba.update so the uniform is
