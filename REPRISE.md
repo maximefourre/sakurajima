@@ -979,3 +979,74 @@ tout futur réglage : **régler le bloc AVANT de juger la fraction.**
 
 Étalon final printemps ultra : **ouverture 33.7 fps** (contre 15.4 au départ,
 ×2.2), sol 24.6.
+
+## Chantier shiba eau — requête unique et nage des étangs (31/07/2026, Codex)
+
+Le shiba ne reçoit plus les anciens contrats `isInPond`, `seaLevel`,
+`waterSurfaceAt` ni les restes du pont. `main.js` compose désormais un service
+`water.surfaceAt(x,z,t) -> y|null` pour les étangs et la mer ; `ponds.js` expose
+la ligne d'eau exacte, distincte de la marge vaseuse de `isInPond`.
+
+Toute la locomotion aquatique dérive d'une profondeur unique : gué progressif,
+nage hystérétique à 0.85 u, flottaison à surface − 0.85, laisse marine à −3 u.
+La pose fondue ajoute assiette cabrée, queue-gouvernail, oreilles plaquées et
+pagayage diagonal asymétrique (34 % moteur, antérieurs ×1.4). L'invariant de
+flottaison est contrôlé au chargement : 0.66 × 1.35 = 0.891, soit 0.041 u de
+dos émergé.
+
+`node --check` : OK sur `ponds.js`, `main.js`, `shiba.js` et `shiba-geom.js`.
+L'agent d'implémentation n'a pas pu lancer le banc navigateur dans son bac
+(`serve.py 5174` → `PermissionError`, Chrome headless → code 134) et ne l'a pas
+prétendu. **Vérification faite ensuite par Claude**, worktree servi sur 5174 :
+
+- `INVARIANTS: 10 pass, 0 fail`.
+- Centre du bassin le plus profond (`waterY 4.217`, lit `−0.177`) : profondeur
+  `4.394`, `swimming` vrai, `position.y = 3.367` soit **exactement
+  `waterY − 0.85`**. Dos émergé de `0.041`, museau hors de l'eau.
+- Bande de gué mesurée sur le grand bassin (rayon 32.4) : **5.83 u de large**,
+  de `0.99·r` (profondeur 0.046) à `0.81·r` (0.795) — environ 0.9 s de marche.
+- Hystérésis : oscillation lente de ±0.004·r autour du seuil sur 80 frames →
+  **0 bascule** de `state.swimming`.
+- Prairie sèche : profondeur 0, `wading` et `swimming` faux.
+- Contrôle visuel : il flotte dos affleurant et tête franchement dehors, pattes
+  qui pagaient sous la surface ; 24 meshes, aucune géométrie sans attribut
+  `color`, aucun éclairage inversé.
+
+**Piège de mesure à consigner** : l'onglet en arrière-plan étrangle rAF *et*
+`setTimeout` (piège 8), donc `state` reste figé après un déplacement du chien
+depuis la console. La physique se mesure en appelant `__sk.frame()` à la main
+dans une boucle avec une attente active (`performance.now()`), pas avec
+`setTimeout`. Et `controls.minDistance` vaut **14** : approcher la caméra du
+chien exige de l'abaisser, sinon `controls.update()` repousse la caméra
+(piège 5).
+
+## Chantier shiba silhouette — hooks de sweep et contrat de race (31/07/2026, Codex)
+
+`sweep()` gagne deux points d'accroche et un correctif :
+
+- **`o.profile(u, a)`** — multiplicateur de rayon par angle de section. C'est le
+  levier unique du pelage : mèches périodiques `cos(6a)` et `cos(11a+3u)`
+  fermées sans couture, appliquées seulement à la collerette (0.06), la culotte
+  (0.05), le panache de queue (0.07) et la bavette (0.04). **Zéro sur les
+  pattes** — une patte festonnée devient une chenille.
+- **4ᵉ argument `p` du callback couleur** (point local du sommet), pour l'urajiro
+  par zone de S3. À retenir : `upness` est dans le repère LOCAL de la pièce, ce
+  qui ne coïncide avec le monde que parce que les pivots sont axés au build —
+  toute pièce à pivot tourné (les oreilles déjà, la mâchoire de S2 demain) doit
+  peindre depuis `p`.
+- **Couture de normales recousue** : les sommets `s=0` et `s=radial` coïncident
+  mais n'appartiennent qu'à un quad chacun, donc `computeVertexNormals()` leur
+  donnait deux normales écartées de 25.7° (radial 14) — **un fil de lumière le
+  long du flanc gauche**, invisible sous la lumière molle actuelle mais fatal dès
+  qu'on ajoute du relief. Moyennées station par station.
+
+Proportions mesurées, avant → après : garrot 0.9672 → 0.9731, longueur
+1.0740 → 1.0704, **ratio 0.90053 → 0.90913** contre 10:11 = 0.90909 (écart
+0.004 %). Museau/tête 42.6 % → **40.0 %**. Oreilles écartées de +16 %
+(±0.125 → ±0.145) et inclinées vers l'avant (−0.32 → −0.46). Queue épaissie de
++16.7 % (0.150 → 0.175), attache et centreline conservées. Torse passé à
+`radial 16` (+84 triangles).
+
+`makeCoatBump(seed)` est exportée mais **pas encore branchée** : le `bumpMap` du
+matériau se pose dans `shiba.js`, hors du périmètre de ce chantier. À faire avec
+S3, avec `bumpScale ≈ 0.02`.

@@ -819,6 +819,36 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
     return false;
   }
 
+  /**
+   * Exact water surface at a point, without isInPond's wet-bank margin.
+   *
+   * This deliberately duplicates the contour lookup instead of calling or
+   * changing isInPond: isInPond carries a +1.0 u margin to keep grass out of
+   * the mud, while the actual waterline is narrower. It is also a hot placement
+   * path called hundreds of thousands of times, and invariant 5 depends on its
+   * exact footprint because the 'etangs' route intentionally grazes the banks.
+   */
+  function pondWaterYAt(x, z) {
+    for (let i = 0; i < basins.length; i++) {
+      const b = basins[i];
+      const dx = x - b.x, dz = z - b.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > b.cullR2) continue;
+      let r;
+      if (b.shore) {
+        const f = ((Math.atan2(dz, dx) + Math.PI) / TAU) * SHORE_N;
+        const i0 = f | 0;
+        const t = f - i0;
+        const a = b.shore[i0 % SHORE_N], c = b.shore[(i0 + 1) % SHORE_N];
+        r = a + (c - a) * t;
+      } else {
+        r = b.radius * 1.3;
+      }
+      if (d2 < r * r) return b.waterY;
+    }
+    return null;
+  }
+
   /* ── materials ────────────────────────────────────────────────
    * uTime, uWindDir and uWindStrength are the SHARED wind uniform objects,
    * assigned by reference so the single wind.update() in main.js drives the
@@ -1504,5 +1534,5 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
     group.clear();
   }
 
-  return { group, PONDS, carvePonds, isInPond, attach, update, dispose };
+  return { group, PONDS, carvePonds, isInPond, pondWaterYAt, attach, update, dispose };
 }

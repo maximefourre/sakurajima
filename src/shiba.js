@@ -30,12 +30,22 @@ export const SHIBA = {
   turnRate: 7.0,          // rad/s the body swings toward its heading
   /** Above this terrain slope he refuses to climb — cliffs are not for dogs. */
   maxSlope: 0.72,
-  /** He will paddle down to here below sea level and no further. */
-  wadeDepth: 0.34,
+  swimDepth: 0.85,     // deeper than this under the surface: he loses his footing
+  swimFloat: 0.85,     // paws this far under the surface while swimming
+  swimReach: 3.0,      // sea: refuse once the seabed falls below -3
+  swimSpeed: 4.6,      // an energetic paddle, slower than walkSpeed
+  wadeSlow: 0.55,      // speed factor at half swimDepth
   idleBeforeSit: 4.2,     // seconds of stillness before he sits down
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
 };
+
+// Hard flotation invariant: 0.66 * 1.35 = 0.891 > 0.85. The back therefore
+// clears the water by 0.041 u and the muzzle by about 0.36 u. At swimFloat 0.55
+// he looked as if he walked on water; without flotation he was a submarine.
+if (SHIBA_BUILD.standHeight * SHIBA_BUILD.scale <= SHIBA.swimFloat) {
+  throw new Error('[shiba] swimFloat submerges the back; update SHIBA_BUILD or flotation');
+}
 
 /* ────────────────────────────────────────────────────────────────
    Footprints
@@ -134,27 +144,27 @@ function createFootprints(count, life) {
  * @param {Function} opts.heightAt   (x, z) => y
  * @param {Function} [opts.slopeAt]  (x, z) => 0..1
  * @param {Function} [opts.normalAt] (x, z, out) => Vector3
- * @param {Function} [opts.isInPond] (x, z) => bool — ponds and river both count
- * @param {Function} [opts.deckHeightAt] (x, z) => y|null — bridge deck walkable height
- * @param {Function} [opts.deckNormalAt] (x, z, out) => bool — deck normal into out
+ * @param {object}   opts.water      exposes surfaceAt(x, z, t) => y|null
  * @param {object}   [opts.wind]     from createWind(); read for ear and tail flutter
- * @param {number}   [opts.seaLevel]
  */
 export function createShiba({
   seed = 1337,
   heightAt,
   slopeAt = null,
   normalAt = null,
-  isInPond = null,
-  deckHeightAt = null,
-  deckNormalAt = null,
-  waterSurfaceAt = null,
+  water = null,
   wind = null,
-  seaLevel = WORLD.seaLevel,
 } = {}) {
   if (typeof heightAt !== 'function') {
     throw new Error('[shiba] createShiba requires heightAt(x, z) -> y');
   }
+  if (!water || typeof water.surfaceAt !== 'function') {
+    throw new Error('[shiba] createShiba requires water.surfaceAt(x, z, t) -> y|null');
+  }
+
+  // Imported world datum, not a second water rule: only passable() uses it to
+  // distinguish the open sea's depth leash from elevated pond surfaces.
+  const seaLevelLocal = WORLD.seaLevel;
 
   const rng = streamFor(seed, 'shiba');
 
@@ -186,7 +196,9 @@ export function createShiba({
     moving: false,
     running: false,
     wading: false,
-    swimming: false,   // il a perdu pied dans la rivière — il flotte
+    swimming: false,   // hysteretic contact state; swimBlend softens the pose
+    swimBlend: 0,      // 0..1 animation blend, deliberately not another state
+    depth: 0,          // one surface query per frame; 0 means dry
     sitting: 0,        // 0..1 blend, not a boolean — he folds down over ~0.8 s
     excitement: 0,     // decays after a run; drives the tail
     tailPhase: 0,      // integrated wag phase — sin(t*rate) with a moving rate whips
@@ -194,6 +206,7 @@ export function createShiba({
     airborne: false,
     idleTime: 0,
     gait: 0,           // accumulated stride phase in radians
+    swimGait: 0,       // forced paddle cadence, independent of forward speed
   };
 
   /* ── input ─────────────────────────────────────────────────── */
@@ -233,6 +246,7 @@ export function createShiba({
 
   const legPlanted = [true, true, true, true];
   let printClock = 0;
+  let nowT = 0;
 
   /** Head-up idle beat: he looks up at the falling petals now and then. */
   let lookUpTimer = R.range(rng, 3, 9);
@@ -240,31 +254,18 @@ export function createShiba({
 
   /* ── terrain queries ───────────────────────────────────────── */
 
-  /** Can he stand here? Deep water and cliffs say no; the bridge deck says yes. */
+  /** Can he move here? Water and dry ground each have one coherent rule. */
   function passable(x, z) {
-    if (deckHeightAt) {
-      const d = deckHeightAt(x, z);
-      if (d !== null && position.y > d - 2.0) {
-        // At deck level the planks are always standable. This must short-circuit
-        // the water and slope tests: the river below the deck and the carved
-        // channel's bank slopes would otherwise both refuse the crossing.
-        // The y-gate keeps a dog WADING UNDER the bridge on the terrain rules.
-        return true;
-      }
-      if (d === null) {
-        const dHere = deckHeightAt(position.x, position.z);
-        if (dHere !== null && position.y > dHere - 2.0 && heightAt(x, z) < dHere - 1.2) {
-          // Stepping sideways off the deck mid-span: the handrails contain him.
-          // tryMove's axis-slide turns this refusal into gliding along the rail.
-          return false;
-        }
-      }
+    const h = heightAt(x, z);
+    const s = water.surfaceAt(x, z, nowT);
+    if (s !== null) {
+      // Il nage : la pente du LIT ne le concerne plus. Seule compte la laisse.
+      // Mer : refus quand le fond descend sous -swimReach (il longe alors la
+      // laisse en arc, ce qui se lit comme "il ne veut pas aller plus loin",
+      // pas comme un mur). Étangs : aucun refus, il traverse à la nage.
+      return h > seaLevelLocal - SHIBA.swimReach || s > seaLevelLocal + 0.5;
     }
-        const h = heightAt(x, z);
-    if (h < seaLevel - SHIBA.wadeDepth) return false;
-    if (isInPond && isInPond(x, z) && h < seaLevel + 0.1) return false;
-    if (slopeAt && slopeAt(x, z) > SHIBA.maxSlope) return false;
-    return true;
+    return !(slopeAt && slopeAt(x, z) > SHIBA.maxSlope);
   }
 
   /**
@@ -287,10 +288,27 @@ export function createShiba({
 
   const legPhase = [0, Math.PI, Math.PI, 0]; // FL FR BL BR — a diagonal trot
 
+  /**
+   * Periodic power stroke: -1 -> +1 takes 34% of the cycle, the return takes
+   * the remaining 66%. The 2*x-1 remap turns the brief's 0 -> 1 -> 0 sine arch
+   * into a reusable signed limb angle without losing the asymmetric timing.
+   */
+  function swimStroke(phase) {
+    const k = 0.34;
+    const p = ((phase / TAU) % 1 + 1) % 1;
+    const warped = p < k
+      ? 0.5 * p / k
+      : 0.5 + 0.5 * (p - k) / (1 - k);
+    return 2 * Math.sin(Math.PI * warped) - 1;
+  }
+
   function animate(t, dt, speedN) {
-    const sit = state.sitting;
+    const swim = state.swimBlend;
+    const sit = state.sitting * (1 - swim);
     const stride = 5.2 + speedN * 7.5;
     state.gait += dt * stride * (0.25 + speedN);
+    // A swimming dog keeps paddling even while the player releases the stick.
+    state.swimGait += dt * 10.5;
 
     const swingAmp = 0.30 + 0.62 * speedN;
     const bounce = 1 - sit;
@@ -300,6 +318,7 @@ export function createShiba({
       const ph = state.gait + legPhase[i];
       const s = Math.sin(ph);
       const lift = Math.max(0, -Math.cos(ph));
+      let landHip, landKnee;
 
       if (sit > 0.02 && !leg.front) {
         // Sitting. Sign convention matters more than the magnitudes here: a
@@ -307,22 +326,32 @@ export function createShiba({
         // because the model faces +Z. So the femur goes forward-and-down on a
         // negative angle and the tibia folds back under it on a positive one,
         // dropping the hock to the ground — which is what a dog actually sits on.
-        leg.hip.rotation.x = mix(s * swingAmp * bounce, -0.85, sit);
-        leg.knee.rotation.x = mix(-lift * swingAmp * 1.35 * bounce, 1.95, sit);
+        landHip = mix(s * swingAmp * bounce, -0.85, sit);
+        landKnee = mix(-lift * swingAmp * 1.35 * bounce, 1.95, sit);
       } else if (sit > 0.02 && leg.front) {
-        leg.hip.rotation.x = mix(s * swingAmp * bounce, 0.04, sit);
-        leg.knee.rotation.x = mix(-lift * swingAmp * 1.35 * bounce, -0.04, sit);
+        landHip = mix(s * swingAmp * bounce, 0.04, sit);
+        landKnee = mix(-lift * swingAmp * 1.35 * bounce, -0.04, sit);
       } else {
-        leg.hip.rotation.x = s * swingAmp;
-        leg.knee.rotation.x = -lift * swingAmp * 1.35;
+        landHip = s * swingAmp;
+        landKnee = -lift * swingAmp * 1.35;
       }
+
+      // Dog paddle is a stereotyped diagonal trot. Its range deliberately
+      // exceeds the land gait: 1.34 rad in front, 1.34/1.4 behind. Forelimbs
+      // provide propulsion and steering; hind limbs mostly stabilise.
+      const paddle = swimStroke(state.swimGait + legPhase[i]);
+      const swimAmp = leg.front ? 1.34 : 1.34 / 1.4;
+      const swimHip = paddle * swimAmp;
+      const swimKnee = -0.42 - Math.max(0, -paddle) * (leg.front ? 0.78 : 0.56);
+      leg.hip.rotation.x = mix(landHip, swimHip, swim);
+      leg.knee.rotation.x = mix(landKnee, swimKnee, swim);
 
       // A paw plants on the downstroke. Used for footprints; also the moment the
       // body should take weight, which the bob below is phased against.
       const down = s < 0 && Math.cos(ph) > 0;
       if (down && !legPlanted[i]) {
         legPlanted[i] = true;
-        if (state.moving) stampPrint(leg);
+        if (state.moving && !state.swimming) stampPrint(leg);
       } else if (!down) {
         legPlanted[i] = false;
       }
@@ -330,9 +359,13 @@ export function createShiba({
 
     // Body carriage: bob at twice the stride, roll at once, and pitch up as he
     // sits so the chest lifts and the front legs straighten under him.
-    rig.body.position.y = Math.sin(state.gait * 2) * 0.028 * speedN * bounce - 0.20 * sit;
-    rig.body.rotation.z = Math.sin(state.gait) * 0.055 * speedN * bounce;
-    rig.body.rotation.x = mix(-0.05 * speedN, -0.30, sit) + (state.airborne ? state.vy * 0.025 : 0);
+    const landBodyY = Math.sin(state.gait * 2) * 0.028 * speedN * bounce - 0.20 * sit;
+    const landRoll = Math.sin(state.gait) * 0.055 * speedN * bounce;
+    const landPitch = mix(-0.05 * speedN, -0.30, sit) + (state.airborne ? state.vy * 0.025 : 0);
+    rig.body.position.y = mix(landBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
+    rig.body.rotation.z = mix(landRoll, Math.sin(state.swimGait) * 0.035, swim);
+    // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
+    rig.body.rotation.x = mix(landPitch, -0.18, swim);
 
     // Head. It leads the turn while moving, scans slowly when idle, and lifts
     // when something drifts past — the scene is full of falling petals and a dog
@@ -344,9 +377,13 @@ export function createShiba({
     }
     lookUp = Math.max(0, lookUp - dt * 0.55);
     const scan = Math.sin(t * 0.42) * 0.30 * (1 - speedN) * (0.4 + 0.6 * sit);
-    rig.head.rotation.y = scan;
-    rig.head.rotation.x = mix(-0.06 * speedN, -0.05, sit) - lookUp * 0.62;
-    rig.neck.rotation.x = mix(0.0, -0.28, sit);
+    rig.head.rotation.y = scan * (1 - swim);
+    rig.head.rotation.x = mix(
+      mix(-0.06 * speedN, -0.05, sit) - lookUp * 0.62,
+      -0.24,
+      swim
+    );
+    rig.neck.rotation.x = mix(mix(0.0, -0.28, sit), -0.12, swim);
 
     // Tail. Wag rate tracks excitement, which spikes after a run and decays, so
     // he arrives somewhere still buzzing and settles down a few seconds later.
@@ -355,8 +392,11 @@ export function createShiba({
     // after a run whipped the tail dozens of times too fast.
     const wag = 2.0 + state.excitement * 9.0;
     state.tailPhase += wag * dt;
-    rig.tailBase.rotation.y = Math.sin(state.tailPhase) * (0.10 + 0.28 * state.excitement);
-    rig.tailBase.rotation.x = -0.10 * speedN + 0.26 * sit; // the curl flattens onto the croup
+    const landTailY = Math.sin(state.tailPhase) * (0.10 + 0.28 * state.excitement);
+    const landTailX = -0.10 * speedN + 0.26 * sit;
+    // Rotate the curled plume onto the surface and sweep it gently as a rudder.
+    rig.tailBase.rotation.y = mix(landTailY, Math.sin(state.swimGait * 0.5) * 0.13, swim);
+    rig.tailBase.rotation.x = mix(landTailX, 0.68, swim);
 
     // Ears: laid back at speed, pricked at rest, and flicked by the gusts. The
     // wind is shared with the grass and the petals, so an ear twitch lands on the
@@ -365,8 +405,10 @@ export function createShiba({
     for (let i = 0; i < 2; i++) {
       const side = i === 0 ? -1 : 1;
       const flick = Math.sin(t * 7.3 + i * 2.1) * gust * 0.16;
-      rig.ears[i].rotation.x = -0.30 + 0.34 * speedN + flick;
-      rig.ears[i].rotation.z = side * (0.20 + 0.10 * gust);
+      const landEarX = -0.30 + 0.34 * speedN + flick;
+      const landEarZ = side * (0.20 + 0.10 * gust);
+      rig.ears[i].rotation.x = mix(landEarX, 0.46, swim);
+      rig.ears[i].rotation.z = mix(landEarZ, side * 0.08, swim);
     }
   }
 
@@ -374,15 +416,9 @@ export function createShiba({
 
   function stampPrint(leg) {
     leg.paw.getWorldPosition(_pawWorld);
-    // No paw prints in the bridge planks (and none stamped on the riverbed
-    // 4 units below the paw while he crosses).
-    if (deckHeightAt) {
-      const d = deckHeightAt(_pawWorld.x, _pawWorld.z);
-      if (d !== null && position.y > d - 2.0) return;
-    }
     const h = heightAt(_pawWorld.x, _pawWorld.z);
     // Sand only. Prints in grass are invisible and prints on rock are wrong.
-    if (h > WORLD.beachTop || h < seaLevel - 0.05) return;
+    if (h > WORLD.beachTop || h < seaLevelLocal - 0.05) return;
 
     if (normalAt) normalAt(_pawWorld.x, _pawWorld.z, _n); else _n.copy(UP);
     _printQ.setFromUnitVectors(UP, _n);
@@ -411,6 +447,7 @@ export function createShiba({
    *                                     the controls fall back to world axes
    */
   function update(t, dt, ctx = null) {
+    nowT = t;
     printClock = t;
     prints.material.uniforms.uTime.value = t;
 
@@ -446,11 +483,13 @@ export function createShiba({
 
     /* — speed — */
     let top = state.running ? SHIBA.runSpeed : SHIBA.walkSpeed;
-    // Wading through the river: passable, but water is thick. The sea-level
-    // wade rule never sees a bed 8 units up the hillside, so ask the river.
-    if (waterSurfaceAt && !state.airborne) {
-      const wS = waterSurfaceAt(position.x, position.z);
-      if (wS !== null && position.y < wS - 0.05) { top *= 0.55; state.wading = true; }
+    if (state.swimming) {
+      top = SHIBA.swimSpeed;
+    } else if (state.depth > 0) {
+      // Progressive mud-and-water drag. At half swimDepth the requested 0.55
+      // factor is fully reached; shallower water interpolates continuously.
+      const wadeN = clamp(state.depth / (SHIBA.swimDepth * 0.5), 0, 1);
+      top *= mix(1, SHIBA.wadeSlow, wadeN);
     }
     const target = wants ? top : 0;
     const rate = target > state.speed ? SHIBA.accel : SHIBA.brake;
@@ -472,45 +511,44 @@ export function createShiba({
 
     /* — translate — */
     if (state.moving) {
-      const step = state.speed * dt * (state.wading ? 0.45 : 1);
+      const step = state.speed * dt;
       if (!tryMove(Math.sin(state.heading) * step, Math.cos(state.heading) * step)) {
         state.speed *= 0.4;
       }
     }
 
-    const dHere = deckHeightAt ? deckHeightAt(position.x, position.z) : null;
-    const onDeck = dHere !== null && position.y > dHere - 2.0;
-    let ground = onDeck ? dHere : heightAt(position.x, position.z);
-    state.wading = ground < seaLevel + 0.06;
-    // NAGE : quand le chenal est plus profond que ses pattes, le shiba perd
-    // pied et flotte juste sous la surface au lieu de marcher au fond en
-    // scaphandrier invisible — c'est la nage qui rend la profondeur lisible.
-    state.swimming = false;
-    if (!onDeck && waterSurfaceAt && !state.airborne) {
-      const wSw = waterSurfaceAt(position.x, position.z);
-      if (wSw !== null && ground < wSw - 0.85) {
-        // Immergé au poitrail, tête hors de l'eau — à −0.55 il semblait
-        // MARCHER sur l'eau.
-        ground = wSw - 0.85;
-        state.swimming = true;
-        state.wading = true;
-      }
+    const ground = heightAt(position.x, position.z);
+    // LA question, posée une fois par frame. profondeur = 0 signifie sec.
+    const s = water.surfaceAt(position.x, position.z, t);
+    const depth = s === null ? 0 : Math.max(0, s - ground);
+    state.depth = depth;
+    state.wading = depth > 0.04;
+
+    // The 0.12 u hysteresis absorbs triangle noise at the lose-footing line;
+    // without it the ground and swimming poses beat against one another.
+    if (state.swimming) {
+      if (depth < SHIBA.swimDepth - 0.12) state.swimming = false;
+    } else if (depth > SHIBA.swimDepth) {
+      state.swimming = true;
     }
+    state.swimBlend += clamp((state.swimming ? 1 : 0) - state.swimBlend, -dt * 3.5, dt * 4.5);
+    state.swimBlend = clamp(state.swimBlend, 0, 1);
+
+    const targetY = state.swimming ? s - SHIBA.swimFloat : ground;
     if (state.airborne) {
-      // Ballistic: gravity only, land when the arc meets the ground (deck
-      // included - you can hop onto the bridge planks).
+      // Ballistic: gravity only, land when the arc meets the current support.
       state.vy -= 26 * dt;
       position.y += state.vy * dt;
-      if (position.y <= ground) { position.y = ground; state.vy = 0; state.airborne = false; }
+      if (position.y <= targetY) { position.y = targetY; state.vy = 0; state.airborne = false; }
     } else {
       // Settle onto the ground rather than snapping: a hard clamp to heightAt makes
       // him judder over the terrain's triangle edges at speed.
-      position.y += (ground - position.y) * Math.min(1, dt * 18);
+      position.y += (targetY - position.y) * Math.min(1, dt * 18);
     }
 
     /* — sit / stand — */
     state.idleTime = state.moving ? 0 : state.idleTime + dt;
-    const wantSit = state.idleTime > SHIBA.idleBeforeSit ? 1 : 0;
+    const wantSit = !state.wading && state.idleTime > SHIBA.idleBeforeSit ? 1 : 0;
     state.sitting += clamp(wantSit - state.sitting, -dt * 3.0, dt * 1.35);
     state.sitting = clamp(state.sitting, 0, 1);
 
@@ -524,9 +562,10 @@ export function createShiba({
     rig.root.position.copy(position);
     rig.root.position.y -= 0.04 * state.sitting;
 
-    if (!(onDeck && deckNormalAt && deckNormalAt(position.x, position.z, _n))) {
-      if (normalAt) normalAt(position.x, position.z, _n); else _n.copy(UP);
-    }
+    // A swimmer is supported by the surface, not aligned to the invisible bed.
+    if (state.swimming) _n.copy(UP);
+    else if (normalAt) normalAt(position.x, position.z, _n);
+    else _n.copy(UP);
     // Only partly conform to the slope. A quadruped standing on a hillside keeps
     // its body far closer to level than the ground under it; aligning fully makes
     // him look magnetised to the terrain.

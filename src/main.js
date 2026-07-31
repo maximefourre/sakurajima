@@ -429,6 +429,20 @@ async function boot() {
   scene.add(world.details.group);
 
   await step('shiba');
+  // Une seule question posée à l'eau. Le chien ne connaît plus ni les étangs ni
+  // le niveau de la mer : il connaît une hauteur d'eau, ou rien. Les trois règles
+  // contradictoires d'avant (seaLevel - wadeDepth, isInPond && h < seaLevel+0.1,
+  // waterSurfaceAt) sont ce qui produisait le bug "eau dessous / eau dessus".
+  const water = {
+    surfaceAt: (x, z, t) => {
+      const p = world.ponds.pondWaterYAt(x, z);
+      if (p !== null) return p;
+      // La mer. La houle sera ajoutée ici au chantier W4 ; pour l'instant, plat.
+      return world.heightAt(x, z) < world.island.seaLevel ? world.island.seaLevel : null;
+    },
+    impact: () => {},      // rempli au chantier W2 (ondes)
+    setSwimmer: () => {},  // rempli au chantier W2 (sillage)
+  };
   world.shiba = createShiba({
     seed: SEED,
     // groundAt, pas heightAt : le chien marche SUR la terre battue des sentes
@@ -438,9 +452,8 @@ async function boot() {
     heightAt: world.groundAt,
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
-    isInPond: world.inWater,
+    water,
     wind: world.wind,
-    seaLevel: world.island.seaLevel,
   });
   scene.add(world.shiba.group);
 
