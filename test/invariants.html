@@ -328,10 +328,22 @@ ponds.attach({ heightAt: island.heightAt });
     const s = ponds.pondWaterYAt(x, z);
     return s === null ? 0 : Math.max(0, s - island.heightAt(x, z));
   };
-  let plusProfond = 0, gueMin = Infinity, detail = '';
+  // Version 1 de cet invariant agrégeait par Math.max sur TOUS les bassins et
+  // comptait une bande de gué Infinity quand un rayon n'atteignait jamais la
+  // perte de pied : un étang entièrement peu profond passait donc au chaud
+  // derrière un voisin creux. Défaut relevé par la revue adversariale
+  // ADV-2026-08-01-81F0C02. Chaque bassin est désormais jugé SEUL, et un rayon
+  // sans perte de pied ne vaut plus une réussite : il ne compte simplement pas.
+  let ok = true, detail = '', pireGlobal = Infinity, plusFaible = Infinity;
   for (const b of ponds.PONDS) {
-    plusProfond = Math.max(plusProfond, b.depth);
-    let pireAzimut = Infinity;
+    plusFaible = Math.min(plusFaible, b.depth);
+    if (!(b.depth > SHIBA.swimDepth + 0.5)) {
+      ok = false;
+      detail = `bassin@(${b.x.toFixed(0)},${b.z.toFixed(0)}) profond de ${b.depth.toFixed(2)} u seulement `
+        + `(minimum ${(SHIBA.swimDepth + 0.5).toFixed(2)})`;
+      break;
+    }
+    let pireAzimut = Infinity, azimutsNageables = 0;
     for (let a = 0; a < 8; a++) {
       const th = (a / 8) * Math.PI * 2;
       const cx = Math.cos(th), cz = Math.sin(th);
@@ -341,16 +353,23 @@ ponds.attach({ heightAt: island.heightAt });
         if (dehors === null && d > 0.04) dehors = f;
         if (d > SHIBA.swimDepth) { dedans = f; break; }
       }
-      // Pas de perte de pied sur cet azimut : la berge est entièrement guéable.
-      const largeur = dedans === null ? Infinity : (dehors - dedans) * b.radius;
-      pireAzimut = Math.min(pireAzimut, largeur);
+      // Un rayon qui ne perd jamais pied est guéable de bout en bout : rien à
+      // mesurer, mais surtout rien à créditer.
+      if (dedans === null) continue;
+      azimutsNageables++;
+      pireAzimut = Math.min(pireAzimut, (dehors - dedans) * b.radius);
     }
-    gueMin = Math.min(gueMin, pireAzimut);
-    if (pireAzimut < 0.5) detail = `bassin@(${b.x.toFixed(0)},${b.z.toFixed(0)}) bande ${pireAzimut.toFixed(2)} u`;
+    if (azimutsNageables === 0 || pireAzimut < 0.5) {
+      ok = false;
+      detail = `bassin@(${b.x.toFixed(0)},${b.z.toFixed(0)}) ${azimutsNageables} azimut(s) nageable(s), `
+        + `bande ${pireAzimut === Infinity ? 'n/a' : pireAzimut.toFixed(2) + ' u'}`;
+      break;
+    }
+    pireGlobal = Math.min(pireGlobal, pireAzimut);
   }
-  check('étangs nageables et franchissables',
-    plusProfond > SHIBA.swimDepth + 0.5 && gueMin >= 0.5,
-    detail || `plus profond ${plusProfond.toFixed(2)} u, bande de gué la plus étroite ${gueMin.toFixed(2)} u`);
+  check('chaque étang est nageable ET franchissable', ok,
+    detail || `${ponds.PONDS.length} bassins, le moins creux ${plusFaible.toFixed(2)} u, `
+      + `bande de gué la plus étroite ${pireGlobal.toFixed(2)} u`);
 }
 
 /* ── 15. le budget d'ondes est partitionné ────────────────────────────────

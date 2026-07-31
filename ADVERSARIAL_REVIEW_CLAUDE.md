@@ -449,3 +449,35 @@ Findings:
 Next steps:
 - Replace fixed barycentric clearance sampling with an exact or bounded method.
 - Add a regression assertion covering terrain-grid/ribbon intersections at ultra quality.
+
+---
+
+# Revue ADV-2026-08-01-81F0C02 — chantiers shiba, eau et sol
+
+## Suivi de traitement
+
+| Champ | Valeur |
+|---|---|
+| Identifiant unique | `ADV-2026-08-01-81F0C02` |
+| Date de la revue | 01/08/2026 |
+| Plage auditée | `78be16d..81f0c02`, branche `chantier/shiba-eau-sol` (7 commits) |
+| Outil | skill `codex:adversarial-review`, exécution en tâche de fond |
+| Verdict Codex | **needs-attention** — « no-ship » |
+| Statut global | **Traité** (3 findings sur 3) |
+| Traité par | Claude, contre-vérification indépendante des 3 claims : **les 3 confirmés**, dont **2 portant sur du code écrit par Claude lui-même** (le garde-fou d'ondes et l'invariant 14) |
+| Commit(s) de résolution | voir `git log --grep=ADV-2026-08-01-81F0C02` |
+
+### Findings et résolutions
+
+| Finding | Statut | Résolution |
+|---|---|---|
+| [medium] La durée de vie des anneaux du chien était liée au sillage : `uDogWake.w` coupait la boucle dès qu'il quittait l'empreinte du bassin, tranchant net des ondes en pleine décroissance exponentielle (`src/ponds.js`) | **Traité** | Deux garde-fous **distincts** : `uDogRings` suit la vie des ANNEAUX (TTL 2.6 s, soit `exp(-2.3 × 2.6) = 0.0025`), `uDogWake.w` suit la présence du chien et ne gouverne plus que `pk_wake`. Vérifié en jeu : dans l'eau `rings=1, wake=1` ; à la sortie **`wake=0` immédiatement et `rings=1`** ; 3 s plus tard `rings=0`. C'est mon propre brief qui avait confondu coût du fragment et durée de vie. |
+| [medium] Le contrat `water` documenté crashait ses appelants : seul `surfaceAt` était validé, mais `update()` appelle `setSwimmer` **inconditionnellement**, donc même sur terre ferme (`src/shiba.js`) | **Traité** | `impact` et `setSwimmer` sont désormais documentés comme hooks de **présentation optionnels** et normalisés en no-op à la construction. La locomotion ne dépend plus de la présence d'un auditeur d'ondes. |
+| [medium] L'invariant 14 pouvait passer au vert avec un étang non nageable : `Math.max` de la profondeur sur TOUS les bassins, et une bande de gué `Infinity` créditée quand un rayon n'atteignait jamais la perte de pied (`test/invariants.html`) | **Traité** | Chaque bassin est jugé **seul** : profondeur minimale par bassin, et un rayon sans perte de pied ne compte plus comme une réussite — il est simplement exclu, avec exigence d'au moins un azimut nageable. Le rapport affiche désormais le bassin **le moins** creux (1.99 u en low, 2.10 en ultra) au lieu du plus creux. |
+
+### Vérification
+
+`INVARIANTS: 15 pass, 0 fail` en tier low **et** en `?q=ultra` — ultra inclus parce
+que le prolongement du sentier de la plage ajoute des triangles de ruban sur un
+terrain quasi plat : 42 936 triangles couverts, marge exacte 0.0200, élévation
+max 0.2309 pour un plafond de 0.550, 43 lanternes sans orpheline.
