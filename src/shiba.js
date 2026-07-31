@@ -18,7 +18,7 @@
  */
 
 import * as THREE from 'three';
-import { streamFor, R, clamp, mix } from './noise.js';
+import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
 import { isOnPath } from './details.js';
 import { PARTICLE_KIND } from './particles.js';
@@ -41,6 +41,32 @@ export const SHIBA = {
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
 };
+
+const GAITS = {
+  walk: {
+    ph: [0, Math.PI, Math.PI * 0.5, Math.PI * 1.5],
+    amp: 0.30,
+    knee: 1.20,
+    bob: 0.5,
+  },
+  trot: {
+    ph: [0, Math.PI, Math.PI, 0],
+    amp: 0.62,
+    knee: 1.35,
+    bob: 1.0,
+  },
+  gallop: {
+    ph: [0, 0.35, Math.PI, Math.PI + 0.35],
+    amp: 0.95,
+    knee: 1.55,
+    bob: 1.6,
+  },
+};
+
+const SHAKE_DURATION = 0.9;
+const SHAKE_FAILSAFE = 1.4;
+const SHAKE_DROPLETS = 6;
+const BLINK_DURATION = 0.09;
 
 // Ground-reaction tuning: these two formulas are deliberately the only knobs.
 // If the gait ever reads as permanent fog, lower their floors (1 and 0.6), not
@@ -152,9 +178,13 @@ function createFootprints(count, life) {
  * @param {Function} opts.heightAt   (x, z) => y
  * @param {Function} [opts.slopeAt]  (x, z) => 0..1
  * @param {Function} [opts.normalAt] (x, z, out) => Vector3
- * @param {object}   opts.water      exposes surfaceAt(x, z, t) => y|null
+ * @param {object}   opts.water      REQUIRES surfaceAt(x, z, t) => y|null.
+ *   impact(x, z, strength) and setSwimmer(x, z, active, amp, dt) are OPTIONAL
+ *   presentation hooks, normalised to no-ops below: locomotion must not depend
+ *   on whether anything is listening for ripples.
  * @param {object}   [opts.wind]     from createWind(); read for ear and tail flutter
- * @param {object}   [opts.particles] exposes burst(kind, x, y, z, count, strength)
+ * @param {object}   [opts.particles] exposes burst(kind, x, y, z, count,
+ *                                      strength, crownCount, driftX, driftZ)
  */
 export function createShiba({
   seed = 1337,
@@ -171,6 +201,14 @@ export function createShiba({
   if (!water || typeof water.surfaceAt !== 'function') {
     throw new Error('[shiba] createShiba requires water.surfaceAt(x, z, t) -> y|null');
   }
+  // Only surfaceAt is a contract; impact and setSwimmer are effects. A caller
+  // that honours the documented interface with { surfaceAt } alone used to die
+  // on its first update with "water.setSwimmer is not a function", ON DRY
+  // GROUND — the call is unconditional. Normalising here keeps the dog's
+  // locomotion independent of whether any water is listening.
+  const noop = () => {};
+  const waterImpact = typeof water.impact === 'function' ? water.impact : noop;
+  const waterSetSwimmer = typeof water.setSwimmer === 'function' ? water.setSwimmer : noop;
   if (particles && typeof particles.burst !== 'function') {
     throw new Error('[shiba] particles must expose burst(kind, x, y, z, count, strength)');
   }
@@ -180,6 +218,8 @@ export function createShiba({
   const seaLevelLocal = WORLD.seaLevel;
 
   const rng = streamFor(seed, 'shiba');
+  const shakeRng = streamFor(seed, 'shiba:shake-droplets');
+  const blinkRng = streamFor(seed, 'shiba:blink');
 
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -220,6 +260,10 @@ export function createShiba({
     idleTime: 0,
     gait: 0,           // accumulated stride phase in radians
     swimGait: 0,       // forced paddle cadence, independent of forward speed
+    wetness: 0,        // retained water; filled while wading/swimming
+    shake: 0,          // 0..1 final pose-stack weight, like sitting/swimBlend
+    shakeElapsed: 0,   // local shake clock; also drives the hard failsafe
+    shakeCrossing: 0,  // last emitted sin(s * 34) zero-crossing index
   };
 
   /* ── input ─────────────────────────────────────────────────── */
@@ -253,6 +297,7 @@ export function createShiba({
   const _probe = new THREE.Vector3();
   const _m4 = new THREE.Matrix4();
   const _pawWorld = new THREE.Vector3();
+  const _torsoWorld = new THREE.Vector3();
   const _printQ = new THREE.Quaternion();
   const _printSpin = new THREE.Quaternion();
   const _printS = new THREE.Vector3(1, 1, 1);
@@ -264,6 +309,10 @@ export function createShiba({
   /** Head-up idle beat: he looks up at the falling petals now and then. */
   let lookUpTimer = R.range(rng, 3, 9);
   let lookUp = 0;
+
+  /** Seeded irregular blink, separated from the idle-look random stream. */
+  let blinkTimer = R.range(blinkRng, 2.4, 6.8);
+  let blinkElapsed = -1;
 
   /* ── terrain queries ───────────────────────────────────────── */
 
@@ -326,8 +375,6 @@ export function createShiba({
 
   /* ── animation ─────────────────────────────────────────────── */
 
-  const legPhase = [0, Math.PI, Math.PI, 0]; // FL FR BL BR — a diagonal trot
-
   /**
    * Periodic power stroke: -1 -> +1 takes 34% of the cycle, the return takes
    * the remaining 66%. The 2*x-1 remap turns the brief's 0 -> 1 -> 0 sine arch
@@ -344,51 +391,80 @@ export function createShiba({
 
   function animate(t, dt, speedN) {
     const swim = state.swimBlend;
-    const sit = state.sitting * (1 - swim);
+    const sit = state.sitting;
+    const shake = state.shake;
     const stride = 5.2 + speedN * 7.5;
-    state.gait += dt * stride * (0.25 + speedN);
+    // One integrated land phase feeds every gait output. In particular, never
+    // turn this into sin(t * rate): a changing rate would inject t * dRate/dt.
+    if (shake <= 0) state.gait += dt * stride * (0.25 + speedN);
     // A swimming dog keeps paddling even while the player releases the stick.
     state.swimGait += dt * 10.5;
 
-    const swingAmp = 0.30 + 0.62 * speedN;
-    const bounce = 1 - sit;
+    // The transition bands do not overlap. Defining trot as the remainder makes
+    // the three scalar weights sum to exactly one, including at the endpoints.
+    const trotGate = smoothstep(0.26, 0.42, speedN);
+    const gallopGate = smoothstep(0.64, 0.80, speedN);
+    const walkW = 1 - trotGate;
+    const gallopW = gallopGate;
+    const trotW = 1 - walkW - gallopW;
+    let dominantGait = GAITS.walk;
+    if (trotW > walkW && trotW >= gallopW) dominantGait = GAITS.trot;
+    else if (gallopW > walkW) dominantGait = GAITS.gallop;
 
     for (let i = 0; i < 4; i++) {
       const leg = rig.legs[i];
-      const ph = state.gait + legPhase[i];
-      const s = Math.sin(ph);
-      const lift = Math.max(0, -Math.cos(ph));
-      let landHip, landKnee;
-
-      if (sit > 0.02 && !leg.front) {
-        // Sitting. Sign convention matters more than the magnitudes here: a
-        // positive rotation.x swings a limb BACKWARD and pitches the nose DOWN,
-        // because the model faces +Z. So the femur goes forward-and-down on a
-        // negative angle and the tibia folds back under it on a positive one,
-        // dropping the hock to the ground — which is what a dog actually sits on.
-        landHip = mix(s * swingAmp * bounce, -0.85, sit);
-        landKnee = mix(-lift * swingAmp * 1.35 * bounce, 1.95, sit);
-      } else if (sit > 0.02 && leg.front) {
-        landHip = mix(s * swingAmp * bounce, 0.04, sit);
-        landKnee = mix(-lift * swingAmp * 1.35 * bounce, -0.04, sit);
-      } else {
-        landHip = s * swingAmp;
-        landKnee = -lift * swingAmp * 1.35;
-      }
+      // Blend complete curve OUTPUTS. Blending the phase offsets themselves
+      // makes legs synchronise and de-synchronise through impossible mid-poses.
+      const walkPh = state.gait + GAITS.walk.ph[i];
+      const trotPh = state.gait + GAITS.trot.ph[i];
+      const gallopPh = state.gait + GAITS.gallop.ph[i];
+      const walkSwing = Math.sin(walkPh);
+      const trotSwing = Math.sin(trotPh);
+      const gallopSwing = Math.sin(gallopPh);
+      const walkCos = Math.cos(walkPh);
+      const trotCos = Math.cos(trotPh);
+      const gallopCos = Math.cos(gallopPh);
+      const locomotionHip =
+        walkW * walkSwing * GAITS.walk.amp
+        + trotW * trotSwing * GAITS.trot.amp
+        + gallopW * gallopSwing * GAITS.gallop.amp;
+      const locomotionKnee = -(
+        walkW * Math.max(0, -walkCos) * GAITS.walk.amp * GAITS.walk.knee
+        + trotW * Math.max(0, -trotCos) * GAITS.trot.amp * GAITS.trot.knee
+        + gallopW * Math.max(0, -gallopCos) * GAITS.gallop.amp * GAITS.gallop.knee
+      );
 
       // Dog paddle is a stereotyped diagonal trot. Its range deliberately
       // exceeds the land gait: 1.34 rad in front, 1.34/1.4 behind. Forelimbs
       // provide propulsion and steering; hind limbs mostly stabilise.
-      const paddle = swimStroke(state.swimGait + legPhase[i]);
+      const paddle = swimStroke(state.swimGait + GAITS.trot.ph[i]);
       const swimAmp = leg.front ? 1.34 : 1.34 / 1.4;
       const swimHip = paddle * swimAmp;
       const swimKnee = -0.42 - Math.max(0, -paddle) * (leg.front ? 0.78 : 0.56);
-      leg.hip.rotation.x = mix(landHip, swimHip, swim);
-      leg.knee.rotation.x = mix(landKnee, swimKnee, swim);
+      // Sitting. Sign convention matters more than the magnitudes here: a
+      // positive rotation.x swings a limb BACKWARD and pitches the nose DOWN,
+      // because the model faces +Z. The shake pose is a neutral braced stance.
+      const sitHip = leg.front ? 0.04 : -0.85;
+      const sitKnee = leg.front ? -0.04 : 1.95;
+      let hip = mix(locomotionHip, swimHip, swim);
+      let knee = mix(locomotionKnee, swimKnee, swim);
+      hip = mix(hip, sitHip, sit);
+      knee = mix(knee, sitKnee, sit);
+      leg.hip.rotation.x = mix(hip, 0, shake);
+      leg.knee.rotation.x = mix(knee, 0, shake);
 
-      // A paw plants on the downstroke. Used for footprints; also the moment the
-      // body should take weight, which the bob below is phased against.
-      const down = s < 0 && Math.cos(ph) > 0;
+      // Every ground-reaction consumer keys off one coherent contact curve: the
+      // phase of the gait with the largest visual weight for this frame.
+      let contactSwing = walkSwing;
+      let contactCos = walkCos;
+      if (dominantGait === GAITS.trot) {
+        contactSwing = trotSwing;
+        contactCos = trotCos;
+      } else if (dominantGait === GAITS.gallop) {
+        contactSwing = gallopSwing;
+        contactCos = gallopCos;
+      }
+      const down = contactSwing < 0 && contactCos > 0;
       if (down && !legPlanted[i]) {
         legPlanted[i] = true;
         if (state.moving) {
@@ -403,40 +479,84 @@ export function createShiba({
         }
         if (state.depth > 0.10 && leg.front) {
           leg.paw.getWorldPosition(_pawWorld);
-          water.impact(_pawWorld.x, _pawWorld.z, 0.6 + 0.5 * speedN);
+          waterImpact(_pawWorld.x, _pawWorld.z, 0.6 + 0.5 * speedN);
         }
       } else if (!down) {
         legPlanted[i] = false;
       }
     }
 
-    // Body carriage: bob at twice the stride, roll at once, and pitch up as he
-    // sits so the chest lifts and the front legs straighten under him.
-    const landBodyY = Math.sin(state.gait * 2) * 0.028 * speedN * bounce - 0.20 * sit;
-    const landRoll = Math.sin(state.gait) * 0.055 * speedN * bounce;
-    const landPitch = mix(-0.05 * speedN, -0.30, sit) + (state.airborne ? state.vy * 0.025 : 0);
-    rig.body.position.y = mix(landBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
-    rig.body.rotation.z = mix(landRoll, Math.sin(state.swimGait) * 0.035, swim);
+    // Body carriage: bob at twice the stride, with each gait contributing its
+    // own output amplitude. Gallop also flexes the spine once per stride.
+    const gaitBob =
+      walkW * GAITS.walk.bob
+      + trotW * GAITS.trot.bob
+      + gallopW * GAITS.gallop.bob;
+    const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob;
+    const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
+    const locomotionPitch = -0.05 * speedN
+      + Math.sin(state.gait) * 0.09 * gallopW
+      + (state.airborne ? state.vy * 0.025 : 0);
+    const shakeS = clamp(state.shakeElapsed / SHAKE_DURATION, 0, 1);
+    const shakeEnvelope = Math.sin(Math.PI * shakeS);
+    const shakeWave = Math.sin(shakeS * 34) * shakeEnvelope;
+    const shakeTailWave = Math.sin((shakeS - 0.14) * 34) * shakeEnvelope;
+
+    let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
+    bodyY = mix(bodyY, -0.20, sit);
+    rig.body.position.y = mix(bodyY, 0, shake);
+    let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
+    bodyRoll = mix(bodyRoll, 0, sit);
+    rig.body.rotation.z = mix(bodyRoll, shakeWave * 0.42, shake);
     // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
-    rig.body.rotation.x = mix(landPitch, -0.18, swim);
+    let bodyPitch = mix(locomotionPitch, -0.18, swim);
+    bodyPitch = mix(bodyPitch, -0.30, sit);
+    rig.body.rotation.x = mix(bodyPitch, 0, shake);
+
+    // Emit six airborne droplets at every internal zero-crossing. Particle
+    // grains already fan radially; a seeded drift rotates each successive fan.
+    if (shake > 0 && particles) {
+      const crossed = Math.floor(shakeS * 34 / Math.PI);
+      while (state.shakeCrossing < crossed) {
+        state.shakeCrossing++;
+        rig.body.getWorldPosition(_torsoWorld);
+        const angle = R.range(shakeRng, 0, TAU);
+        particles.burst(
+          PARTICLE_KIND.WATER,
+          _torsoWorld.x,
+          _torsoWorld.y,
+          _torsoWorld.z,
+          SHAKE_DROPLETS,
+          0.95,
+          0,
+          Math.cos(angle) * 0.8,
+          Math.sin(angle) * 0.8
+        );
+      }
+    }
 
     // Head. It leads the turn while moving, scans slowly when idle, and lifts
     // when something drifts past — the scene is full of falling petals and a dog
     // that never looks at them reads as furniture.
     lookUpTimer -= dt;
-    if (lookUpTimer <= 0 && speedN < 0.05) {
+    const gustOnset = !!(wind && wind.state && wind.state.gustOnset);
+    if ((lookUpTimer <= 0 || gustOnset) && speedN < 0.05 && shake < 0.05) {
       lookUp = 1;
       lookUpTimer = R.range(rng, 6, 15);
     }
     lookUp = Math.max(0, lookUp - dt * 0.55);
-    const scan = Math.sin(t * 0.42) * 0.30 * (1 - speedN) * (0.4 + 0.6 * sit);
-    rig.head.rotation.y = scan * (1 - swim);
-    rig.head.rotation.x = mix(
-      mix(-0.06 * speedN, -0.05, sit) - lookUp * 0.62,
-      -0.24,
-      swim
-    );
-    rig.neck.rotation.x = mix(mix(0.0, -0.28, sit), -0.12, swim);
+    const fullScan = Math.sin(t * 0.42) * 0.30 * (1 - speedN);
+    let headYaw = mix(fullScan * 0.4, 0, swim);
+    headYaw = mix(headYaw, fullScan, sit);
+    rig.head.rotation.y = mix(headYaw, 0, shake);
+    let headPitch = mix(-0.06 * speedN - lookUp * 0.62, -0.24, swim);
+    headPitch = mix(headPitch, -0.05 - lookUp * 0.62, sit);
+    rig.head.rotation.x = mix(headPitch, 0, shake);
+    let neckPitch = mix(0, -0.12, swim);
+    neckPitch = mix(neckPitch, -0.28, sit);
+    rig.neck.rotation.x = mix(neckPitch, 0, shake);
+    rig.neck.rotation.z = mix(0, shakeWave * 0.55, shake);
+    rig.head.rotation.z = mix(0, -shakeWave * 0.38, shake);
 
     // Tail. Wag rate tracks excitement, which spikes after a run and decays, so
     // he arrives somewhere still buzzing and settles down a few seconds later.
@@ -445,11 +565,16 @@ export function createShiba({
     // after a run whipped the tail dozens of times too fast.
     const wag = 2.0 + state.excitement * 9.0;
     state.tailPhase += wag * dt;
-    const landTailY = Math.sin(state.tailPhase) * (0.10 + 0.28 * state.excitement);
-    const landTailX = -0.10 * speedN + 0.26 * sit;
+    const locomotionTailY = Math.sin(state.tailPhase) * (0.10 + 0.28 * state.excitement);
+    const locomotionTailX = -0.10 * speedN;
     // Rotate the curled plume onto the surface and sweep it gently as a rudder.
-    rig.tailBase.rotation.y = mix(landTailY, Math.sin(state.swimGait * 0.5) * 0.13, swim);
-    rig.tailBase.rotation.x = mix(landTailX, 0.68, swim);
+    let tailY = mix(locomotionTailY, Math.sin(state.swimGait * 0.5) * 0.13, swim);
+    tailY = mix(tailY, locomotionTailY, sit);
+    rig.tailBase.rotation.y = mix(tailY, 0, shake);
+    let tailX = mix(locomotionTailX, 0.68, swim);
+    tailX = mix(tailX, 0.26, sit);
+    rig.tailBase.rotation.x = mix(tailX, 0, shake);
+    rig.tailBase.rotation.z = mix(0, shakeTailWave * 0.5, shake);
 
     // Ears: laid back at speed, pricked at rest, and flicked by the gusts. The
     // wind is shared with the grass and the petals, so an ear twitch lands on the
@@ -463,6 +588,26 @@ export function createShiba({
       rig.ears[i].rotation.x = mix(landEarX, 0.46, swim);
       rig.ears[i].rotation.z = mix(landEarZ, side * 0.08, swim);
     }
+
+    // A high-excitement pant is continuous and readable without audio. The jaw
+    // closes during the shake so it cannot fight the final pose-stack layer.
+    const pant = smoothstep(0.48, 0.82, state.excitement) * (1 - swim);
+    const jawOpen = pant * (0.14 + 0.06 * (0.5 + 0.5 * Math.sin(t * 6.4)));
+    rig.jaw.rotation.x = mix(jawOpen, 0, shake);
+
+    blinkTimer -= dt;
+    if (blinkTimer <= 0 && blinkElapsed < 0) {
+      blinkElapsed = 0;
+      blinkTimer = R.range(blinkRng, 2.4, 6.8);
+    }
+    let blink = 0;
+    if (blinkElapsed >= 0) {
+      blinkElapsed += dt;
+      const blinkS = clamp(blinkElapsed / BLINK_DURATION, 0, 1);
+      blink = Math.sin(Math.PI * blinkS);
+      if (blinkElapsed >= BLINK_DURATION) blinkElapsed = -1;
+    }
+    for (const lid of rig.lids) lid.rotation.x = mix(-0.32, 0.58, blink);
   }
 
   /* ── footprints ────────────────────────────────────────────── */
@@ -515,6 +660,7 @@ export function createShiba({
       if (held.has('KeyD') || held.has('ArrowRight')) sideIn += 1;
     }
     state.running = held.has('ShiftLeft') || held.has('ShiftRight');
+    const shaking = state.shake > 0;
 
     /* — desired direction, in the camera's frame — */
     if (camera) {
@@ -545,13 +691,21 @@ export function createShiba({
       top *= mix(1, SHIBA.wadeSlow, wadeN);
     }
     const target = wants ? top : 0;
-    const rate = target > state.speed ? SHIBA.accel : SHIBA.brake;
-    state.speed += clamp(target - state.speed, -rate * dt, rate * dt);
+    if (shaking) {
+      // A shake is planted in place. Cancel vertical motion as well so a key
+      // press cannot turn its failsafe into a frozen hop at the waterline.
+      state.speed = 0;
+      state.vy = 0;
+      state.airborne = false;
+    } else {
+      const rate = target > state.speed ? SHIBA.accel : SHIBA.brake;
+      state.speed += clamp(target - state.speed, -rate * dt, rate * dt);
+    }
     if (state.speed < 0.02) state.speed = 0;
     state.moving = state.speed > 0.05;
 
     /* — heading — */
-    if (wants) {
+    if (wants && !shaking) {
       const want = Math.atan2(_wish.x, _wish.z);
       let d = want - state.heading;
       while (d > Math.PI) d -= TAU;
@@ -575,12 +729,13 @@ export function createShiba({
     const s = water.surfaceAt(position.x, position.z, t);
     const depth = s === null ? 0 : Math.max(0, s - ground);
     const wasWading = state.wading;
+    const wasInWater = state.wading || state.swimming;
     state.depth = depth;
     state.wading = depth > 0.04;
     if (state.wading && !wasWading) {
       // Rising edge only: one large entry event, never a per-frame fountain.
       emitSurfaceBurst(position.x, position.z, 12, 1.35, 1, s);
-      water.impact(position.x, position.z, 1.35);
+      waterImpact(position.x, position.z, 1.35);
     }
 
     // The 0.12 u hysteresis absorbs triangle noise at the lose-footing line;
@@ -592,6 +747,36 @@ export function createShiba({
     }
     state.swimBlend += clamp((state.swimming ? 1 : 0) - state.swimBlend, -dt * 3.5, dt * 4.5);
     state.swimBlend = clamp(state.swimBlend, 0, 1);
+
+    const inWater = state.wading || state.swimming;
+    if (inWater) state.wetness = clamp(state.wetness + dt * 0.6, 0, 1);
+
+    // Falling edge only: a slow dog that has retained enough water braces and
+    // shakes once. Faster exits keep their momentum and wait for a later edge.
+    if (!state.shake && wasInWater && !inWater
+      && state.speed < 2 && state.wetness > 0.45) {
+      state.shake = 1;
+      state.shakeElapsed = 0;
+      state.shakeCrossing = 0;
+      state.speed = 0;
+      state.moving = false;
+      state.vy = 0;
+      state.airborne = false;
+    }
+
+    if (state.shake > 0) {
+      state.shakeElapsed += Math.max(0, dt);
+      state.shake = Math.max(0, state.shake - Math.max(0, dt) / SHAKE_DURATION);
+      // Independent of the normal 0.9 s decay: if that weight is ever kept
+      // alive by an edge case, never leave the character permanently frozen.
+      const shakeDone = state.shake <= 0 || state.shakeElapsed >= SHAKE_FAILSAFE;
+      if (shakeDone) {
+        state.shake = 0;
+        state.shakeElapsed = 0;
+        state.shakeCrossing = 0;
+        state.wetness = 0;
+      }
+    }
 
     const targetY = state.swimming ? s - SHIBA.swimFloat : ground;
     let landed = false;
@@ -613,7 +798,7 @@ export function createShiba({
     if (landed) {
       if (s !== null) {
         emitSurfaceBurst(position.x, position.z, 20, 1.7, 2, s);
-        water.impact(position.x, position.z, 1.8);
+        waterImpact(position.x, position.z, 1.8);
       } else {
         emitSurfaceBurst(position.x, position.z, 20, 1.8, 0, null);
       }
@@ -653,7 +838,7 @@ export function createShiba({
     // 0.22 et non 0.08 : le creux de coque doit dominer le clapot de brise, qui
     // culmine deja a 0.098 dans pk_surface. Mesure en jeu avant correction : le
     // sillage etait present mais illisible.
-    water.setSwimmer(position.x, position.z, state.depth > 0.10, 0.22 * state.swimBlend, dt);
+    waterSetSwimmer(position.x, position.z, state.depth > 0.10, 0.22 * state.swimBlend, dt);
     animate(t, dt, speedN);
   }
 
@@ -675,7 +860,10 @@ export function createShiba({
     update,
     dispose,
     jump() {
-      if (!state.airborne && state.sitting < 0.3) { state.vy = 9.5; state.airborne = true; }
+      if (!state.airborne && state.sitting < 0.3 && state.shake <= 0) {
+        state.vy = 9.5;
+        state.airborne = true;
+      }
     },
     /** Suspend the controls without unmounting him — used by the free camera. */
     setEnabled(v) { enabled = !!v; if (!v) held.clear(); },
