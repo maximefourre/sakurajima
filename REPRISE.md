@@ -1552,6 +1552,65 @@ passe d'ombres cesse de payer le feuillage.
 chien et de l'eau arrivés par merge pendant le chantier — plus les deux des
 lucioles). Trois tiers vérifiés visuellement.
 
-Reste : **chantier P (papillons)**, entièrement spécifié, débloqué depuis que
-`details.js` est commité. Il demandera d'exporter les positions de fleurs sur le
-modèle de `lanternSpots`.
+Suite : chantier P ci-dessous.
+
+## Chantier P — papillons diurnes (01/08/2026)
+
+Le versant jour de la même demande. `src/butterflies.js` : deux fonctions pures
+(semis, courbe d'activité) plus un `InstancedMesh` piloté par une machine à états
+CPU — contrairement aux lucioles qui sont en dérive GPU pure, les papillons
+butinent, se posent et fuient, donc ils ont besoin du CPU. N ≤ 136, c'est gratuit.
+
+Deux espèces : *Pieris rapae* / *Papilio xuthus* au printemps, *Vanessa indica*
+(akatateha) remplaçant la blanche à l'automne — elle **hiverne à l'état adulte**,
+d'où sa présence en novembre quand les autres sont à l'état d'œuf.
+
+`INVARIANTS: 19 pass, 0 fail` en `?q=ultra`. Coût dans le bruit : ouverture
+34.0/34.2 → 33.7/34.0, sol 32.4 → 32.5 (trois passes identiques).
+
+### Ce que la mesure a corrigé, encore
+
+- **Le champ de fleurs fait 633 × 637 u.** Mon `homeRadius: 150` mesuré depuis le
+  barycentre global aurait ramené toute la population au centre et vidé la
+  périphérie. Le domaine est devenu **individuel** — 70 u autour de la fleur
+  d'éclosion. C'est aussi le comportement réel : les *Pieris* explorent leur
+  « natal patch ».
+- **Les ailes sont HORIZONTALES, pas verticales.** C'est ce qui permet au
+  battement de faire tourner la NORMALE et donc d'accrocher la lumière
+  différemment à chaque coup. Des ailes verticales tourneraient dans leur propre
+  plan, resteraient éclairées à l'identique, et le scintillement — tout le tell —
+  disparaîtrait.
+- **Corde 0.84 pour 1.0 d'envergure.** Le premier jet à corde 1.0 donnait des
+  losanges deux fois plus profonds que larges : ça lisait comme une pastille.
+- **L'échancrure et la bande de corps.** Sans le creux entre aile antérieure et
+  postérieure, et sans la bande sombre axiale, la paire d'ailes fusionne en un
+  seul lobe symétrique et l'insecte lit comme un pétale.
+
+### Pièges payés
+
+- **Ordre de construction impératif** : les papillons se construisent APRÈS
+  `createDetails`, seul à remplir `flowerSpots` (binding ES vivant, comme
+  `lanternSpots`). Les construire à côté des lucioles, où l'envie est forte,
+  donne zéro papillon sans la moindre erreur.
+- **Chauffe du banc fps** : la première passe après un déplacement de caméra
+  donnait 29.4 contre 32.4 pour les cinq suivantes (σ = 0.08). Les 8 frames de
+  chauffe ne suffisent pas — **la première passe complète EST la chauffe**. Sans
+  ça on croit à un bruit de ±3 fps là où il est de ±0.1.
+
+### Sur la délégation
+
+Codex a **calé** sur le brief de `createButterflies` : quinze minutes, aucune
+écriture, mort en phase d'exploration. Tous les briefs qui ont abouti sur ce
+chantier et le précédent contenaient le code **verbatim** ; le seul qui lui
+demandait de concevoir à partir d'une spec a échoué. Le module a donc été écrit
+par le modèle principal, en dérogation assumée à la convention d'`AGENTS.md`.
+**À retenir pour les prochains chantiers : découper en tâches dont le code est
+déjà écrit, ou ne pas déléguer.**
+
+### Défaut connu, non corrigé
+
+La silhouette **reste asymétrique** en gros plan : une aile se présente pleine,
+l'autre en biseau. L'échancrure et le corps fonctionnent, la lecture « papillon »
+passe à distance de jeu, mais un examen rapproché montre que les deux ailes ne se
+présentent pas identiquement. Piste probable : le roulis
+`sin(flapPhase) * 0.10` composé après le lacet dans l'Euler XYZ. Non investigué.
