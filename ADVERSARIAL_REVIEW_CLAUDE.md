@@ -481,3 +481,54 @@ Next steps:
 que le prolongement du sentier de la plage ajoute des triangles de ruban sur un
 terrain quasi plat : 42 936 triangles couverts, marge exacte 0.0200, élévation
 max 0.2309 pour un plafond de 0.550, 43 lanternes sans orpheline.
+
+---
+
+## ADV-2026-08-01-FIREFLY — chantier L, lucioles
+
+| Champ | Valeur |
+|---|---|
+| Identifiant unique | `ADV-2026-08-01-FIREFLY` |
+| Date de la revue | 01/08/2026 |
+| Plage auditée | `0875879..HEAD`, focus `src/fireflies.js`, bloc `FIREFLIES` de `config.js`, câblage `main.js`, invariants lucioles |
+| Outil | `/codex:adversarial-review --background --base 0875879` |
+| Verdict Codex | **needs-attention** — « no-ship » |
+| Statut global | **À traiter** (0 finding sur 5) |
+| Traité par | Claude — contre-vérification numérique indépendante de 3 claims sur 5 : **les 3 confirmés** |
+| Commit(s) de résolution | — |
+
+### Findings
+
+| Finding | Statut | Vérification |
+|---|---|---|
+| [high] La dérive GPU peut faire passer une luciole SOUS la surface (`src/fireflies.js:230-234`). La garde n'est calculée qu'au semis ; le shader déplace ensuite jusqu'à 2.6 u horizontalement et 0.468 u verticalement sans réévaluer le sol. | **À traiter** | **CONFIRMÉ par calcul** : `driftRadius[1] × driftLift = 2.6 × 0.18 = 0.468`, contre `minHeight = 0.40` → garde minimale **−0.068 u**. L'invariant reste vert parce qu'il ne teste que la position semée. |
+| [medium] La sphère englobante sous-estime l'amplitude réelle de la dérive (`src/fireflies.js:326-331`). | **À traiter** | **CONFIRMÉ par calcul** : borne euclidienne `2.6 × √(1² + 0.82² + 0.18²) = 3.395 u` contre une marge posée de `2.6 + 0.20 = 2.80 u`. Il manque **0.595 u**. |
+| [medium] Le budget absolu contredit l'échelle réelle des bassins (`src/config.js:146-182`) : leurs rayons suivent `LAND_SCALE`, donc l'habitat couvre une aire en `LAND_SCALE²` alors que les comptes restent fixes. | **À traiter** | **CONFIRMÉ par lecture** : `SITES` de `ponds.js` multiplie bien `radius` par `LAND_SCALE`. Ma justification écrite dans `config.js` (« bassins de taille fixe ») est **factuellement fausse**. |
+| [medium] `densityFalloff` encode à la main `-ln(densityFloor)` sans que rien ne garantisse la relation (`src/config.js:272-282`). | **À traiter** | **CONFIRMÉ** : `-ln(0.06) = 2.8134` contre `2.81` codé en dur. Le commentaire documente le couplage ; il ne l'impose pas. |
+| [medium] Les invariants ne testent ni les trois bassins ni le modèle 78/22 (`test/invariants.html`). Une seule luciole autour d'un seul bassin passerait ; `createFireflies` n'est jamais instancié. | **À traiter** | **CONFIRMÉ par lecture** : l'invariant accepte `spots.length > 0`, et aucun des deux ne touche `aFlash`/`aGlow` ni `update()`. |
+
+---
+
+## ADV-2026-08-01-BFLY — chantier P, papillons
+
+| Champ | Valeur |
+|---|---|
+| Identifiant unique | `ADV-2026-08-01-BFLY` |
+| Date de la revue | 01/08/2026 |
+| Plage auditée | `0875879..HEAD`, focus `src/butterflies.js`, bloc `BUTTERFLIES`, export `flowerSpots`, câblage, invariants papillons |
+| Outil | `/codex:adversarial-review --background --base 0875879` |
+| Verdict Codex | **needs-attention** — « no-ship » |
+| Statut global | **À traiter** (0 finding sur 6) |
+| Traité par | Claude — contre-vérification numérique indépendante de 3 claims : **les 3 confirmés**. Module écrit par Claude lui-même après échec de la délégation Codex, et n'ayant jamais eu de second regard. |
+| Commit(s) de résolution | — |
+
+### Findings
+
+| Finding | Statut | Vérification |
+|---|---|---|
+| [high] La machine à états ne butine pas réellement : `pickFlower` tire 8 indices dans la liste GLOBALE de 25 204 fleurs et abandonne. `PERCHED` se pose en outre à 0.06 u du terrain en ignorant la hauteur réelle de la corolle. | **À traiter** | **CONFIRMÉ par calcul** : un disque de 14 u couvre 0.153 % du champ de fleurs → la recherche aboutit dans **1.22 %** des cas. Les papillons ne se posent donc pratiquement **jamais** — c'est-à-dire que la fonctionnalité explicitement choisie par l'utilisateur est non fonctionnelle. |
+| [high] Le pilotage CPU invalide la signature de vol : le lacet `-heading` oriente le +Z local perpendiculairement à la vitesse ; `veerChance` est multiplié par `step × 60` ; le roulis global phase-locké explique l'asymétrie. | **À traiter** | **CONFIRMÉ par calcul** : produit scalaire vitesse·avant = **0.000000 pour tout cap** — les papillons volent exactement de côté. `Math.PI/2 − heading` donne 1.000000. Et `veerChance 0.16` produit **9.6 embardées/s** au lieu de 0.16. |
+| [medium] Le domaine individuel ne borne jamais la position et ne connaît ni terre ni eau ; au-dessus de la mer, `Y` est calculé depuis le fond marin. | **À traiter** | Confirmé par lecture : seule une correction angulaire souple est appliquée, et `FLEE` continue d'intégrer hors domaine. |
+| [medium] La silhouette est tronquée par son quad porteur : le masque reste positif sur ses bords (0.19 au bout d'aile, 0.945 à la queue), donc le rasteriseur coupe droit. | **À traiter** | Confirmé par lecture du shader. Explique le bout d'aile plat, indépendamment de l'asymétrie déjà connue. |
+| [medium] Le binding vivant crée une dépendance d'ordre silencieuse (`src/main.js`) : construire avant `createDetails` donne un mesh valide de compte zéro, sans erreur. | **À traiter** | Confirmé — le commentaire reconnaît le piège mais aucun garde ne le transforme en panne visible. |
+| [medium] Les deux invariants n'exercent jamais le runtime : ni `createButterflies`, ni la machine à états, ni `mesh.visible`. | **À traiter** | Confirmé — c'est ce qui explique que les quatre défauts ci-dessus passent avec `19 pass, 0 fail`. Le signal de validation est **trompeur**. |
