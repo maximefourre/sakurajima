@@ -146,13 +146,23 @@ Trois propriétés, dans l'ordre d'importance :
 Quads additifs orientés caméra, gaussienne radiale dans le fragment. Couleur
 jaune-vert (~560 nm, autour de `0x9dff6a`).
 
-**Surpilotage ×2.8.** La cible de rendu du composer est en half-float et la passe
-de bloom seuille à 0.85 de luminance : une valeur bornée à 1 passe dessous et lit
-comme un point plat au lieu d'une lumière. C'est exactement le raisonnement écrit
-dans `details.js:1531` pour les lanternes — **le halo est ce qui vend la
-lumière**. Le même chiffre n'est pas repris à l'aveugle : 2.6 est calibré pour
-une sphère de 0.185 u, le quad de luciole est plus petit, donc la valeur se
-recalibre à l'œil contre les lanternes dans le même plan.
+**Surpilotage ≈ ×1.6, à recalibrer à l'œil.** La cible de rendu du composer est
+en half-float et la passe de bloom seuille par luminance : une valeur bornée à 1
+qui passe sous le seuil lit comme un point plat au lieu d'une lumière — **le halo
+est ce qui vend la lumière** (`details.js:1531`).
+
+Mais le seuil **n'est pas 0.85** : 0.85 est la valeur passée au constructeur
+(`sky.js:1148`), aussitôt écrasée chaque frame par `K_BLOOM_THRESHOLD`
+(`sky.js:385`), qui descend à **0.42 en pleine nuit** — calibré pour que la lune
+(~2.1 linéaire) et les étoiles les plus vives (~1.3) fassent halo. Le ×2.6 des
+lanternes vise le seuil de crépuscule sur une sphère de 0.185 u ; à 0.42 et sur
+un quad plus petit, ~1.6 suffit et 2.8 cramerait. Chiffre de départ, à trancher
+en A/B contre les lanternes dans le même plan.
+
+**Le tier `low` n'a pas de bloom du tout** (`QUALITY.low.bloom = false`, donc pas
+de composer). Le sprite doit donc porter sa propre décroissance douce —
+`exp(−k·r²)` et non un `smoothstep` à bord franc — pour rester une lumière quand
+le halo n'existe pas.
 
 `depthWrite: false`, `AdditiveBlending`, pas d'ombre, pas de `PointLight` —
 une lumière réelle par insecte tuerait la scène.
