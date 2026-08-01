@@ -147,16 +147,17 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
 ## Vérification type
 
 1. **`test/invariants.html`** (via serve.py) : la console doit finir par
-   `INVARIANTS: 15 pass, 0 fail` — chemin sur terre ferme, far plane, nuages,
+   `INVARIANTS: 16 pass, 0 fail` — chemin sur terre ferme, far plane, nuages,
    étangs carvés, routes hors étangs, la route des torii grimpe à la falaise,
    aucune lanterne orpheline, les trois de la terre battue (dégagée du
    terrain, collée à ≤ 0.55 u, hauteur logique fidèle à la surface visible),
    puis les cinq du chien et de l'eau : flottaison (le dos sort de l'eau),
    pattes posées sur le sol logique, `pondWaterYAt` cohérent et sans route
    mouillée, étangs nageables ET franchissables, bancs d'ondes koi/chien
-   disjoints. **`ponds.attach()` est appelé APRÈS les invariants historiques** :
-   il réécrit `PONDS` avec les valeurs mesurées, ce qui déplacerait les points
-   d'échantillonnage de l'invariant 4.
+   disjoints, plus celui des lucioles. **`ponds.attach()` est appelé TÔT**, juste
+   après l'île, parce que l'habitat des lucioles en a besoin : il réécrit `PONDS`
+   avec les valeurs MESURÉES, donc l'invariant 4 travaille sur des rayons
+   mesurés et non authorés. Vérifié dans les deux ordres.
    **Le tier du bake se choisit par `?q=low|high|ultra`, défaut low.** `heightAt`
    interpole la grille BAKÉE : low (~4.6 u de pas) est le terrain le plus lisse,
    donc le cas le PLUS FACILE. Toute retouche de la géométrie des chemins se
