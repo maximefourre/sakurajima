@@ -711,6 +711,22 @@ const FLOWER_PROFILES = {
 const STONE = 0x9a9691;
 const STONE_DARK = 0x716d69;
 const LANTERN_LIGHT = 0xffc978;
+/** A candle burns warmer and smaller than a stone lantern's fire box. */
+const CANDLE_LIGHT = 0xffb060;
+/**
+ * Offering candles, in the hokora's OWN frame — the single source of truth for
+ * both the wax (makeHokoraGeometry) and the flames (createDetails). The flame
+ * mesh is parented to the shrine, so these local coordinates are all it needs:
+ * no re-deriving the facing tangent, nothing to keep in step by hand.
+ */
+const HOKORA_CANDLES = [
+  { x: -0.285, z: 0.700 },
+  { x:  0.285, z: 0.665 },
+];
+/** Top face of the offering slab, and the wax standing on it. */
+const CANDLE_SLAB_Y = 0.18;
+const CANDLE_HEIGHT = 0.115;
+
 const SHRINE_MOSS = 0x5d6b33;
 const SHRINE_LICHEN = 0xc8c2a2;
 const SHRINE_UV_PER_UNIT = 1.6;
@@ -971,6 +987,16 @@ function makeHokoraGeometry() {
     const rice = new THREE.SphereGeometry(1, 6, 3);
     rice.scale(0.105, 0.060, 0.10);
     part(rice, offering, 0.20, 0.24, 0.74, 0, 0, 'plain');
+  }
+
+  // Offering candles. The wax is built into the shrine; the flames are a
+  // separate additive mesh parented to it (see createDetails) so they can come
+  // up at dusk on the same curve as the lantern fire boxes.
+  for (const c of HOKORA_CANDLES) {
+    part(new THREE.CylinderGeometry(0.026, 0.031, CANDLE_HEIGHT, 6), 0xf2e8d4,
+      c.x, CANDLE_SLAB_Y + CANDLE_HEIGHT * 0.5, c.z, 0, 0, 'plain');
+    part(new THREE.CylinderGeometry(0.005, 0.005, 0.030, 4), TORII_DARK,
+      c.x, CANDLE_SLAB_Y + CANDLE_HEIGHT + 0.014, c.z, 0, 0, 'plain');
   }
 
   // Shimenawa, four bindings and two thick folded-paper shide. All remain
@@ -1314,6 +1340,8 @@ export function createDetails({
 
   let glowMesh = null;
   let lanternCount = 0;
+  /** Offering-candle flames at the cliff hokora, lit on the lantern curve. */
+  let candleGlow = null;
   {
     const rng = streamFor(seed, 'details.lanterns');
     // Generated ONLY along the path network (+ terrace pair). No orphan lamps.
@@ -1697,6 +1725,46 @@ export function createDetails({
           guardians.add(statue);
         }
 
+        // Candle flames, PARENTED to the shrine so they inherit its position
+        // and facing — the local coordinates in HOKORA_CANDLES are the whole
+        // placement. Same additive-black-instance trick as the lantern glows
+        // (vertexColors + a white colour attribute are both mandatory), but
+        // small and much less overdriven: a candle is not a fire box.
+        {
+          // Small. At 0.052 the flames came out the size of the sake cups next
+          // to them and read as glowing eggs rather than as candles; the halo
+          // has to come from the bloom, not from the emitter's own footprint.
+          const flameGeo = new THREE.SphereGeometry(0.019, 8, 6);
+          flameGeo.scale(1, 2.0, 1);
+          const n = flameGeo.attributes.position.count;
+          flameGeo.setAttribute('color',
+            new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+          const flameMat = new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          });
+          disposables.push(flameGeo, flameMat);
+          candleGlow = new THREE.InstancedMesh(flameGeo, flameMat, HOKORA_CANDLES.length);
+          candleGlow.name = 'hokora-candle-flames';
+          candleGlow.renderOrder = 3;
+          candleGlow.frustumCulled = false;
+          const _cm = new THREE.Matrix4();
+          const _cp = new THREE.Vector3();
+          const _cq = new THREE.Quaternion();
+          const _cs = new THREE.Vector3(1, 1, 1);
+          HOKORA_CANDLES.forEach((c, i) => {
+            _cm.compose(
+              _cp.set(c.x, CANDLE_SLAB_Y + CANDLE_HEIGHT + 0.042, c.z), _cq, _cs);
+            candleGlow.setMatrixAt(i, _cm);
+            candleGlow.setColorAt(i, _glowCol.setRGB(0, 0, 0));
+          });
+          candleGlow.instanceMatrix.needsUpdate = true;
+          candleGlow.instanceColor.needsUpdate = true;
+          hokora.add(candleGlow);
+        }
+
         group.add(hokora, guardians);
       }
     }
@@ -1755,31 +1823,50 @@ export function createDetails({
    * Only the lanterns do: their fire boxes come up at dusk and go out at dawn.
    */
   function update(t, phase) {
-    if (!phase || !glowMesh) return;
+    if (!phase) return;
     // Lit through the night and through both twilights.
     const lit = clamp(phase.night + phase.twilight * 0.75, 0, 1);
-    glowMesh.visible = lit > 0.01;
-    if (!glowMesh.visible) return;
 
-    glowMesh.material.opacity = 1;
-    for (let i = 0; i < lanternCount; i++) {
-      // Stagger the flicker per lantern, or six lamps read as one lamp seen six
-      // times. The phase offset is the index, so it costs nothing to keep.
-      const f = 0.80 + 0.20 * Math.sin(t * 2.9 + i * 2.1 + Math.cos(t * 1.3 + i) * 1.6);
-      // Deliberately over 1. The composer's render target is half-float, and the
-      // bloom pass thresholds at 0.85 luminance — a glow clamped to 1 sits under
-      // that and reads as a flat lit slab seen through the frame rather than as
-      // a light. Overdriving it is what buys the halo.
-      const v = clamp(lit, 0, 1) * f * 2.6;
-      glowMesh.setColorAt(i, _glowCol.setHex(LANTERN_LIGHT).multiplyScalar(v));
+    if (glowMesh) {
+      glowMesh.visible = lit > 0.01;
+      if (glowMesh.visible) {
+        glowMesh.material.opacity = 1;
+        for (let i = 0; i < lanternCount; i++) {
+          // Stagger the flicker per lantern, or six lamps read as one lamp seen
+          // six times. The phase offset is the index, so it costs nothing to keep.
+          const f = 0.80 + 0.20 * Math.sin(t * 2.9 + i * 2.1 + Math.cos(t * 1.3 + i) * 1.6);
+          // Deliberately over 1. The composer's render target is half-float, and
+          // the bloom pass thresholds at 0.85 luminance — a glow clamped to 1 sits
+          // under that and reads as a flat lit slab seen through the frame rather
+          // than as a light. Overdriving it is what buys the halo.
+          const v = clamp(lit, 0, 1) * f * 2.6;
+          glowMesh.setColorAt(i, _glowCol.setHex(LANTERN_LIGHT).multiplyScalar(v));
+        }
+        glowMesh.instanceColor.needsUpdate = true;
+      }
     }
-    glowMesh.instanceColor.needsUpdate = true;
+
+    // The offering candles come up on the SAME curve as the fire boxes, but
+    // they flicker faster and shallower and are overdriven far less: a candle
+    // that halos like a kasuga-doro stops reading as a candle.
+    if (candleGlow) {
+      candleGlow.visible = lit > 0.01;
+      if (candleGlow.visible) {
+        for (let i = 0; i < HOKORA_CANDLES.length; i++) {
+          const f = 0.68 + 0.32 * Math.sin(t * 5.7 + i * 3.4 + Math.cos(t * 2.6 + i * 1.7) * 2.2);
+          const v = lit * f * 1.55;
+          candleGlow.setColorAt(i, _glowCol.setHex(CANDLE_LIGHT).multiplyScalar(v));
+        }
+        candleGlow.instanceColor.needsUpdate = true;
+      }
+    }
   }
 
   function dispose() {
     for (const d of disposables) d.dispose?.();
     for (const m of flowerMeshes) m.dispose?.();
     glowMesh?.dispose?.();
+    candleGlow?.dispose?.();
   }
 
   return { group, update, dispose };

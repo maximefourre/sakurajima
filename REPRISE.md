@@ -1071,3 +1071,24 @@ personnage, pas seulement de face. Les défauts d'assise ne se voient que d'en b
 Tentative intermédiaire écartée : remonter TOUTE la bouche sur le museau
 dégageait bien le bavoir, mais exposait la cavité sombre en pleine face. C'est
 le bavoir qu'il fallait descendre, pas la bouche qu'il fallait monter.
+
+### Suite : bougies d'offrande allumées la nuit (même jour, demande utilisateur)
+
+Deux bougies sur la dalle d'offrandes, allumées sur la MÊME courbe que les
+lanternes (`phase.night + phase.twilight * 0.75`) : éteintes à midi, allumées
+de ~0.80 (crépuscule) à ~0.25 (aube), vérifié par balayage de `dayTime`.
+
+- `HOKORA_CANDLES` (repère local du hokora) est la source de vérité unique : la
+  cire est bâtie dans `makeHokoraGeometry`, les flammes sont un `InstancedMesh`
+  additif **parenté au mesh du sanctuaire** — il hérite position et orientation,
+  donc aucune reprise de la tangente du chemin, rien à tenir en phase à la main.
+- Flamme : sphère r 0.019 étirée ×2 en Y. Le premier essai à 0.052 sortait des
+  flammes **de la taille des coupes à saké** — des œufs lumineux, pas des
+  bougies. Le halo doit venir du bloom, pas de l'empreinte de l'émetteur.
+- Vacillement plus rapide et moins profond que les lanternes, et surtension 1.55
+  contre 2.6 : une bougie qui halote comme un kasuga-doro cesse d'être une bougie.
+- `update()` a été restructuré : il sortait en `return` anticipé quand les
+  lanternes n'étaient pas allumées, ce qui aurait aussi coupé les bougies. Les
+  deux blocs sont maintenant indépendants sous la même valeur `lit`.
+
+Invariants 10/10 en `?q=ultra`.
