@@ -143,6 +143,7 @@ export const QUALITY = {
     trees: Math.round(56 * AREA_SOFT),
     uniqueTrees: 10,
     rocks: Math.round(35 * AREA_SOFT),
+    fireflies: 160,
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -157,6 +158,7 @@ export const QUALITY = {
     trees: Math.round(190 * AREA_SOFT),
     uniqueTrees: 18,
     rocks: Math.round(74 * AREA_SOFT),
+    fireflies: 420,
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -175,6 +177,7 @@ export const QUALITY = {
     trees: Math.round(330 * AREA_SOFT),
     uniqueTrees: 28,
     rocks: Math.round(110 * AREA_SOFT),
+    fireflies: 800,
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -237,3 +240,65 @@ export const CAMERA = {
   maxDistance: 620 * LAND_SCALE,
   maxPolar: Math.PI * 0.495, // stop just above the horizon so you can't go under the island
 };
+
+/**
+ * Lucioles — hotaru.
+ *
+ * BUDGET EN ABSOLU, PAS EN AREA_SOFT, ET C'EST VOULU. La doctrine de ce fichier
+ * veut que les scatters coûteux suivent AREA_SOFT parce qu'ils couvrent une
+ * SURFACE. Les lucioles, non : elles sont ancrées sur trois bassins de taille
+ * fixe. Les faire croître avec l'île les diluerait sans rien ajouter au cadrage.
+ *
+ * Le clignotement est SYNCHRONISÉ PAR BASSIN, ce qui est à la fois le
+ * comportement réel des genji-botaru et le plus beau des trois choix possibles :
+ * tout synchroniser fait pulser l'île d'un bloc, tout randomiser fait du bruit.
+ */
+export const FIREFLIES = Object.freeze({
+  // Rayon d'habitat, en multiples du rayon MESURÉ du bassin (32.5 / 19.3 / 13.6
+  // après ponds.attach(), soit des habitats de 78 / 46 / 33 unités).
+  habitatK: 2.4,
+
+  // Champ de densité : exp(-densityFalloff * (r/habitat)^2), coupé au plancher.
+  //
+  // LES DEUX CONSTANTES SONT LIÉES, NE PAS EN BOUGER UNE SEULE :
+  //   densityFalloff = -ln(densityFloor)
+  // Avec un exp(-u^2) nu, la densité vaut encore 0.368 au rayon d'habitat, où le
+  // placement coupe net : la population serait TRANCHÉE à 37 % de densité et
+  // dessinerait un cercle visible autour de chaque étang. En calant la
+  // décroissance pour qu'elle atteigne le plancher exactement à la coupure, les
+  // deux mécanismes disent la même chose au lieu de se contredire.
+  densityFloor: 0.06,
+  densityFalloff: 2.81,   // = -ln(0.06)
+
+  minHeight: 0.4,        // au-dessus de la surface locale (sol OU plan d'eau)
+  maxHeight: 2.2,        // une hotaru traîne, elle ne monte pas
+
+  perchedFraction: 0.25, // posées dans l'herbe, immobiles, clignotant sur place
+
+  driftRadius: [0.5, 2.6],   // amplitude de dérive, unités monde
+  driftRate:   [0.10, 0.32], // rad/s ; lent — c'est un vol traînant
+  driftLift:   0.18,         // part verticale de la dérive : quasi horizontale
+
+  // 2 s = le rythme de l'OUEST du Japon. L'est bat à 4 s ; 2 s est plus vivant.
+  flashPeriod: 2.0,
+  flashJitter: 0.25,     // écart individuel autour de la phase du bassin, en secondes
+  flashRise: 0.04,       // fraction du cycle : 80 ms à 2 s. Un éclair, pas un sinus.
+  flashDecay: 6.0,       // décroissance exponentielle, en unités de cycle
+
+  size: [0.13, 0.20],    // demi-côté du quad, unités monde
+
+  color: 0x9dff6a,       // jaune-vert, ~560 nm
+
+  // Surtension pour passer le seuil de bloom. ATTENTION : le seuil n'est PAS le
+  // 0.85 du constructeur — K_BLOOM_THRESHOLD (sky.js) l'écrase chaque frame et
+  // vaut 0.42 en pleine nuit. Étalons de la scène : fire box de lanterne 2.6
+  // (sphère r 0.185), flamme de bougie du hokora 1.55 (r 0.019). Une luciole
+  // doit sortir entre 1.5 et 1.8.
+  overdrive: 1.6,
+
+  // Pic d'activité après le crépuscule, en `phase.solar` : les vraies culminent
+  // dans les deux heures qui suivent le coucher, pas toute la nuit à plat.
+  peakSolar: 0.82,
+  peakWidth: 0.16,
+  peakFloor: 0.45,       // activité résiduelle au cœur de la nuit
+});
