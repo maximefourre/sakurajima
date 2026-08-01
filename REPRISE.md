@@ -1339,3 +1339,115 @@ de dissolution, attrapé avant capture.
 deux, c'est le paramètre qui est le mauvais — pas sa valeur. Même forme que la
 leçon de la rivière (« c'est l'axiome commun qui est faux ») et que celle des
 ondes (« un garde-fou de coût n'est pas une durée de vie »).
+## Chantier F — autel enrichi : texture et mobilier de culte (01/08/2026, Codex sol)
+
+Demande utilisateur : « plus de détails et de texture à l'autel ». Deux passes
+Codex (effort high) + réglage final par Claude en navigateur. `src/details.js`
+uniquement.
+
+- **Texture** : `makeGrainBump` (jusque-là réservé au terrain) appliqué à
+  `shrineMat`. Débloqué en remplaçant le `deleteAttribute('uv')` des helpers
+  `part()` par une projection planaire à l'échelle du monde (`applyShrineSurface`,
+  plan choisi sur la normale dominante, 1.6 UV/u).
+- **Patine par PIXEL** (`onBeforeCompile`, idiome de `pathMat`) : bruit de valeur
+  3D sur la position locale → variation de valeur, mousse en taches + coulures
+  sous l'avant-toit, lichen en haut et sur le toit. Attribut `aPatina`
+  (1 pierre / 0.5 toit / 0 exclu : ouverture, vermillon, paille, offrandes).
+- **Mobilier** : socle de pierres à jupe enterrée, dalle d'offrandes, deux coupes
+  et un bol, shimenawa + ligatures + shide en zigzag, rive de tuiles à
+  l'avant-toit, embouts de faîtage, kegyo. Hokora 117 → 863 tris.
+- **Komainu a-un** : deux géométries distinctes (429 / 421 tris). Gauche gueule
+  OUVERTE (cavité en retrait entre chops et mâchoire) + boule ; droite gueule
+  fermée + chiot.
+
+### Trois pièges payés, à ne pas re-payer
+
+1. **Une couleur par SOMMET ne peut pas peindre une patine sur des `BoxGeometry`.**
+   Un bloc a 8 sommets : sur une face de 1.1 × 1.2 u on n'obtient qu'un dégradé à
+   quatre coins, jamais une tache. La première passe a livré une patine par sommet
+   invisible. La réponse n'est pas de tesseller, c'est le fragment shader.
+2. **`bumpScale: 0.20` ne produit RIEN sur cette pierre** ; il a fallu 0.85.
+   Diagnostic éclair quand un bump semble mort : l'afficher en `material.map` —
+   si le grain apparaît net, les UV sont bonnes et le problème est l'amplitude.
+3. **La mousse doit DARKENER, pas seulement teinter.** `0x5d6b33` et `0x9a9691`
+   sont voisins une fois en linéaire ; sans le `*= mix(1.0, 0.84, w)` la patine
+   disparaît dans l'ACES. Et `patch` est un **mot réservé GLSL ES 3.00** — le
+   shader ne compile pas et l'objet disparaît sans autre symptôme.
+
+Pose : la surface visible de la terrasse est à **y = 0.083** dans le repère local
+du hokora (mesuré au raycast sur `overlook-terrace`) — la première passe avait
+supposé 0.04 et enterrait la dalle d'offrandes. Ancrages `heightAt + 0.10 / + 0.11`
+inchangés.
+
+Vérifications : `node --check`, `INVARIANTS: 10 pass, 0 fail` en `?q=ultra`
+(Chrome réel), visuel midi et nuit à 3 u en `?q=high`. Deux jobs Codex fantômes
+(un doublon de relance, un zombie à 9 h d'« elapsed » journal figé) ont dû être
+annulés à la main ; le fichier avait bien été écrit dans les deux cas.
+
+### Suite : toit décollé (même jour, retour utilisateur)
+
+Deux choses dans le même retour, à ne pas confondre.
+
+1. **« Aucune diff »** : la capture venait du port **5174**, servi par le worktree
+   `.claude/worktrees/shiba-eau-sol` d'une session parallèle, dont `details.js`
+   n'a pas une ligne du chantier F. Le chantier est sur **5173**. Réflexe à
+   garder quand deux sessions tournent : `lsof -nP -iTCP -sTCP:LISTEN` puis
+   `lsof -a -p <pid> -d cwd` — le port ne dit pas quel arbre il sert.
+2. **Le toit décollait pour de vrai**, sur les deux ports, et seulement en vue
+   BASSE (l'angle du joueur derrière le shiba ; les vérifications précédentes
+   avaient toutes été faites de face, à hauteur d'homme). Trois causes :
+   auvent de 1.28 de profondeur sur un corps de 0.84 — 0.22 de vide ombré de
+   chaque côté ; **pignon arrière absent**, donc on voyait à travers ; rive de
+   toit plus longue que la pente, dépassant comme une perche.
+
+Correctif : corniche `1.24 × 0.11 × 0.98` à y = 1.635 dont le toit prend appui,
+pignon arrière (winding inversé, face vers -Z), profondeur d'auvent 1.28 → 1.06,
+toit descendu de 1.82 → 1.775, rive raccourcie 0.92 → 0.86 et rentrée sous la
+ligne d'égout. 863 → 876 tris. Invariants 10/10, revérifié en vue basse des deux
+côtés.
+
+**Leçon de méthode** : un objet posé au sol se juge à la hauteur d'œil du
+personnage, pas seulement de face. Les défauts d'assise ne se voient que d'en bas.
+
+### Suite : lichen en auréoles et bavoir traversé (même jour, retour utilisateur)
+
+- **« Des taches bizarres sur le toit »** — le lichen était mixé à **0.55** vers
+  un ton pâle (`0xc8c2a2`) sur une toiture `STONE_DARK`, en plages larges
+  (bruit à 4.35). Sur une surface sombre, un mix pâle fort ne lit pas comme du
+  lichen mais comme une auréole. Réglé en **mouchetis rare** : bruit 7.20, seuil
+  0.70-0.86, poids 0.24 (et 0.75 de zone sur le toit). Règle générale : plus le
+  support est sombre, plus la patine claire doit être FINE et FAIBLE.
+- **« Le tissu triangle rouge est buggé »** — le bavoir était **un seul triangle
+  sans épaisseur**, et la mâchoire ouverte du gardien 'a' (sphère y 0.41-0.59)
+  le traversait de part en part : vu de biais, un éclat rouge sans volume.
+  Deux corrections : bavoir refait en **coin SOLIDE** (2 faces + 3 rives, 8 tris)
+  et descendu sous le collier (y 0.525-0.305) ; mâchoire remontée et affinée
+  (y 0.535-0.635) pour dégager la poitrine sans refermer la gueule.
+- Au passage : la cavité de la gueule passe de `TORII_DARK` (0x30261e) à
+  `0x4a4039`. En quasi-noir elle fusionnait avec l'ombre sous les babines en une
+  seule masse plate — la bouche lisait comme un trou, pas comme une gueule.
+
+Tentative intermédiaire écartée : remonter TOUTE la bouche sur le museau
+dégageait bien le bavoir, mais exposait la cavité sombre en pleine face. C'est
+le bavoir qu'il fallait descendre, pas la bouche qu'il fallait monter.
+
+### Suite : bougies d'offrande allumées la nuit (même jour, demande utilisateur)
+
+Deux bougies sur la dalle d'offrandes, allumées sur la MÊME courbe que les
+lanternes (`phase.night + phase.twilight * 0.75`) : éteintes à midi, allumées
+de ~0.80 (crépuscule) à ~0.25 (aube), vérifié par balayage de `dayTime`.
+
+- `HOKORA_CANDLES` (repère local du hokora) est la source de vérité unique : la
+  cire est bâtie dans `makeHokoraGeometry`, les flammes sont un `InstancedMesh`
+  additif **parenté au mesh du sanctuaire** — il hérite position et orientation,
+  donc aucune reprise de la tangente du chemin, rien à tenir en phase à la main.
+- Flamme : sphère r 0.019 étirée ×2 en Y. Le premier essai à 0.052 sortait des
+  flammes **de la taille des coupes à saké** — des œufs lumineux, pas des
+  bougies. Le halo doit venir du bloom, pas de l'empreinte de l'émetteur.
+- Vacillement plus rapide et moins profond que les lanternes, et surtension 1.55
+  contre 2.6 : une bougie qui halote comme un kasuga-doro cesse d'être une bougie.
+- `update()` a été restructuré : il sortait en `return` anticipé quand les
+  lanternes n'étaient pas allumées, ce qui aurait aussi coupé les bougies. Les
+  deux blocs sont maintenant indépendants sous la même valeur `lit`.
+
+Invariants 10/10 en `?q=ultra`.
