@@ -1049,3 +1049,25 @@ côtés.
 
 **Leçon de méthode** : un objet posé au sol se juge à la hauteur d'œil du
 personnage, pas seulement de face. Les défauts d'assise ne se voient que d'en bas.
+
+### Suite : lichen en auréoles et bavoir traversé (même jour, retour utilisateur)
+
+- **« Des taches bizarres sur le toit »** — le lichen était mixé à **0.55** vers
+  un ton pâle (`0xc8c2a2`) sur une toiture `STONE_DARK`, en plages larges
+  (bruit à 4.35). Sur une surface sombre, un mix pâle fort ne lit pas comme du
+  lichen mais comme une auréole. Réglé en **mouchetis rare** : bruit 7.20, seuil
+  0.70-0.86, poids 0.24 (et 0.75 de zone sur le toit). Règle générale : plus le
+  support est sombre, plus la patine claire doit être FINE et FAIBLE.
+- **« Le tissu triangle rouge est buggé »** — le bavoir était **un seul triangle
+  sans épaisseur**, et la mâchoire ouverte du gardien 'a' (sphère y 0.41-0.59)
+  le traversait de part en part : vu de biais, un éclat rouge sans volume.
+  Deux corrections : bavoir refait en **coin SOLIDE** (2 faces + 3 rives, 8 tris)
+  et descendu sous le collier (y 0.525-0.305) ; mâchoire remontée et affinée
+  (y 0.535-0.635) pour dégager la poitrine sans refermer la gueule.
+- Au passage : la cavité de la gueule passe de `TORII_DARK` (0x30261e) à
+  `0x4a4039`. En quasi-noir elle fusionnait avec l'ombre sous les babines en une
+  seule masse plate — la bouche lisait comme un trou, pas comme une gueule.
+
+Tentative intermédiaire écartée : remonter TOUTE la bouche sur le museau
+dégageait bien le bavoir, mais exposait la cavité sombre en pleine face. C'est
+le bavoir qu'il fallait descendre, pas la bouche qu'il fallait monter.

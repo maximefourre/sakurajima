@@ -1071,10 +1071,15 @@ function makeCanineGuardianGeometry(variant) {
     0, variant === 'a' ? 0.72 : 0.68, 0.385);
 
   if (variant === 'a') {
+    // The jaw is tucked up under the chops rather than hung on the chest: at
+    // its old height it ran clean through the bib. Raising it here and dropping
+    // the bib below the collar keeps both readable without closing the mouth.
     part(new THREE.SphereGeometry(1, 7, 4), STONE,
-      0, 0.50, 0.225, 0.14, 0.09, 0.14, -0.10);
-    part(new THREE.SphereGeometry(1, 8, 5), TORII_DARK,
-      0, 0.635, 0.342, 0.115, 0.060, 0.012, 0, 0, 'plain');
+      0, 0.585, 0.235, 0.135, 0.050, 0.130, -0.10);
+    // Warm dark grey, not the torii's near-black: at 0x30261e the cavity fused
+    // with the shadow under the chops into one flat black mass on the muzzle.
+    part(new THREE.SphereGeometry(1, 8, 5), 0x4a4039,
+      0, 0.645, 0.340, 0.100, 0.045, 0.012, 0, 0, 'plain');
   }
 
   // Tall ears and compact forepaws make the dog/fox silhouette legible from
@@ -1094,15 +1099,28 @@ function makeCanineGuardianGeometry(variant) {
   part(new THREE.TorusGeometry(0.205, 0.032, 5, 10), VERMILION,
     0, 0.58, 0.04, 1, 1, 1, Math.PI * 0.5, 0, 'plain');
 
+  // A SOLID wedge, not a single triangle. One-sided and infinitely thin, it
+  // vanished edge-on and showed as a red shard wherever the muzzle crossed it.
   {
+    const yTop = 0.525, yTip = 0.305, zTop = 0.295, zTip = 0.325, t = 0.024;
     const bib = new THREE.BufferGeometry();
     bib.setAttribute('position', new THREE.Float32BufferAttribute([
-      -0.16, 0.57, 0.285,
-       0.16, 0.57, 0.285,
-       0.00, 0.35, 0.315,
+      -0.16, yTop, zTop,
+       0.16, yTop, zTop,
+       0.00, yTip, zTip,
+      -0.16, yTop, zTop - t,
+       0.16, yTop, zTop - t,
+       0.00, yTip, zTip - t,
     ], 3));
-    // Front face toward local +Z, matching the gable and the approach view.
-    bib.setIndex([0, 2, 1]);
+    // Front face toward local +Z, matching the gable and the approach view;
+    // the back face and three rims close the volume.
+    bib.setIndex([
+      0, 2, 1,
+      3, 4, 5,
+      0, 1, 4, 0, 4, 3,
+      1, 2, 5, 1, 5, 4,
+      2, 0, 3, 2, 3, 5,
+    ]);
     bib.computeVertexNormals();
     part(bib, VERMILION, 0, 0, 0, 1, 1, 1, 0, 0, 'plain');
   }
@@ -1634,11 +1652,14 @@ export function createDetails({
               // moss and this stone are close neighbours once in linear space.
               diffuseColor.rgb *= mix(1.0, 0.84, mossWeight);
 
-              float lichenNoise = shrineNoise3(vShrineLocal * 4.35 + vec3(6.8, 1.3, 11.2));
-              float lichenPatch = smoothstep(0.58, 0.76, lichenNoise);
-              float lichenZone = max(roofPatina,
+              // Fine and RARE. A pale lichen mixed hard onto a dark roof does
+              // not read as lichen, it reads as stains — 0.55 at this scale was
+              // reported as exactly that. Speckle, not blotches.
+              float lichenNoise = shrineNoise3(vShrineLocal * 7.20 + vec3(6.8, 1.3, 11.2));
+              float lichenPatch = smoothstep(0.70, 0.86, lichenNoise);
+              float lichenZone = max(roofPatina * 0.75,
                 stonePatina * smoothstep(1.28, 1.58, vShrineLocal.y));
-              float lichenWeight = patinaOn * lichenZone * lichenPatch * 0.55;
+              float lichenWeight = patinaOn * lichenZone * lichenPatch * 0.24;
               diffuseColor.rgb = mix(diffuseColor.rgb,
                 vec3(${shrineLichen.r.toFixed(7)}, ${shrineLichen.g.toFixed(7)}, ${shrineLichen.b.toFixed(7)}), lichenWeight);
             }`
