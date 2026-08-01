@@ -43,8 +43,8 @@ import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { SHIBA_BUILD } from '../src/shiba-geom.js';
-import { computeFireflySpots, fireflyActivity } from '../src/fireflies.js';
-import { computeButterflySpawns, butterflyActivity } from '../src/butterflies.js';
+import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
+import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -432,8 +432,20 @@ check('bancs d’ondes disjoints',
       detail = `individu à (${s.x.toFixed(0)},${s.z.toFixed(0)}) attribué au bassin ${s.pond}, plus proche du ${best}`;
       break;
     }
-    // 3. au-dessus de la surface, jamais dedans
-    const surf = ponds.isInPond(s.x, s.z) ? p.waterY : island.heightAt(s.x, s.z);
+    // 3. au-dessus de la surface, jamais dedans.
+    //
+    // La surface de reference est celle de TOUTE L'ENVELOPPE DE DERIVE, pas
+    // celle du point seme : depuis ADV-2026-08-01-FIREFLY le placement prend le
+    // point le plus HAUT que l'individu survolera, sinon une berge en pente le
+    // faisait passer sous terre en cours de derive. Mesurer ici au centre
+    // faisait echouer l'invariant sur sa propre hypothese perimee.
+    const R_ENV = FIREFLIES.driftRadius[1];
+    let surf = island.heightAt(s.x, s.z);
+    for (let a = 0; a < 8; a++) {
+      const th = (a / 8) * Math.PI * 2;
+      surf = Math.max(surf, island.heightAt(s.x + Math.cos(th) * R_ENV, s.z + Math.sin(th) * R_ENV));
+    }
+    if (ponds.isInPond(s.x, s.z)) surf = Math.max(surf, p.waterY);
     const clearance = s.y - surf;
     if (!(clearance >= FIREFLIES.minHeight - 1e-3 && clearance <= FIREFLIES.maxHeight + 1e-3)) {
       ok = false;
@@ -519,6 +531,150 @@ check('bancs d’ondes disjoints',
   check('les papillons dorment la nuit',
     night === 0 && noon > 0 && dusk > 0 && dusk < noon,
     `midi ${noon.toFixed(3)} · nuit ${night.toFixed(3)} · crepuscule ${dusk.toFixed(3)}`);
+}
+
+
+/* ── 20. lucioles : le RUNTIME, pas seulement le semis ────────────────────
+ * ADV-2026-08-01-FIREFLY : les deux invariants precedents acceptaient toute
+ * population non vide et n'instanciaient jamais createFireflies. loneFraction a
+ * 0 ou 1, des periodes redevenues globales ou des attributs degeneres seraient
+ * tous restes verts. Celui-ci construit le vrai systeme et l'interroge.
+ */
+{
+  const ff = createFireflies({
+    seed: SEED, quality: QUALITY[TIER],
+    heightAt: island.heightAt, ponds: ponds.PONDS, isInPond: ponds.isInPond,
+  });
+  const g = ff.mesh.geometry;
+  const n = g.instanceCount;
+  const attendu = QUALITY[TIER].fireflies;
+  const fl = g.getAttribute('aFlash'), gw = g.getAttribute('aGlow');
+
+  const ratages = [];
+  if (n !== attendu) ratages.push(`compte ${n} au lieu de ${attendu}`);
+  if (!fl || fl.itemSize !== 3) ratages.push('aFlash absent ou pas vec3 (periode par instance perdue)');
+  if (!gw || gw.itemSize !== 2) ratages.push('aGlow absent (eclat par instance perdu)');
+
+  let solitaires = 0, bMin = Infinity, bMax = -Infinity, dMin = Infinity, dMax = -Infinity;
+  const periodes = new Set();
+  if (fl && gw) {
+    for (let i = 0; i < n; i++) {
+      const per = fl.array[i * 3 + 2];
+      periodes.add(+per.toFixed(3));
+      if (Math.abs(per - FIREFLIES.flashPeriod) > 1e-6) solitaires++;
+      const b = gw.array[i * 2], d = gw.array[i * 2 + 1];
+      bMin = Math.min(bMin, b); bMax = Math.max(bMax, b);
+      dMin = Math.min(dMin, d); dMax = Math.max(dMax, d);
+    }
+    const partSolo = solitaires / Math.max(n, 1);
+    // Le modele est un CHOEUR plus une minorite. Ni l'un ni l'autre ne doit
+    // disparaitre : 0 % rend l'ile metronomique, 100 % dissout la synchronie.
+    if (!(partSolo > 0.10 && partSolo < 0.36)) ratages.push(`solitaires ${(partSolo*100).toFixed(0)} % hors [10, 36]`);
+    if (periodes.size < 10) ratages.push(`seulement ${periodes.size} periodes distinctes`);
+    if (!(bMax - bMin > 0.4)) ratages.push(`eclat trop uniforme (${bMin.toFixed(2)}..${bMax.toFixed(2)})`);
+    if (!(dMax - dMin > 0.4)) ratages.push(`duree de flash trop uniforme (${dMin.toFixed(2)}..${dMax.toFixed(2)})`);
+  }
+
+  // Le gate, sur le VRAI update() et non sur la courbe seule.
+  ff.update(1, { day: 1, night: 0, twilight: 0, solar: 0.5 });
+  if (ff.mesh.visible) ratages.push('visibles a midi');
+  ff.update(1, { day: 0, night: 1, twilight: 0, solar: 0.82 });
+  if (!ff.mesh.visible) ratages.push('invisibles en pleine nuit');
+
+  // Les trois bassins doivent etre peuples.
+  const spots = computeFireflySpots({ ponds: ponds.PONDS, heightAt: island.heightAt,
+    isInPond: ponds.isInPond, count: attendu, seed: SEED });
+  const parBassin = [0, 0, 0];
+  for (const s of spots) parBassin[s.pond]++;
+  if (parBassin.some((v) => v === 0)) ratages.push(`bassin vide : ${parBassin.join('/')}`);
+
+  ff.dispose();
+  check('lucioles : runtime, choeur et solitaires', ratages.length === 0,
+    ratages.length ? ratages.join(' ; ')
+      : `${n} instances, ${parBassin.join('/')} par bassin, ${(solitaires/n*100).toFixed(0)} % solitaires, `
+        + `${periodes.size} periodes, eclat ${bMin.toFixed(2)}-${bMax.toFixed(2)}`);
+}
+
+/* ── 21. papillons : le RUNTIME, cap, butinage et sol ─────────────────────
+ * ADV-2026-08-01-BFLY : les deux invariants precedents n'appelaient que des
+ * fonctions pures. Le vol de cote, le butinage a 1.22 % de reussite et le taux
+ * d'embardee 60x trop grand sont TOUS passes avec 19 pass, 0 fail. Celui-ci
+ * fait tourner la machine a etats et regarde ce qu'elle produit.
+ */
+{
+  const bf = createButterflies({
+    seed: SEED, quality: QUALITY[TIER], season: 'spring',
+    heightAt: island.heightAt, flowerSpots,
+  });
+  const m = bf.mesh;
+  const jour = { day: 1, night: 0, twilight: 0 };
+  const ratages = [];
+  const _M = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+  const avant = [], apres = [];
+
+  const pose = (out) => {
+    out.length = 0;
+    for (let i = 0; i < m.count; i++) { m.getMatrixAt(i, _M); out.push(new THREE.Vector3().setFromMatrixPosition(_M)); }
+  };
+
+  const dt = 1 / 60;
+  let t = 0;
+  for (let k = 0; k < 60; k++) { t += dt; bf.update(t, dt, jour); }   // 1 s d'amorce
+  pose(avant);
+  bf.update(t + dt, dt, jour); t += dt;
+  pose(apres);
+
+  // 1. CAP CONTRE DEPLACEMENT. C'est le test qui aurait attrape le vol de cote :
+  //    l'axe avant local (+Z) doit pointer la ou l'individu se deplace.
+  let alignes = 0, mobiles = 0, pireDot = 1;
+  for (let i = 0; i < m.count; i++) {
+    const d = new THREE.Vector3().subVectors(apres[i], avant[i]); d.y = 0;
+    if (d.length() < 1e-4) continue;                 // pose ou immobile : rien a dire
+    mobiles++;
+    d.normalize();
+    m.getMatrixAt(i, _M); _M.decompose(_p, _q, _s);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(_q); fwd.y = 0; fwd.normalize();
+    const dot = fwd.dot(d);
+    pireDot = Math.min(pireDot, dot);
+    if (dot > 0.85) alignes++;
+  }
+  if (mobiles === 0) ratages.push('aucun papillon ne bouge');
+  else if (alignes / mobiles < 0.9) ratages.push(`cap desaligne : ${alignes}/${mobiles} alignes, pire produit scalaire ${pireDot.toFixed(3)}`);
+
+  // 2. BUTINAGE REEL. Sur trente secondes, au moins un individu doit atteindre
+  //    une corolle. Avec la recherche globale d'origine (1.22 % de reussite)
+  //    ce test echouait.
+  const nf = flowerSpots.length / 3;
+  let poses = 0;
+  for (let k = 0; k < 1800; k++) { t += dt; bf.update(t, dt, jour); }
+  pose(apres);
+  for (let i = 0; i < m.count; i++) {
+    for (let j = 0; j < nf; j += 1) {
+      const dx = apres[i].x - flowerSpots[j*3], dz = apres[i].z - flowerSpots[j*3+2];
+      if (dx*dx + dz*dz < 0.05*0.05 && Math.abs(apres[i].y - flowerSpots[j*3+1]) < 0.35) { poses++; break; }
+    }
+  }
+  if (poses === 0) ratages.push('aucun papillon pose sur une corolle apres 30 s');
+
+  // 3. JAMAIS SOUS LE SOL, meme apres une longue simulation.
+  let pireGarde = Infinity, pireAt = '';
+  for (let i = 0; i < m.count; i++) {
+    const g = apres[i].y - island.heightAt(apres[i].x, apres[i].z);
+    if (g < pireGarde) { pireGarde = g; pireAt = `(${apres[i].x.toFixed(0)},${apres[i].z.toFixed(0)})`; }
+  }
+  if (!(pireGarde > -0.05)) ratages.push(`papillon sous le sol : ${pireGarde.toFixed(2)} ${pireAt}`);
+
+  // 4. Le gate, sur le VRAI update().
+  bf.update(t, dt, { day: 0, night: 1, twilight: 0 });
+  if (m.visible) ratages.push('visibles en pleine nuit');
+  bf.update(t, dt, jour);
+  if (!m.visible) ratages.push('invisibles a midi');
+
+  bf.dispose();
+  check('papillons : runtime, cap, butinage et sol', ratages.length === 0,
+    ratages.length ? ratages.join(' ; ')
+      : `${m.count} papillons, ${alignes}/${mobiles} caps alignes (pire ${pireDot.toFixed(3)}), `
+        + `${poses} poses sur corolle, garde min ${pireGarde.toFixed(2)}`);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;

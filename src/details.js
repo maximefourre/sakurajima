@@ -864,6 +864,10 @@ function makeFlowerGeometry(spec, rng, stemHex = 0x5f8a42) {
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setAttribute('aBase', new THREE.Float32BufferAttribute(base, 1));
   g.setIndex(idx);
+  // Hauteur locale de la COROLLE, tirée une fois par espèce. Exposée parce que
+  // les papillons se posent DESSUS, pas sur le terrain : sans elle ils
+  // atterrissent dans les tiges (ADV-2026-08-01-BFLY).
+  g.userData.corollaY = h;
   return g;
 }
 
@@ -1358,7 +1362,10 @@ export function createDetails({
         const sc = R.range(rng, 0.78, 1.35);
         _m.compose(_p.set(x, h - 0.02, z), _q, _s.set(sc, sc, sc));
         mesh.setMatrixAt(placed++, _m);
-        spotAcc.push(x, h, z);
+        // On enregistre le Y de la COROLLE, pas celui du terrain : c'est là que
+        // se pose un papillon. Le stocker au sol le faisait atterrir 20 à 95 cm
+        // trop bas, dans les tiges (ADV-2026-08-01-BFLY).
+        spotAcc.push(x, h - 0.02 + geo.userData.corollaY * sc, z);
       }
 
       mesh.count = placed;

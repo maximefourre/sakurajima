@@ -76,8 +76,22 @@ export function computeFireflySpots({ ponds, heightAt, isInPond, count, seed = 1
     // seulement dans celui du plus dense : c'est ce que l'invariant 11 vérifie.
     if (Math.sqrt(bestD2) > reach[pond]) continue;
 
-    // Surface locale : plan d'eau au-dessus du bassin, terrain ailleurs.
-    const surf = isInPond && isInPond(x, z) ? ponds[pond].waterY : heightAt(x, z);
+    // Surface locale, prise sur TOUTE L'ENVELOPPE DE DÉRIVE et non au seul
+    // point semé — ADV-2026-08-01-FIREFLY. Le shader promène l'individu jusqu'à
+    // driftRadius[1] horizontalement ; sur une berge en pente, une garde
+    // calculée au centre ne dit rien du sol qu'il survolera.
+    //
+    // Le MAX sur huit azimuts plus le centre : on veut le point le plus HAUT,
+    // c'est lui qui contraint. Et le max avec le plan d'eau règle au passage
+    // le second défaut signalé — `isInPond` inclut la marge humide des berges,
+    // donc il pouvait renvoyer waterY pour un individu posé sur du sec.
+    const R_ENV = FIREFLIES.driftRadius[1];
+    let surf = heightAt(x, z);
+    for (let a = 0; a < 8; a++) {
+      const th = (a / 8) * Math.PI * 2;
+      surf = Math.max(surf, heightAt(x + Math.cos(th) * R_ENV, z + Math.sin(th) * R_ENV));
+    }
+    if (isInPond && isInPond(x, z)) surf = Math.max(surf, ponds[pond].waterY);
     const perched = rng() < FIREFLIES.perchedFraction;
     // Les posées se tiennent bas, dans l'herbe ; les volantes occupent la bande.
     const y = perched
@@ -231,7 +245,14 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
         p.x += airborne * radius * sin(uTime * rate + phase);
         p.z += airborne * radius * 0.82 * sin(uTime * rate * 0.71 + phase * 1.7);
         // Quasi horizontal : une hotaru traine, elle ne monte pas.
-        p.y += airborne * radius * uLift * sin(uTime * rate * 0.53 + phase * 2.3);
+        //
+        // ADV-2026-08-01-FIREFLY : la derive verticale etait CENTREE, donc elle
+        // descendait autant qu'elle montait — jusqu'a 2.6 x 0.18 = 0.468 u,
+        // contre une garde minimale au semis de 0.40. Une luciole passait sous
+        // la surface, et l'invariant restait vert parce qu'il ne teste que la
+        // position SEMEE. Rendue UNILATERALE : la position semee devient un
+        // plancher, l'individu ne fait plus que monter au-dessus.
+        p.y += airborne * radius * uLift * (0.5 + 0.5 * sin(uTime * rate * 0.53 + phase * 2.3));
 
         // Le flash. Montee rapide puis decroissance exponentielle, PAS un sinus :
         // un sinus donne une respiration douce, une luciole fait un eclair.
@@ -325,9 +346,17 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
     }
     // Marge = derive maximale + demi-quad : la sphere doit couvrir la position
     // ANIMEE, pas la position semee, sinon les bords disparaissent par a-coups.
+    // ADV-2026-08-01-FIREFLY : la marge valait driftRadius + size, en oubliant
+    // que les trois axes derivent SIMULTANEMENT. Les amplitudes sont 1, 0.82 et
+    // uLift fois le rayon, donc la borne est leur norme euclidienne — 3.395 u
+    // et non 2.80. Il manquait 0.595 u, et le mesh entier pouvait etre culled
+    // en bord de frustum alors que des individus etaient encore visibles.
+    const AX = 1, AZ = 0.82, AY = FIREFLIES.driftLift;
+    const enveloppe = FIREFLIES.driftRadius[1] * Math.sqrt(AX * AX + AZ * AZ + AY * AY);
     geo.boundingSphere = new THREE.Sphere(
       new THREE.Vector3(cx, cy, cz),
-      r + FIREFLIES.driftRadius[1] + FIREFLIES.size[1]
+      // Demi-diagonale du quad, pas son demi-cote : il est billboarde.
+      r + enveloppe + FIREFLIES.size[1] * Math.SQRT2
     );
   }
 

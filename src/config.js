@@ -143,7 +143,7 @@ export const QUALITY = {
     trees: Math.round(56 * AREA_SOFT),
     uniqueTrees: 10,
     rocks: Math.round(35 * AREA_SOFT),
-    fireflies: 160,
+    fireflies: Math.round(28.28 * AREA_SOFT),
     butterflies: Math.round(5 * AREA_SOFT),
     shadowMap: 1024,
     bloom: false,
@@ -159,7 +159,7 @@ export const QUALITY = {
     trees: Math.round(190 * AREA_SOFT),
     uniqueTrees: 18,
     rocks: Math.round(74 * AREA_SOFT),
-    fireflies: 420,
+    fireflies: Math.round(74.23 * AREA_SOFT),
     butterflies: Math.round(12 * AREA_SOFT),
     shadowMap: 2048,
     bloom: true,
@@ -179,7 +179,7 @@ export const QUALITY = {
     trees: Math.round(330 * AREA_SOFT),
     uniqueTrees: 28,
     rocks: Math.round(110 * AREA_SOFT),
-    fireflies: 800,
+    fireflies: Math.round(141.40 * AREA_SOFT),
     butterflies: Math.round(24 * AREA_SOFT),
     shadowMap: 4096,
     bloom: true,
@@ -255,10 +255,13 @@ export const CAMERA = {
 /**
  * Lucioles — hotaru.
  *
- * BUDGET EN ABSOLU, PAS EN AREA_SOFT, ET C'EST VOULU. La doctrine de ce fichier
- * veut que les scatters coûteux suivent AREA_SOFT parce qu'ils couvrent une
- * SURFACE. Les lucioles, non : elles sont ancrées sur trois bassins de taille
- * fixe. Les faire croître avec l'île les diluerait sans rien ajouter au cadrage.
+ * BUDGET EN AREA_SOFT, corrigé le 01/08 (ADV-2026-08-01-FIREFLY). La version
+ * d'origine était en ABSOLU, justifiée par des « bassins de taille fixe » — et
+ * c'était FAUX : `SITES` dans ponds.js multiplie les rayons par LAND_SCALE, donc
+ * l'habitat couvre une aire en LAND_SCALE². Un budget fixe aurait dilué la
+ * densité au premier tour du bouton d'échelle, contre la doctrine du fichier.
+ * Les bases sont calibrées pour rendre exactement 160/420/800 au LAND_SCALE
+ * courant : la correction ne change rien à ce qu'on voit aujourd'hui.
  *
  * Le clignotement est SYNCHRONISÉ PAR BASSIN, ce qui est à la fois le
  * comportement réel des genji-botaru et le plus beau des trois choix possibles :
@@ -278,8 +281,12 @@ export const FIREFLIES = Object.freeze({
   // dessinerait un cercle visible autour de chaque étang. En calant la
   // décroissance pour qu'elle atteigne le plancher exactement à la coupure, les
   // deux mécanismes disent la même chose au lieu de se contredire.
+  // ADV-2026-08-01-FIREFLY : densityFalloff valait 2.81 codé en dur, soit une
+  // COPIE de -ln(densityFloor). Rien n'imposait la relation : un commentaire ne
+  // la maintient pas, et Object.freeze non plus. Une seule constante source,
+  // l'autre dérivée.
   densityFloor: 0.06,
-  densityFalloff: 2.81,   // = -ln(0.06)
+  get densityFalloff() { return -Math.log(this.densityFloor); },
 
   minHeight: 0.4,        // au-dessus de la surface locale (sol OU plan d'eau)
   maxHeight: 2.2,        // une hotaru traîne, elle ne monte pas

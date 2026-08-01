@@ -131,6 +131,16 @@ export function createButterflies({
   seed = 1, quality, season = 'spring', heightAt, flowerSpots,
 } = {}) {
   const count = quality?.butterflies ?? 0;
+  // ADV-2026-08-01-BFLY : `flowerSpots` est un binding ES vivant que seul
+  // createDetails remplit. Construire les papillons AVANT lui donnait un mesh
+  // parfaitement valide de compte ZÉRO, sans la moindre erreur — une rupture de
+  // contrat qui ne se voyait qu'en comptant les instances. On la rend bruyante.
+  if (count > 0 && (!flowerSpots || flowerSpots.length === 0)) {
+    throw new Error(
+      'createButterflies : flowerSpots est vide. Il faut construire APRÈS '
+      + 'createDetails, seul à le remplir (binding ES vivant, cf. main.js).'
+    );
+  }
   const spawns = computeButterflySpawns({ flowerSpots, heightAt, count, seed });
   const n = spawns.length;
   const pal = paletteFor(season);
@@ -234,8 +244,16 @@ export function createButterflies({
 
       void main() {
         vec2 w = vWing;
+        // ADV-2026-08-01-BFLY : les blobs restaient POSITIFS sur les bords du
+        // quad porteur (0.19 au bout d'aile, 0.945 a la queue), donc le
+        // rasteriseur coupait la silhouette au carre avant que le discard ne
+        // puisse la fermer — bout d'aile et queue plats. Les rayons sont
+        // desormais choisis pour que shape < 0 sur TOUTES les limites du quad :
+        // w.x <= 1 et |w.y| <= 1.
+        //
         // Aile anterieure : large, poussee vers l'avant et vers le bout.
-        float fore = blob(w, vec2(0.46, 0.30), vec2(0.60, 0.56));
+        // 0.46 + 0.50 = 0.96 < 1, et 0.30 + 0.52 = 0.82 < 1.
+        float fore = blob(w, vec2(0.46, 0.30), vec2(0.50, 0.52));
         // Aile posterieure : plus petite, plus proche du corps.
         float hind = blob(w, vec2(0.30, -0.34), vec2(0.42, 0.40));
         float shape = max(fore, hind);
@@ -245,7 +263,8 @@ export function createButterflies({
         shape = min(shape, 1.0 - blob(w, vec2(0.72, -0.30), vec2(0.30, 0.26)) * 1.6);
         if (vSpecies > 0.5) {
           // La queue du machaon : c'est elle qui le nomme.
-          shape = max(shape, blob(w, vec2(0.26, -0.92), vec2(0.09, 0.34)));
+          // 0.70 + 0.28 = 0.98 < 1 : la queue se ferme AVANT le bord du quad.
+          shape = max(shape, blob(w, vec2(0.26, -0.70), vec2(0.085, 0.28)));
         }
         if (shape < 0.0) discard;
 
@@ -323,15 +342,52 @@ export function createButterflies({
 
   const nFlowers = flowerSpots ? flowerSpots.length / 3 : 0;
 
+  /*
+   * INDEX SPATIAL des fleurs — ADV-2026-08-01-BFLY.
+   *
+   * La version d'origine tirait huit indices dans la liste GLOBALE de 25 200
+   * fleurs et abandonnait. Un disque de 14 u couvre 0.153 % du champ, donc la
+   * recherche aboutissait dans 1.22 % des cas : les papillons ne se posaient
+   * PRATIQUEMENT JAMAIS, alors que le butinage est la moitié de la demande.
+   *
+   * Une grille uniforme au pas du rayon de recherche suffit : on ne regarde
+   * plus que les neuf cellules voisines. Construite une fois, jamais mise à
+   * jour — les fleurs ne bougent pas.
+   */
+  const CELL = Math.max(1, BUTTERFLIES.approachRadius);
+  const grid = new Map();
+  let gMinX = Infinity, gMinZ = Infinity;
+  for (let i = 0; i < nFlowers; i++) {
+    gMinX = Math.min(gMinX, flowerSpots[i * 3]);
+    gMinZ = Math.min(gMinZ, flowerSpots[i * 3 + 2]);
+  }
+  const cellOf = (x, z) => `${Math.floor((x - gMinX) / CELL)},${Math.floor((z - gMinZ) / CELL)}`;
+  for (let i = 0; i < nFlowers; i++) {
+    const k = cellOf(flowerSpots[i * 3], flowerSpots[i * 3 + 2]);
+    let a = grid.get(k);
+    if (!a) { a = []; grid.set(k, a); }
+    a.push(i);
+  }
+
   /** Une fleur au hasard dans le rayon de recherche, ou -1. */
   function pickFlower(b) {
     if (!nFlowers) return -1;
-    for (let k = 0; k < 8; k++) {
-      const fi = Math.min(nFlowers - 1, Math.floor(rng() * nFlowers));
-      const dx = flowerSpots[fi * 3] - b.x, dz = flowerSpots[fi * 3 + 2] - b.z;
-      if (dx * dx + dz * dz < BUTTERFLIES.approachRadius * BUTTERFLIES.approachRadius) return fi;
+    const cx = Math.floor((b.x - gMinX) / CELL), cz = Math.floor((b.z - gMinZ) / CELL);
+    const r2 = BUTTERFLIES.approachRadius * BUTTERFLIES.approachRadius;
+    const proches = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const a = grid.get(`${cx + dx},${cz + dz}`);
+        if (!a) continue;
+        for (let j = 0; j < a.length; j++) {
+          const fi = a[j];
+          const ex = flowerSpots[fi * 3] - b.x, ez = flowerSpots[fi * 3 + 2] - b.z;
+          if (ex * ex + ez * ez < r2) proches.push(fi);
+        }
+      }
     }
-    return -1;
+    if (!proches.length) return -1;
+    return proches[Math.min(proches.length - 1, Math.floor(rng() * proches.length))];
   }
 
   function update(t, dt, phase) {
@@ -374,6 +430,9 @@ export function createButterflies({
         }
       }
 
+      // Le sol sous l'individu, calcule AVANT la machine a etats : les branches
+      // PERCHED et APPROACH en ont besoin pour viser la corolle.
+      const ground = heightAt(b.x, b.z);
       let wantY = b.cruise;
       let speed = b.speed;
 
@@ -383,15 +442,19 @@ export function createButterflies({
         if (b.timer <= 0) { b.state = WANDER; b.timer = R.range(rng, 1.5, 4.0); }
       } else if (b.state === PERCHED) {
         speed = 0;
-        wantY = 0.06;
+        // Sur la COROLLE, pas sur le terrain : flowerSpots porte desormais le Y
+        // de la fleur (ADV-2026-08-01-BFLY). Un papillon pose a 0.06 u du sol
+        // etait enfoui dans les tiges, 20 a 95 cm sous la fleur qu'il visait.
+        wantY = Math.max(0.02, flowerSpots[b.target * 3 + 1] - ground);
         if (b.timer <= 0 && !sleepy) { b.state = WANDER; b.timer = R.range(rng, 2.0, 6.0); }
       } else if (b.state === APPROACH) {
         const fi = b.target;
-        const fx = flowerSpots[fi * 3], fz = flowerSpots[fi * 3 + 2];
+        const fx = flowerSpots[fi * 3], fy = flowerSpots[fi * 3 + 1], fz = flowerSpots[fi * 3 + 2];
         const dx = fx - b.x, dz = fz - b.z;
         const d = Math.hypot(dx, dz);
         b.heading = Math.atan2(dz, dx);
-        wantY = Math.min(b.cruise, 0.10 + d * 0.25);
+        // Descente vers la corolle, pas vers le sol.
+        wantY = Math.min(b.cruise, (fy - ground) + d * 0.25);
         speed = b.speed * 0.75;
         if (d < BUTTERFLIES.arriveDist) {
           b.state = PERCHED;
@@ -404,7 +467,11 @@ export function createButterflies({
         // les Pieris volent lentement et à FORTE COURBURE — ça zigzague, ce n'est
         // pas l'arc lisse d'un boid. Le mécanisme est celui de WIND.veerChance.
         b.heading += R.range(rng, -1, 1) * BUTTERFLIES.turnRate * step;
-        if (rng() < spec.veerChance * step * 60) {
+        // ADV-2026-08-01-BFLY : `veerChance * step * 60` donnait la probabilite
+        // PAR FRAME, pas par seconde — 0.16 devenait 9.6 embardees/s, soixante
+        // fois trop, et le vol lisait comme une convulsion. La conversion juste
+        // d'un taux en probabilite sur un pas de duree `step` est exponentielle.
+        if (rng() < 1 - Math.exp(-spec.veerChance * step)) {
           b.heading += (rng() < 0.5 ? -1 : 1) * spec.veerAmount;
         }
         // Rappel SOUPLE vers l'ancre propre — jamais un mur, un papillon qui
@@ -433,8 +500,11 @@ export function createButterflies({
         b.x += Math.cos(b.heading) * speed * step;
         b.z += Math.sin(b.heading) * speed * step;
       }
-      const ground = heightAt(b.x, b.z);
-      const targetY = ground + wantY;
+      // Le sol a la position d'ARRIVEE : `ground` plus haut valait pour la
+      // position d'avant l'integration, ce qui suffit pour choisir wantY mais
+      // pas pour poser l'altitude finale sur un terrain en pente.
+      const groundNow = heightAt(b.x, b.z);
+      const targetY = groundNow + wantY;
       b.y += (targetY - b.y) * Math.min(1, 4.0 * step);
 
       // — battement : phase INTÉGRÉE, jamais sin(uTime * freq) —
@@ -456,7 +526,15 @@ export function createButterflies({
       // bas. C'est le tell principal, il tient ici le rôle du BANK de birds.js.
       const bob = b.state === PERCHED ? 0 : Math.sin(b.flapPhase) * spec.bob;
 
-      _e.set(0, -b.heading, Math.sin(b.flapPhase) * 0.10);
+      // ADV-2026-08-01-BFLY : le lacet valait `-heading`, ce qui envoie le +Z
+      // local sur (-sin h, cos h) alors que la vitesse va vers (cos h, sin h).
+      // Produit scalaire NUL pour tout cap : les papillons volaient exactement
+      // de cote, sans que rien ne le signale. Il faut PI/2 - heading.
+      //
+      // Le roulis phase-locke sur le battement a saute avec : il ajoutait la
+      // MEME rotation aux deux ailes deja opposees, ce qui est l'origine de
+      // l'asymetrie constatee en gros plan.
+      _e.set(0, Math.PI / 2 - b.heading, 0);
       _q.setFromEuler(_e);
       _s.setScalar(spec.span);
       _m.compose(_p.set(b.x, b.y + bob, b.z), _q, _s);
