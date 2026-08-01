@@ -161,15 +161,44 @@ console.log('dérive =', camera.position.distanceTo(before2).toFixed(4));
 
 - [ ] **Étape 6 : consigner les deux chiffres**
 
-Les écrire dans ce fichier, sous cette tâche, en remplaçant la ligne ci-dessous.
-Ils servent de référence à la tâche 7 : **aucun commit du chantier ne peut être
-considéré comme fini sans cette comparaison.**
+**FAIT le 01/08/2026.** Référence à battre en tâche 7 :
 
 ```
-RÉFÉRENCE NUIT AVANT LUCIOLES (ultra, 3600×1896) : ouverture ___ fps, sol ___ fps
+RÉFÉRENCE NUIT AVANT LUCIOLES — ultra, buffer 3600×2008, dayTime 0.97, 240 frames
+  ouverture (CAMERA.start)         71.0 / 71.6 fps   (14.08 / 13.98 ms)  dérive 0
+  sol (bord du grand bassin)       73.2 / 73.3 fps   (13.65 / 13.64 ms)  dérive 0
 ```
+
+Deux passes par cadrage, concordantes à ≤ 0.6 fps — la mesure est stable.
+
+Deux remarques qui comptent pour la suite :
+- **La nuit est deux fois plus rapide que le jour** (71 contre 33.7 à l'ouverture).
+  La clé solaire éteinte, la passe d'ombres cesse de payer le feuillage. Il y a
+  donc de la marge, mais ça ne dispense pas de mesurer.
+- Le buffer est **3600×2008** et non le 3600×1896 d'`AGENTS.md` (fenêtre un peu
+  plus haute, ~6 % de pixels en plus). Ces chiffres ne se comparent donc qu'entre
+  eux — ce qui est exactement leur usage.
 
 Pas de commit — aucun fichier source n'a changé.
+
+- [ ] **Étape 7 : relever les rayons de bassin réellement mesurés**
+
+Ils dimensionnent l'habitat, et les valeurs nominales de `ponds.js` en sont loin.
+
+**FAIT.** `attach()` élargit de ~42 %, pas des « 15-20 % » annoncés dans le
+commentaire de `ponds.js` :
+
+| Bassin | Centre | Rayon mesuré | Habitat (×2.4) | Plan d'eau |
+| --- | --- | --- | --- | --- |
+| 0 (le grand) | (50.8, −133.4) | 32.5 | 78.0 | 7.13 |
+| 1 | (−12.7, −231.8) | 19.3 | 46.3 | 4.12 |
+| 2 | (63.5, −222.3) | 13.6 | 32.6 | 3.99 |
+
+Les trois habitats **se chevauchent** (0-1 : 117 u entre centres pour 124 u
+cumulés ; 1-2 : 77 pour 79). C'est ce constat qui a imposé la décroissance calée
+sur le plancher décrite en tâche 2 — sans elle, deux bassins déphasés se
+seraient touchés à densité visible, et chaque nuée aurait été tranchée net en
+cercle.
 
 ---
 
@@ -220,10 +249,27 @@ décoratif : sans lui, la prochaine relecture « corrigera » ces chiffres.
  * Chaque étang porte sa phase, chaque individu s'en écarte de `flashJitter`.
  */
 export const FIREFLIES = Object.freeze({
-  // Rayon d'habitat, en multiples du rayon MESURÉ du bassin. Le champ de densité
-  // vaut exp(-(r/R)^2) : saturé sur l'eau, éteint dans l'herbe alentour.
+  // Rayon d'habitat, en multiples du rayon MESURÉ du bassin (32.5 / 19.3 / 13.6
+  // après attach(), soit des habitats de 78 / 46 / 33 unités).
   habitatK: 2.4,
-  densityFloor: 0.06,   // sous ce seuil on refuse la position : pas d'individu isolé
+
+  // Champ de densité : exp(-densityFalloff * (r/habitat)^2), coupé au plancher.
+  //
+  // LES DEUX CONSTANTES SONT LIÉES, NE PAS EN BOUGER UNE SEULE :
+  //   densityFalloff = -ln(densityFloor)
+  // Avec un exp(-u^2) nu, la densité vaut encore 0.368 au rayon d'habitat, où le
+  // placement coupe net : la population serait TRANCHÉE à 37 % de densité et
+  // dessinerait un cercle visible autour de chaque étang. En calant la
+  // décroissance pour qu'elle atteigne le plancher exactement à la coupure, les
+  // deux mécanismes disent la même chose au lieu de se contredire, et la nuée
+  // s'éteint d'elle-même au bord.
+  //
+  // Effet de bord bienvenu : les trois habitats se chevauchent (117 u entre les
+  // centres 0-1 pour 124 u d'habitats cumulés, 77 contre 79 pour 1-2). Avec la
+  // décroissance calée, la densité y est negligeable — deux bassins déphasés ne
+  // se retrouvent donc jamais côte à côte à densité visible.
+  densityFloor: 0.06,
+  densityFalloff: 2.81,   // = -ln(0.06)
 
   minHeight: 0.4,       // au-dessus de la surface locale (sol OU plan d'eau)
   maxHeight: 2.2,       // une hotaru traîne, elle ne monte pas
@@ -499,7 +545,10 @@ export function computeFireflySpots({ ponds, heightAt, isInPond, count, seed = 1
       const dx = x - ponds[i].x, dz = z - ponds[i].z;
       const d2 = dx * dx + dz * dz;
       const u = Math.sqrt(d2) / reach[i];
-      const d = Math.exp(-u * u);
+      // Décroissance calée sur le plancher (cf. config) : à u = 1 elle vaut
+      // exactement densityFloor, donc la coupure ci-dessous ne tranche rien de
+      // visible. Un exp(-u*u) nu y laisserait encore 37 % de densité.
+      const d = Math.exp(-FIREFLIES.densityFalloff * u * u);
       if (d > dens) dens = d;
       if (d2 < bestD2) { bestD2 = d2; pond = i; }
     }
