@@ -574,9 +574,15 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
       // carrefour, pas en pleine nature, et le pincement de depart y lisait
       // comme un coup de pinceau leve pose sur l'herbe (capture joueur).
       // La fusion des trois routes est faite par le patin de carrefour.
+      // La fin du ruban est FRANCHE, pas effilee. Le fuseau precedent
+      // (1 - smoothstep(0.94, 1, t)) faisait tendre la largeur vers zero, donc
+      // une aiguille — rejete par l'utilisateur ("sans une fin pointue"). Il
+      // avait ete demande plus tot comme "un coup de pinceau leve" : arbitrage
+      // inverse, assume. On garde un simple resserrement de 25 %, qui evite le
+      // bord coupe au couteau sans dessiner de pointe.
       let tap = 1;
       if (!route.closed && route.name === 'plage') {
-        tap = 1 - smoothstep(0.94, 1, t);
+        tap = 1 - 0.25 * smoothstep(0.86, 1, t);
       }
       // Etages du carrefour : chaque route garde son etage (empilement
       // deterministe, pas de z-fight), resserres pour ne plus lire comme des

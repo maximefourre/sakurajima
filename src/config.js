@@ -214,9 +214,14 @@ export const PATHS = {
         [6, -30],
       ] },
     { name: 'plage',
+      // Le sentier s'arrete a la LISIERE herbe/sable, pas dans le sable : le
+      // dernier point est a h = 1.48, juste au-dessus de WORLD.beachTop = 1.2
+      // (mesure sur le heightfield). Il descendait auparavant jusqu'a h = -0.43,
+      // ce qui tracait un long ruban de terre battue en travers de la plage —
+      // rejete par l'utilisateur. La plage se traverse librement, sans sentier.
       points: [
         [6, -30], [18, -18], [30, -4], [38, 10], [44, 26], [46, 40],
-        [49, 62], [54, 95], [55.4, 106.7],
+        [49, 62], [50.5, 71.9],
       ] },
   ].map((r) => ({ ...r, points: r.points.map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]) })),
 };

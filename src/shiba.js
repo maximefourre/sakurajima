@@ -96,7 +96,14 @@ if (SHIBA_BUILD.standHeight * SHIBA_BUILD.scale <= SHIBA.swimFloat) {
  */
 function createFootprints(count, life) {
   const geo = new THREE.PlaneGeometry(0.30, 0.34);
+  // rotateX(-PI/2) couche le plan, mais envoie son bord v=1 — celui ou le
+  // fragment dessine les DOIGTS — vers -Z, alors que le modele regarde +Z et
+  // que stampPrint applique le lacet du chien. Les empreintes pointaient donc
+  // vers l'arriere (constate en jeu). Le demi-tour remet les doigts devant ;
+  // il conserve la normale vers le haut et ne fait que miroiter u, ce que la
+  // disposition symetrique des quatre orteils rend sans effet.
   geo.rotateX(-Math.PI / 2);
+  geo.rotateY(Math.PI);
   const born = new Float32Array(count).fill(-1e9);
   geo.setAttribute('aBorn', new THREE.InstancedBufferAttribute(born, 1));
 

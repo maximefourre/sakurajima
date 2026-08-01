@@ -1276,3 +1276,37 @@ __sk.world.particles.group.getObjectByName('shiba-ground-grains')
 en jeu, après avoir essayé plus fort. Ce n'est pas un compromis moyen, c'est un
 parti pris : la poussière est un souffle, pas un nuage. `SHIBA.wakeAmp` reste à
 0.13. Ne pas les remonter en croyant corriger un oubli.
+
+## Empreintes à l'envers, et sentier de plage repris (01/08/2026)
+
+**Empreintes retournées.** `createFootprints` couche son plan par
+`rotateX(-π/2)`, ce qui envoie le bord `v = 1` — celui où le fragment dessine
+les quatre doigts — vers **−Z**. Or le modèle regarde **+Z** et `stampPrint`
+applique le lacet du chien : les orteils pointaient donc systématiquement vers
+l'arrière. Le défaut existait depuis la création des empreintes et personne ne
+l'avait vu, parce qu'une empreinte de patte reste lisible à l'envers. Corrigé
+par un `rotateY(π)` supplémentaire, qui conserve la normale vers le haut et ne
+fait que miroiter `u` — sans effet, les quatre orteils étant disposés
+symétriquement.
+
+**Sentier de plage.** Le prolongement livré la veille descendait jusqu'à
+`h = −0.43`, traçant un long ruban de terre battue **en travers du sable**
+jusqu'à l'eau. Rejeté : « je veux pas qu'il avance autant dans le sable ». Le
+dernier point est ramené à la LISIÈRE herbe/sable, mesurée sur le heightfield :
+coordonnées auteur `(50.5, 71.9)`, `h = 1.52`, juste au-dessus de
+`WORLD.beachTop = 1.2`. Deux lanternes disparaissent avec le tronçon (43 → 41).
+
+**Fin de ruban franche.** La largeur de la route 'plage' était multipliée par
+`1 − smoothstep(0.94, 1, t)`, donc elle tendait vers zéro : une aiguille. Ce
+fuseau avait été demandé plus tôt comme « un coup de pinceau levé posé sur
+l'herbe » — **arbitrage inversé, assumé**. Remplacé par un resserrement de 25 %
+sur le dernier septième, qui évite le bord coupé au couteau sans dessiner de
+pointe.
+
+Conséquence à connaître : la plage se traverse désormais **librement, sans
+sentier**. Le chien atteint toujours la mer et la houle le porte, mais le
+dernier tronçon se fait sur le sable ouvert, ce qui était le but.
+
+Vérifié : `INVARIANTS: 15 pass, 0 fail` en `?q=ultra` (39 368 triangles de
+ruban, marge exacte 0.0200, élévation max 0.2376, 41 lanternes sans orpheline),
+plus contrôle visuel des empreintes de face et de la fin du sentier.
