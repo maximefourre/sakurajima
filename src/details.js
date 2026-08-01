@@ -934,6 +934,25 @@ function makeHokoraGeometry() {
     part(gable, STONE, 0, 0, 0);
   }
 
+  // Rear gable. Without it you see straight THROUGH the shrine from any low
+  // side angle — the roof then reads as a slab hovering over an open box, which
+  // is exactly how it was reported. Wound the other way to face local -Z.
+  {
+    const gable = new THREE.BufferGeometry();
+    gable.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.55, 1.58, -0.425,
+       0.55, 1.58, -0.425,
+       0.00, 2.00, -0.425,
+    ], 3));
+    gable.setIndex([0, 2, 1]);
+    gable.computeVertexNormals();
+    part(gable, STONE, 0, 0, 0);
+  }
+
+  // A cornice band the roof springs FROM. A pitched roof floating clear of a
+  // plain box never looks seated; a course that oversails the wall does.
+  part(new THREE.BoxGeometry(1.24, 0.11, 0.98), STONE, 0, 1.635, 0);
+
   // The opening is a deliberately shallow dark inset rather than a painted
   // mark, so the facade keeps a readable recess in hard daylight.
   part(new THREE.BoxGeometry(0.54, 0.68, 0.055), TORII_DARK,
@@ -973,32 +992,37 @@ function makeHokoraGeometry() {
     }
   }
 
+  // Depth 1.06 against a 0.98 cornice: the eaves oversail by 0.04 front and
+  // back. The 1.28 used before overhung a 0.84 body by 0.22 on each side, and
+  // from a low angle that shadowed void under the eave read as a detached roof.
   const roofTilt = 0.48;
-  part(new THREE.BoxGeometry(0.88, 0.12, 1.28), STONE_DARK,
-    -0.36, 1.82, 0, roofTilt, 0, 'roof');
-  part(new THREE.BoxGeometry(0.88, 0.12, 1.28), STONE_DARK,
-     0.36, 1.82, 0, -roofTilt, 0, 'roof');
-  part(new THREE.CylinderGeometry(0.075, 0.075, 1.36, 8), STONE_DARK,
-    0, 2.05, 0, 0, Math.PI * 0.5, 'roof');
+  const roofDepth = 1.06;
+  part(new THREE.BoxGeometry(0.90, 0.12, roofDepth), STONE_DARK,
+    -0.355, 1.775, 0, roofTilt, 0, 'roof');
+  part(new THREE.BoxGeometry(0.90, 0.12, roofDepth), STONE_DARK,
+     0.355, 1.775, 0, -roofTilt, 0, 'roof');
+  part(new THREE.CylinderGeometry(0.075, 0.075, roofDepth + 0.06, 8), STONE_DARK,
+    0, 2.00, 0, 0, Math.PI * 0.5, 'roof');
 
-  // A bold tiled verge follows the front eave. At approach distance this clear
-  // chevron reads as a roof edge where several shallow channels read as stripes.
+  // A tiled verge along each front rake. It is kept SHORTER than the roof
+  // slope and set just inside the eave line — sticking past either end is what
+  // made it read as a pole laid across the roof rather than as its edge.
   for (const side of [-1, 1]) {
-    const verge = new THREE.CylinderGeometry(0.060, 0.070, 0.92, 8);
-    part(verge, STONE_DARK, side * 0.36, 1.855, 0.655,
+    const verge = new THREE.CylinderGeometry(0.055, 0.065, 0.86, 8);
+    part(verge, STONE_DARK, side * 0.355, 1.815, roofDepth * 0.5 - 0.055,
       side * (Math.PI * 0.5 - roofTilt), 0, 'roof');
   }
-  for (const z of [-0.69, 0.69]) {
+  for (const z of [-1, 1]) {
     const cap = new THREE.SphereGeometry(0.105, 6, 3);
     cap.scale(1, 0.82, 0.72);
-    part(cap, STONE_DARK, 0, 2.05, z, 0, 0, 'roof');
+    part(cap, STONE_DARK, 0, 2.00, z * (roofDepth * 0.5 + 0.03), 0, 0, 'roof');
   }
   {
     const flower = new THREE.SphereGeometry(0.10, 6, 3);
     flower.scale(1, 1.15, 0.28);
-    part(flower, STONE_DARK, 0, 1.79, 0.682, 0, 0, 'roof');
+    part(flower, STONE_DARK, 0, 1.755, roofDepth * 0.5 + 0.035, 0, 0, 'roof');
     part(new THREE.ConeGeometry(0.065, 0.16, 5), STONE_DARK,
-      0, 1.66, 0.682, Math.PI, 0, 'roof');
+      0, 1.625, roofDepth * 0.5 + 0.035, Math.PI, 0, 'roof');
   }
 
   const merged = mergeGeometries(parts);

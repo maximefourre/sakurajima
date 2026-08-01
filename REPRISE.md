@@ -1024,3 +1024,28 @@ Vérifications : `node --check`, `INVARIANTS: 10 pass, 0 fail` en `?q=ultra`
 (Chrome réel), visuel midi et nuit à 3 u en `?q=high`. Deux jobs Codex fantômes
 (un doublon de relance, un zombie à 9 h d'« elapsed » journal figé) ont dû être
 annulés à la main ; le fichier avait bien été écrit dans les deux cas.
+
+### Suite : toit décollé (même jour, retour utilisateur)
+
+Deux choses dans le même retour, à ne pas confondre.
+
+1. **« Aucune diff »** : la capture venait du port **5174**, servi par le worktree
+   `.claude/worktrees/shiba-eau-sol` d'une session parallèle, dont `details.js`
+   n'a pas une ligne du chantier F. Le chantier est sur **5173**. Réflexe à
+   garder quand deux sessions tournent : `lsof -nP -iTCP -sTCP:LISTEN` puis
+   `lsof -a -p <pid> -d cwd` — le port ne dit pas quel arbre il sert.
+2. **Le toit décollait pour de vrai**, sur les deux ports, et seulement en vue
+   BASSE (l'angle du joueur derrière le shiba ; les vérifications précédentes
+   avaient toutes été faites de face, à hauteur d'homme). Trois causes :
+   auvent de 1.28 de profondeur sur un corps de 0.84 — 0.22 de vide ombré de
+   chaque côté ; **pignon arrière absent**, donc on voyait à travers ; rive de
+   toit plus longue que la pente, dépassant comme une perche.
+
+Correctif : corniche `1.24 × 0.11 × 0.98` à y = 1.635 dont le toit prend appui,
+pignon arrière (winding inversé, face vers -Z), profondeur d'auvent 1.28 → 1.06,
+toit descendu de 1.82 → 1.775, rive raccourcie 0.92 → 0.86 et rentrée sous la
+ligne d'égout. 863 → 876 tris. Invariants 10/10, revérifié en vue basse des deux
+côtés.
+
+**Leçon de méthode** : un objet posé au sol se juge à la hauteur d'œil du
+personnage, pas seulement de face. Les défauts d'assise ne se voient que d'en bas.
