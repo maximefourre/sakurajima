@@ -43,7 +43,7 @@ import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { SHIBA_BUILD } from '../src/shiba-geom.js';
-import { computeFireflySpots } from '../src/fireflies.js';
+import { computeFireflySpots, fireflyActivity } from '../src/fireflies.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -444,6 +444,20 @@ check('bancs d’ondes disjoints',
   check('lucioles dans l’habitat des bassins', ok,
     ok ? `${spots.length} lucioles, 3 bassins, pire rayon ${(worstRatio * 100).toFixed(0)} % de l’habitat ${worstAt}`
        : detail);
+}
+
+/* ── les lucioles dorment le jour ────────────────────────────────────────── */
+{
+  // On appelle la VRAIE courbe, importée. Recopier la formule ici la ferait
+  // dériver en silence le jour où on la retouche, et le test continuerait de
+  // passer sur une version qui n'est plus celle qui tourne.
+  const noon      = fireflyActivity({ night: 0, twilight: 0, solar: 0.5 });
+  const midnight  = fireflyActivity({ night: 1, twilight: 0, solar: 0.0 });
+  const afterDusk = fireflyActivity({ night: 1, twilight: 0, solar: FIREFLIES.peakSolar });
+
+  check('les lucioles dorment le jour',
+    noon === 0 && midnight > 0 && afterDusk > midnight,
+    `midi ${noon.toFixed(3)} · minuit ${midnight.toFixed(3)} · apres-coucher ${afterDusk.toFixed(3)}`);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;

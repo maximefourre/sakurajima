@@ -21,6 +21,7 @@ import { createGrass } from './grass.js';
 import { createPetals } from './petals.js';
 import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
+import { createFireflies } from './fireflies.js';
 import { createClouds } from './clouds.js';
 import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
@@ -416,6 +417,23 @@ async function boot() {
   });
   scene.add(world.birds.group);
 
+  await step('lucioles');
+  // APRES ponds.attach() (l.312) : PONDS ne porte les rayons et le plan d'eau
+  // REELLEMENT creuses qu'une fois attach passe. Construire avant donnerait un
+  // habitat calcule sur des rayons nominaux que rien d'autre n'utilise.
+  //
+  // PIEGE, paye pendant le chantier : passer `q`, l'OBJET de qualite, et surtout
+  // PAS `world.quality` — qui est la CHAINE 'low'/'high'/'ultra'. Avec la chaine,
+  // `quality?.fireflies` vaut undefined, le `?? 0` de createFireflies donne un
+  // compte de zero, et on obtient une population VIDE sans la moindre erreur.
+  world.fireflies = createFireflies({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    ponds: world.ponds.PONDS,
+    isInPond: world.inWater,
+  });
+  scene.add(world.fireflies.mesh);
+
   await step('fleurs et lanternes');
   world.details = createDetails({
     seed: SEED, quality: q,
@@ -555,6 +573,9 @@ function frame() {
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);
   world.details.update(t, phase);
+  // `phase` brut et non `shaderPhase` : le materiau est additif et non eclaire,
+  // il n'a aucun usage de keyIntensity normalise.
+  world.fireflies.update(t, phase);
 
   // The dog reads the camera to work out which way "forward" is, so he updates
   // before the camera moves this frame. One frame of lag in the control frame is
