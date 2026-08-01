@@ -1643,3 +1643,55 @@ une. Coût mesuré mesh caché/affiché au même cadrage : **−0.1 fps**.
 
 **Leçon générale : une variation par instance ne se met pas dans un uniforme.**
 Le même piège guette tout système instancié de ce projet.
+
+## Reviews adversariales et correctifs (01/08/2026)
+
+`ADV-2026-08-01-FIREFLY` (lucioles) et `ADV-2026-08-01-BFLY` (papillons), lancées
+en parallèle. **Verdict des deux : needs-attention, « no-ship ».** 11 findings,
+dont 6 contre-vérifiés numériquement par Claude — **tous confirmés, aucun rejeté**.
+10 traités dans `383de77`.
+
+### Ce que la review a trouvé et que la vérification maison avait manqué
+
+- **Les papillons volaient exactement de côté.** Le lacet valait `-heading`, ce
+  qui envoie le +Z local sur `(-sin h, cos h)` alors que la vitesse va vers
+  `(cos h, sin h)` : produit scalaire **nul pour tout cap**. Correctif
+  `PI/2 - heading`.
+- **Le butinage ne fonctionnait pas.** `pickFlower` tirait 8 indices dans les
+  25 204 fleurs de l'île entière : un disque de 14 u couvre 0.153 % du champ, soit
+  **1.22 % de réussite**. La fonctionnalité explicitement demandée était morte.
+  Index spatial en grille.
+- **`flowerSpots` portait le Y du terrain**, donc les rares posés atterrissaient
+  20 à 95 cm sous la corolle, dans les tiges.
+- **Le taux d'embardée était 60× trop grand** : `veerChance * step * 60` donne la
+  probabilité PAR FRAME, soit 9.6/s au lieu de 0.16/s.
+- **Le roulis phase-locké** ajoutait la même rotation aux deux ailes déjà
+  opposées : c'était l'origine de l'asymétrie. Supprimé, silhouette redevenue
+  symétrique.
+- **Lucioles** : dérive verticale centrée → −0.068 u sous la surface ; sphère
+  englobante 0.595 u trop courte ; `densityFalloff` copie de `-ln(densityFloor)`
+  au lieu d'en être dérivé ; budget absolu justifié par des « bassins de taille
+  fixe » — **factuellement faux**, leurs rayons suivent `LAND_SCALE`.
+
+### La leçon, et elle est structurelle
+
+**Mes invariants testaient ce qui est facile, pas ce qui compte.** Les quatre
+défauts majeurs des papillons sont passés avec `19 pass, 0 fail` parce que les
+deux invariants n'appelaient que des fonctions pures et n'instanciaient jamais
+`createButterflies`. Le signal de validation que j'avais présenté était trompeur.
+
+D'où deux invariants de RUNTIME (20 et 21) qui construisent les vrais systèmes :
+cap comparé au déplacement réel frame à frame, butinage effectif sur 30 s de
+simulation, garde au sol après coup, gate jour/nuit sur `update()`, proportion de
+solitaires et étalement de l'éclat. `INVARIANTS: 21 pass, 0 fail` en low et ultra
+— dont **136/136 caps alignés (pire 1.000)** et **24 posés sur corolle contre 0**.
+
+Un invariant a dû être corrigé avec le code : l'invariant 11 mesurait la garde au
+sol au point semé, hypothèse périmée dès que le placement s'est calé sur
+l'enveloppe de dérive. Il échouait sur sa propre prémisse, pas sur un défaut.
+
+### Reste
+
+**1 finding sur 11** : le domaine de vol des papillons n'est jamais borné en
+position et ne connaît ni terre ni eau. `FLEE` continue d'intégrer hors domaine,
+et au-dessus de la mer `Y` viendrait du fond marin. Non traité.
