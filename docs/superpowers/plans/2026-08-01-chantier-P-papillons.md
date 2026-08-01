@@ -332,8 +332,26 @@ ne rapporte.
   le brûlerait en blanc ; puis
   `world.butterflies.setRepeller?.(world.shiba.position)` juste après celui des
   oiseaux (`main.js:607`).
-- [ ] **Banc fps de jour**, protocole du piège 9 des deux côtés. Référence à
-  relever AVANT le câblage. Étalon connu : printemps ultra, ouverture 33.7 / sol 24.6.
+- [x] **Banc fps de jour — RÉFÉRENCE RELEVÉE le 01/08/2026**, avant tout câblage,
+  protocole du piège 9 (resync `readPixels`, orbit, `autoRotate` off, damping off,
+  dérive vérifiée nulle). Printemps, ultra, buffer 3600×2008, `dayTime = 0.5`.
+
+```
+RÉFÉRENCE JOUR AVANT PAPILLONS
+  ouverture (CAMERA.start)              34.0 / 34.2 fps
+  sol (centre du champ de fleurs,       32.4 fps — 5 passes, σ = 0.08, étendue 0.2
+       12.4, -15.1, h+2.0)
+```
+
+  L'ouverture à 34.0 reproduit les 33.7 d'`AGENTS.md`, ce qui valide le protocole.
+  Le sol n'est PAS comparable aux 24.6 d'`AGENTS.md` : cadrage différent (ici le
+  centre de la prairie, là où voleront les papillons). Il ne se compare qu'à
+  lui-même.
+
+  **Piège de mesure découvert ici :** la première passe après un déplacement de
+  caméra donnait 29.4 contre 32.4 pour les cinq suivantes. Les 8 frames de chauffe
+  du banc ne suffisent pas — **la première passe complète EST la chauffe**, il faut
+  la jeter. Sans ça on croit à un bruit de ±3 fps là où il est de ±0.1.
 - [ ] **Visuel** : à midi, des papillons visitent les dérives ; le vol **zigzague**
   au lieu de planer en arcs ; on distingue les deux espèces à la taille et à
   l'allure ; courir le shiba dedans les fait décoller. À minuit : aucun.
