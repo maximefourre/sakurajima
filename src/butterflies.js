@@ -273,6 +273,26 @@ export function createButterflies({
         // Bord d'aile assombri : sans lui les deux especes lisent comme deux
         // taches plates de couleurs differentes.
         base = mix(edge, base, smoothstep(0.0, 0.30, shape));
+
+        // LES MARQUES D'ESPECE — ajoutees apres comparaison a la morphometrie
+        // publiee. Sans elles les deux especes ne se distinguaient que par la
+        // taille et la teinte, alors que ce sont ces marques qui les NOMMENT.
+        if (vSpecies > 0.5) {
+          // Papilio xuthus : nervures noires rayonnant depuis le corps sur le
+          // jaune. C'est son signalement, plus encore que la queue.
+          float ang = atan(w.y, max(w.x, 1e-3));
+          float nerv = abs(fract(ang * 1.75 + 0.5) - 0.5) * 2.0;
+          base = mix(edge, base, smoothstep(0.10, 0.34, nerv) * 0.75 + 0.25);
+        } else {
+          // Pieris rapae : POINTE D'AILE NOIRE au sommet de l'aile anterieure,
+          // et un point noir sur son disque. Les deux marques d'identification
+          // du guide, sur une aile par ailleurs uniformement blanc creme.
+          float apex = smoothstep(0.55, 0.95, w.x) * smoothstep(0.02, 0.42, w.y);
+          base = mix(base, edge, apex * 0.85);
+          float pt = 1.0 - smoothstep(0.06, 0.13, length((w - vec2(0.52, 0.16)) * vec2(1.0, 1.15)));
+          base = mix(base, edge, pt * 0.8);
+        }
+
         // LE CORPS : une bande sombre le long de l'axe. C'est elle qui SEPARE les
         // deux ailes ; sans elle la paire fusionne en un seul lobe symetrique et
         // on ne lit plus un insecte mais un petale.

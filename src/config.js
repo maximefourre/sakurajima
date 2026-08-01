@@ -355,6 +355,23 @@ export const FIREFLIES = Object.freeze({
  * Le vol est la signature : les Pieris de printemps volent LENTEMENT et à FORTE
  * COURBURE de trajectoire. Ce n'est pas l'arc lisse d'un boid — c'est un zigzag.
  */
+/*
+ * ÉCHELLE — les insectes de ce projet sont volontairement surdimensionnés d'un
+ * ordre de grandeur, et c'est un CHOIX, pas une dérive.
+ *
+ * Étalonnage du monde sur deux objets connus : le shiba (garrot 0.66 u pour
+ * ~40 cm réels) donne 1 u ≈ 0.61 m, la lanterne de pierre (2.0 u pour ~1.8 m)
+ * donne 0.90 m. En prenant 0.9 m :
+ *
+ *   machaon        rendu 65 cm  · réel 7-9 cm    · ×8.1
+ *   petite blanche rendu 31 cm  · réel 3.2-4.7 cm · ×7.7
+ *   luciole        rendu 18 cm  · réel ~1.5 cm    · ×12
+ *
+ * À l'échelle vraie une blanche ferait 0.044 u : sous le pixel à toute distance
+ * de jeu, donc invisible — l'exact contraire de ce que ces chantiers visent.
+ * Ce qui EST tenu, en revanche, c'est le rapport entre les deux espèces :
+ * 0.72/0.34 = 2.12 contre 2.0 dans la nature, à 6 % près.
+ */
 export const BUTTERFLIES = Object.freeze({
   bigFraction: 0.30,      // part de machaons : les grands sont plus rares
 

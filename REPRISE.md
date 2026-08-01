@@ -1695,3 +1695,46 @@ l'enveloppe de dérive. Il échouait sur sa propre prémisse, pas sur un défaut
 **1 finding sur 11** : le domaine de vol des papillons n'est jamais borné en
 position et ne connaît ni terre ni eau. `FLEE` continue d'intégrer hors domaine,
 et au-dessus de la mer `Y` viendrait du fond marin. Non traité.
+
+## Étalon photographique des papillons (01/08/2026)
+
+Le seul écart de méthode qui restait : les lucioles avaient été comparées à des
+références réelles, les papillons non. Fait par la **morphométrie publiée**
+plutôt que par une impression sur photo.
+
+### Ce qui était juste
+
+**Le rapport de taille entre les deux espèces.** Réel : *P. xuthus* 7–9 cm contre
+*P. rapae* 3.2–4.7 cm, soit ×2.0. Rendu : 0.72 / 0.34 = **×2.12**, à 6 % près.
+
+### Ce qui manquait : les marques qui NOMMENT les espèces
+
+Les deux ne se distinguaient que par la taille et la teinte, avec un liseré
+sombre uniforme. Ajouté :
+
+- *Pieris rapae* : **pointe d'aile noire** au sommet de l'antérieure et **point
+  noir** sur son disque — les deux marques du guide d'identification ;
+- *Papilio xuthus* : **nervures noires rayonnantes** sur le jaune, son signalement
+  plus encore que la queue.
+
+### L'échelle, assumée après mesure
+
+Étalonnage du monde sur deux objets connus : le shiba (garrot 0.66 u pour ~40 cm)
+donne 1 u ≈ 0.61 m, la lanterne de pierre (2.0 u pour ~1.8 m) donne 0.90 m. À
+0.9 m/u :
+
+| | rendu | réel | facteur |
+|---|---|---|---|
+| machaon | 65 cm | 7–9 cm | **×8.1** |
+| petite blanche | 31 cm | 3.2–4.7 cm | **×7.7** |
+| luciole | 18 cm | ~1.5 cm | **×12** |
+
+Les insectes sont donc surdimensionnés d'un ordre de grandeur. **Non corrigé, et
+documenté dans `config.js` comme un choix** : à l'échelle vraie une blanche
+ferait 0.044 u, sous le pixel à toute distance de jeu — l'exact contraire de ce
+que ces deux chantiers visaient. Le facteur est au moins cohérent entre les trois
+espèces, et le rapport inter-espèces est juste.
+
+Sources : AHDB et Butterflies and Moths of North America (*P. rapae* : envergure,
+pointes noires, un point chez le mâle et deux chez la femelle), Kiddle et Bugs of
+Japan (*P. xuthus* : 7–11 cm, jaune et noir).
