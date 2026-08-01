@@ -144,6 +144,7 @@ export const QUALITY = {
     uniqueTrees: 10,
     rocks: Math.round(35 * AREA_SOFT),
     fireflies: 160,
+    butterflies: Math.round(5 * AREA_SOFT),
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -159,6 +160,7 @@ export const QUALITY = {
     uniqueTrees: 18,
     rocks: Math.round(74 * AREA_SOFT),
     fireflies: 420,
+    butterflies: Math.round(12 * AREA_SOFT),
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -178,6 +180,7 @@ export const QUALITY = {
     uniqueTrees: 28,
     rocks: Math.round(110 * AREA_SOFT),
     fireflies: 800,
+    butterflies: Math.round(24 * AREA_SOFT),
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -309,4 +312,76 @@ export const FIREFLIES = Object.freeze({
   peakSolar: 0.82,
   peakWidth: 0.16,
   peakFloor: 0.45,       // activité résiduelle au cœur de la nuit
+});
+
+/**
+ * Papillons — le versant diurne de la faune, dont les lucioles sont le nocturne.
+ *
+ * Deux espèces, parce qu'une seule lit comme un clone dupliqué. Au printemps la
+ * petite blanche (Pieris rapae) et le machaon asiatique (Papilio xuthus) ; à
+ * l'automne la blanche cède la place au tateha roux (Vanessa indica), qui
+ * HIVERNE À L'ÉTAT ADULTE — c'est précisément pourquoi on la voit encore voler
+ * en novembre quand les autres espèces sont à l'état d'oeuf ou de chrysalide.
+ *
+ * Le vol est la signature : les Pieris de printemps volent LENTEMENT et à FORTE
+ * COURBURE de trajectoire. Ce n'est pas l'arc lisse d'un boid — c'est un zigzag.
+ */
+export const BUTTERFLIES = Object.freeze({
+  bigFraction: 0.30,      // part de machaons : les grands sont plus rares
+
+  // — petite espèce (blanche au printemps, tateha roux à l'automne) —
+  small: {
+    span: 0.34,           // envergure, unités monde
+    speed: [1.4, 2.4],
+    cruiseY: [0.3, 1.5],  // au-dessus du sol : elle butine bas
+    flapRate: [9.0, 13.0],// battements/s — rapide et irrégulier
+    veerChance: 0.16,     // probabilité d'embardée sèche par seconde
+    veerAmount: 1.5,      // radians
+    bob: 0.16,            // tangage vertical calé sur le battement
+    glideChance: 0.0,     // une blanche ne plane pas
+  },
+  // — machaon : plus grand, plus rapide, plus haut, il PLANE —
+  big: {
+    span: 0.72,
+    speed: [2.2, 3.4],
+    cruiseY: [1.6, 4.0],
+    flapRate: [4.5, 7.0],
+    veerChance: 0.06,
+    veerAmount: 0.9,
+    bob: 0.10,
+    glideChance: 0.35,    // fraction du temps ailes tendues, sans battre
+  },
+
+  turnRate: 2.6,          // rad/s max — au-delà le vol lit comme un missile
+
+  // — butinage —
+  perchChance: 0.5,       // probabilité de viser une fleur en fin d'errance
+  perchSeconds: [1.5, 5.0],
+  approachRadius: 14,     // rayon de recherche d'une fleur cible
+  arriveDist: 0.35,
+
+  // — fuite —
+  // 4 u, pas les 26 u des oiseaux : on approche un papillon de TRÈS près avant
+  // qu'il ne parte, et un papillon qui décolle à 26 u lit comme un oiseau.
+  fleeRadius: 4.0,
+  fleeSeconds: [2.0, 4.0],
+  fleeSpeed: 5.0,
+
+  // — domaine —
+  // Rappel SOUPLE, et vers l'ANCRE PROPRE À CHAQUE INDIVIDU (sa fleur
+  // d'éclosion), surtout pas vers le barycentre global du champ.
+  //
+  // Le champ de fleurs fait 633 × 637 unités : un rappel vers son centre
+  // ramènerait toute la population au même endroit et viderait la périphérie.
+  // Et c'est aussi ce que font les vrais Pieris — la littérature parle de vol
+  // exploratoire sur leur « natal patch », pas de transhumance insulaire.
+  //
+  // Souple, jamais un mur : un papillon qui rebondit sur une frontière
+  // invisible se dénonce immédiatement.
+  homeRadius: 70,         // autour de l'ancre individuelle
+  homePull: 1.8,
+
+  // — jour —
+  // Miroir de fireflyActivity : allumés en plein jour, éteints la nuit.
+  duskFade: 0.35,         // part du crépuscule où ils volent encore
 });

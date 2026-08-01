@@ -158,10 +158,11 @@ export const BUTTERFLIES = Object.freeze({
   fleeSpeed: 5.0,
 
   // — domaine —
-  // Rappel SOUPLE vers le barycentre du champ de fleurs. Sans lui, un cap en
-  // marche aléatoire finit par emmener toute la population en mer, lentement et
-  // sans que rien ne l'arrête. Un mur ferait rebondir, ce qui se dénonce.
-  homeRadius: 150,
+  // Rappel SOUPLE vers l'ANCRE PROPRE À CHAQUE INDIVIDU (sa fleur d'éclosion).
+  // Mesuré : le champ de fleurs fait 633 × 637 u — un rappel vers son barycentre
+  // ramènerait toute la population au centre et viderait la périphérie. C'est
+  // aussi le comportement réel : les Pieris explorent leur « natal patch ».
+  homeRadius: 70,         // autour de l'ancre individuelle
   homePull: 1.8,
 
   // — jour —
@@ -193,30 +194,44 @@ butterflyActivity(phase) → number dans [0, 1]
 
 - [ ] **Étape 2 :** ajouter, avant `const summary` :
 
+Note : le domaine est **par individu**, donc il ne se teste pas au semis (au semis
+un papillon EST sur son ancre). L'invariant vérifie donc ce qui est réellement
+statique : la garde au sol dans la bande de croisière de l'espèce, et le fait que
+chaque papillon soit **ancré sur une vraie fleur**.
+
 ```js
-/* ── papillons : semés au-dessus du sol, dans leur domaine ──────────────── */
+/* ── papillons : au-dessus du sol, ancrés sur une vraie fleur ───────────── */
 {
+  const nf = flowerSpots.length / 3;
   const spawns = computeButterflySpawns({
     flowerSpots, heightAt: island.heightAt,
     count: QUALITY[TIER].butterflies, seed: SEED,
   });
-  let ok = spawns.length > 0;
-  let detail = spawns.length ? '' : 'aucun papillon produit';
-  let worstClear = Infinity, worstAt = '';
-  // Barycentre du champ de fleurs — le centre du domaine de vol.
-  let cx = 0, cz = 0, nf = flowerSpots.length / 3;
-  for (let i = 0; i < nf; i++) { cx += flowerSpots[i*3]; cz += flowerSpots[i*3+2]; }
-  cx /= Math.max(nf,1); cz /= Math.max(nf,1);
+  let ok = spawns.length > 0 && nf > 0;
+  let detail = ok ? '' : `spawns=${spawns.length} fleurs=${nf}`;
+  let worstClear = Infinity, worstAt = '', gros = 0;
+
   for (const s of spawns) {
+    if (s.big) gros++;
+    // 1. ancré sur une fleur qui existe, et posé À SA VERTICALE
+    const fi = s.flowerIndex;
+    if (!(Number.isInteger(fi) && fi >= 0 && fi < nf)) {
+      ok = false; detail = `flowerIndex ${fi} hors bornes (${nf} fleurs)`; break;
+    }
+    const fx = flowerSpots[fi*3], fz = flowerSpots[fi*3+2];
+    if (Math.hypot(s.x - fx, s.z - fz) > 1e-3) {
+      ok = false; detail = `papillon décalé de son ancre : (${s.x.toFixed(1)},${s.z.toFixed(1)}) vs (${fx.toFixed(1)},${fz.toFixed(1)})`; break;
+    }
+    // 2. dans la bande de croisière de SON espèce, jamais sous le sol
+    const band = s.big ? BUTTERFLIES.big.cruiseY : BUTTERFLIES.small.cruiseY;
     const clear = s.y - island.heightAt(s.x, s.z);
     if (clear < worstClear) { worstClear = clear; worstAt = `(${s.x.toFixed(0)},${s.z.toFixed(0)})`; }
-    if (!(clear > 0.05)) { ok = false; detail = `papillon sous le sol : garde ${clear.toFixed(2)} ${worstAt}`; break; }
-    if (Math.hypot(s.x - cx, s.z - cz) > BUTTERFLIES.homeRadius * 1.5) {
-      ok = false; detail = `papillon hors domaine à (${s.x.toFixed(0)},${s.z.toFixed(0)})`; break;
+    if (!(clear >= band[0] - 1e-3 && clear <= band[1] + 1e-3)) {
+      ok = false; detail = `garde ${clear.toFixed(2)} hors bande [${band[0]}, ${band[1]}] ${worstAt}`; break;
     }
   }
-  check('papillons au-dessus du sol et dans leur domaine', ok,
-    ok ? `${spawns.length} papillons, ${nf} fleurs, garde min ${worstClear.toFixed(2)} ${worstAt}` : detail);
+  check('papillons au-dessus du sol et ancrés sur une fleur', ok,
+    ok ? `${spawns.length} papillons (${gros} machaons), ${nf} fleurs, garde min ${worstClear.toFixed(2)} ${worstAt}` : detail);
 }
 
 /* ── papillons : ils dorment la nuit ────────────────────────────────────── */

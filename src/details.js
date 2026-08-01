@@ -320,6 +320,16 @@ export function computeLanternSpots(heightAt, slopeAt = null) {
 /** Filled by createDetails — last lantern feet placed (read-only snapshot). */
 export let lanternSpots = [];
 
+/**
+ * Positions des fleurs sauvages réellement posées (triplets x, y, z).
+ *
+ * Tableau TYPÉ et non tableau d'objets comme `lanternSpots` : il y a 38 lanternes
+ * et jusqu'à 25 200 fleurs. Rempli par createDetails ; lu par butterflies.js pour
+ * savoir où butiner. Re-dériver ces positions ailleurs avec le même flux seedé
+ * marcherait aujourd'hui et casserait en silence le jour où les dérives bougent.
+ */
+export let flowerSpots = new Float32Array(0);
+
 /* ────────────────────────────────────────────────────────────────
    Packed-earth surfaces — PURE builders, shared with the invariant
    bench (test/invariants.html) so the test proves the exact geometry
@@ -1280,6 +1290,7 @@ export function createDetails({
   /* ── 1. wildflowers ──────────────────────────────────────────── */
 
   const flowerMeshes = [];
+  const spotAcc = [];
   {
     const rng = streamFor(seed, 'details.flowers');
     // Quoted per unit island and multiplied by AREA — flowers cover ground, and
@@ -1347,6 +1358,7 @@ export function createDetails({
         const sc = R.range(rng, 0.78, 1.35);
         _m.compose(_p.set(x, h - 0.02, z), _q, _s.set(sc, sc, sc));
         mesh.setMatrixAt(placed++, _m);
+        spotAcc.push(x, h, z);
       }
 
       mesh.count = placed;
@@ -1355,6 +1367,8 @@ export function createDetails({
       group.add(mesh);
       flowerMeshes.push(mesh);
     }
+    // Snapshot des fleurs réellement posées, pour les papillons.
+    flowerSpots = new Float32Array(spotAcc);
   }
 
   /* ── 2. stone lanterns ───────────────────────────────────────── */
