@@ -12,7 +12,7 @@
  */
 
 import * as THREE from 'three';
-import { BUTTERFLIES } from './config.js';
+import { BUTTERFLIES, WORLD } from './config.js';
 import { streamFor, R } from './noise.js';
 
 /**
@@ -495,10 +495,41 @@ export function createButterflies({
         }
       }
 
-      // — intégration —
+      // — intégration, avec le domaine réellement BORNÉ ─────────────────────
+      //
+      // ADV-2026-08-01-BFLY : le rappel vers l'ancre n'était qu'angulaire. Rien
+      // ne bornait la POSITION, et FLEE — qui ignore le rappel — continuait
+      // d'intégrer vers le large. Au-dessus de la mer, l'altitude aurait été
+      // calculée depuis le FOND MARIN, donc un papillon volant à 300 u au-dessus
+      // des vagues. Deux garde-fous, dans cet ordre.
       if (speed > 0) {
-        b.x += Math.cos(b.heading) * speed * step;
-        b.z += Math.sin(b.heading) * speed * step;
+        const nx = b.x + Math.cos(b.heading) * speed * step;
+        const nz = b.z + Math.sin(b.heading) * speed * step;
+
+        // 1. LA MER EST UN MUR. On teste le terrain plutôt qu'un prédicat d'eau :
+        //    les étangs sont creusés bien au-dessus du niveau de la mer (fonds à
+        //    ~2.9 u pour un seaLevel à 0), donc survoler un bassin reste permis —
+        //    c'est seulement l'océan et la frange de plage qui sont refusés.
+        if (heightAt(nx, nz) > WORLD.seaLevel + 0.5) {
+          b.x = nx; b.z = nz;
+        } else {
+          // Demi-tour, pas un rebond spéculaire : un papillon qui ricoche sur
+          // une frontière invisible se dénonce autant qu'un papillon qui la
+          // traverse. Il vire, et le rappel vers l'ancre finit le travail.
+          b.heading += Math.PI * 0.6;
+        }
+
+        // 2. BORNE DURE, très au-delà du rappel souple. Elle n'est jamais
+        //    atteinte en errance normale : elle n'existe que pour que FLEE et
+        //    les embardées ne puissent pas dériver sans fin sur une longue
+        //    session. Projection sur le cercle, pas rebond.
+        const ax = b.x - b.anchorX, az = b.z - b.anchorZ;
+        const da = Math.hypot(ax, az);
+        const dur = BUTTERFLIES.homeRadius * 1.6;
+        if (da > dur) {
+          b.x = b.anchorX + (ax / da) * dur;
+          b.z = b.anchorZ + (az / da) * dur;
+        }
       }
       // Le sol a la position d'ARRIVEE : `ground` plus haut valait pour la
       // position d'avant l'integration, ce qui suffit pour choisir wantY mais

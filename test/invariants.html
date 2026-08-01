@@ -664,7 +664,44 @@ check('bancs d’ondes disjoints',
   }
   if (!(pireGarde > -0.05)) ratages.push(`papillon sous le sol : ${pireGarde.toFixed(2)} ${pireAt}`);
 
-  // 4. Le gate, sur le VRAI update().
+  // 4. SESSION LONGUE AVEC FUITES REPETEES — ADV-2026-08-01-BFLY.
+  //    Le rappel vers l'ancre n'etait qu'angulaire et FLEE l'ignorait : rien ne
+  //    bornait la position, donc sur la duree la population derivait vers le
+  //    large, ou l'altitude serait calculee depuis le FOND MARIN. On harcele
+  //    donc la population avec un repulseur mobile et on regarde ou elle finit.
+  {
+    const rep = new THREE.Vector3();
+    for (let k = 0; k < 3600; k++) {                    // 60 s
+      // Le repulseur balaie le champ de fleurs, forcant des fuites en chaine.
+      const u = (k / 3600) * Math.PI * 2;
+      const fi = (k * 977) % nf;
+      rep.set(flowerSpots[fi*3] + Math.cos(u), 0, flowerSpots[fi*3+2] + Math.sin(u));
+      bf.setRepeller(rep);
+      t += dt; bf.update(t, dt, jour);
+    }
+    pose(apres);
+    let enMer = 0, pireH = Infinity, loin = 0;
+    // Bornes du champ de fleurs, elargies du domaine dur : aucun individu ne
+    // doit se trouver au-dela.
+    let fxMin = Infinity, fxMax = -Infinity, fzMin = Infinity, fzMax = -Infinity;
+    for (let j = 0; j < nf; j++) {
+      fxMin = Math.min(fxMin, flowerSpots[j*3]); fxMax = Math.max(fxMax, flowerSpots[j*3]);
+      fzMin = Math.min(fzMin, flowerSpots[j*3+2]); fzMax = Math.max(fzMax, flowerSpots[j*3+2]);
+    }
+    const marge = BUTTERFLIES.homeRadius * 1.6 + 5;
+    for (let i = 0; i < m.count; i++) {
+      const h = island.heightAt(apres[i].x, apres[i].z);
+      if (h < pireH) pireH = h;
+      if (h <= WORLD.seaLevel + 0.5) enMer++;
+      if (apres[i].x < fxMin - marge || apres[i].x > fxMax + marge
+       || apres[i].z < fzMin - marge || apres[i].z > fzMax + marge) loin++;
+    }
+    if (enMer > 0) ratages.push(`${enMer} papillons au-dessus de la mer apres 60 s (terrain min ${pireH.toFixed(2)})`);
+    if (loin > 0) ratages.push(`${loin} papillons hors du domaine elargi apres 60 s`);
+    bf.setRepeller(new THREE.Vector3(0, -1e6, 0));
+  }
+
+  // 5. Le gate, sur le VRAI update().
   bf.update(t, dt, { day: 0, night: 1, twilight: 0 });
   if (m.visible) ratages.push('visibles en pleine nuit');
   bf.update(t, dt, jour);
@@ -674,7 +711,7 @@ check('bancs d’ondes disjoints',
   check('papillons : runtime, cap, butinage et sol', ratages.length === 0,
     ratages.length ? ratages.join(' ; ')
       : `${m.count} papillons, ${alignes}/${mobiles} caps alignes (pire ${pireDot.toFixed(3)}), `
-        + `${poses} poses sur corolle, garde min ${pireGarde.toFixed(2)}`);
+        + `${poses} poses sur corolle, garde min ${pireGarde.toFixed(2)}, 60 s de fuites sans sortie en mer`);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;

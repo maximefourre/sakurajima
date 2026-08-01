@@ -518,7 +518,7 @@ max 0.2309 pour un plafond de 0.550, 43 lanternes sans orpheline.
 | Plage auditée | `0875879..HEAD`, focus `src/butterflies.js`, bloc `BUTTERFLIES`, export `flowerSpots`, câblage, invariants papillons |
 | Outil | `/codex:adversarial-review --background --base 0875879` |
 | Verdict Codex | **needs-attention** — « no-ship » |
-| Statut global | **Traité** (5 findings sur 6) — reste le domaine de vol non borné |
+| Statut global | **Traité** (6 findings sur 6) |
 | Traité par | Claude — contre-vérification numérique indépendante de 3 claims : **les 3 confirmés**. Module écrit par Claude lui-même après échec de la délégation Codex, et n'ayant jamais eu de second regard. |
 | Commit(s) de résolution | `383de77` |
 
@@ -528,7 +528,7 @@ max 0.2309 pour un plafond de 0.550, 43 lanternes sans orpheline.
 |---|---|---|
 | [high] La machine à états ne butine pas réellement : `pickFlower` tire 8 indices dans la liste GLOBALE de 25 204 fleurs et abandonne. `PERCHED` se pose en outre à 0.06 u du terrain en ignorant la hauteur réelle de la corolle. | **Traité** | **CONFIRMÉ par calcul** : un disque de 14 u couvre 0.153 % du champ de fleurs → la recherche aboutit dans **1.22 %** des cas. Les papillons ne se posent donc pratiquement **jamais** — c'est-à-dire que la fonctionnalité explicitement choisie par l'utilisateur est non fonctionnelle. |
 | [high] Le pilotage CPU invalide la signature de vol : le lacet `-heading` oriente le +Z local perpendiculairement à la vitesse ; `veerChance` est multiplié par `step × 60` ; le roulis global phase-locké explique l'asymétrie. | **Traité** | **CONFIRMÉ par calcul** : produit scalaire vitesse·avant = **0.000000 pour tout cap** — les papillons volent exactement de côté. `Math.PI/2 − heading` donne 1.000000. Et `veerChance 0.16` produit **9.6 embardées/s** au lieu de 0.16. |
-| [medium] Le domaine individuel ne borne jamais la position et ne connaît ni terre ni eau ; au-dessus de la mer, `Y` est calculé depuis le fond marin. | **NON TRAITÉ** | Confirmé par lecture : seule une correction angulaire souple est appliquée, et `FLEE` continue d'intégrer hors domaine. |
+| [medium] Le domaine individuel ne borne jamais la position et ne connaît ni terre ni eau ; au-dessus de la mer, `Y` est calculé depuis le fond marin. | **Traité** | Deux garde-fous. **La mer est un mur** : le pas est refusé si `heightAt < seaLevel + 0.5`, et l'individu vire — les étangs restent survolables, leurs fonds étant à ~2.9 u. Puis une **borne dure** à `homeRadius × 1.6`, par projection sur le cercle, que FLEE ne peut pas franchir. Prouvé NON VIDE : sur 60 s de fuites en chaîne le terrain minimal atteint sous un papillon est **exactement 0.50**, soit le seuil lui-même (marge 0.00), avec 1395 échantillons sous 3 u d'altitude. Ils butent donc réellement, à répétition. |
 | [medium] La silhouette est tronquée par son quad porteur : le masque reste positif sur ses bords (0.19 au bout d'aile, 0.945 à la queue), donc le rasteriseur coupe droit. | **Traité** | Confirmé par lecture du shader. Explique le bout d'aile plat, indépendamment de l'asymétrie déjà connue. |
 | [medium] Le binding vivant crée une dépendance d'ordre silencieuse (`src/main.js`) : construire avant `createDetails` donne un mesh valide de compte zéro, sans erreur. | **Traité** | Confirmé — le commentaire reconnaît le piège mais aucun garde ne le transforme en panne visible. |
 | [medium] Les deux invariants n'exercent jamais le runtime : ni `createButterflies`, ni la machine à états, ni `mesh.visible`. | **Traité** | Confirmé — c'est ce qui explique que les quatre défauts ci-dessus passent avec `19 pass, 0 fail`. Le signal de validation est **trompeur**. |
@@ -551,9 +551,9 @@ dérive. Il échouait donc sur sa propre prémisse périmée, pas sur un défaut
 
 ### Reste à traiter
 
-**1 finding sur 11** : le domaine de vol des papillons n'est jamais borné en
-position et ne connaît ni terre ni eau. Au-delà de `homeRadius` seule une
-correction angulaire souple s'applique, et `FLEE` continue d'intégrer hors
-domaine ; au-dessus de la mer, `Y` serait calculé depuis le fond marin. Le
-nouvel invariant de runtime vérifie la garde au sol après 30 s mais ne simule pas
-de session longue avec fuites répétées, donc il ne l'attraperait pas.
+**Aucun.** Les 11 findings des deux rapports sont traités.
+
+Le dernier — le domaine de vol non borné — a été fermé avec un invariant qui
+harcèle la population pendant 60 s avec un répulseur mobile balayant le champ de
+fleurs, puis vérifie qu'aucun individu n'est au-dessus de la mer ni hors du
+domaine élargi. `INVARIANTS: 21 pass, 0 fail` en `low` et en `?q=ultra`.
