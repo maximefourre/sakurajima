@@ -1231,3 +1231,43 @@ Contrôles en jeu : ondes qui survivent à la sortie du bassin et meurent seules
 **Dette laissée ouverte, assumée** : la poussière au sol est présente mais
 DISCRÈTE (voir le journal du chantier), et le sillage de nage est peut-être un
 peu appuyé — deux jugements de goût qui reviennent à l'utilisateur, pas des bugs.
+
+## Réglages du sillage et de la poussière — trois allers-retours, puis des molettes (01/08/2026)
+
+Retours utilisateur en jeu : « bizarre le halo lumineux autour » (sillage de
+nage) et « on dirait des bulles » (poussière). Les deux étaient justes, et les
+deux venaient d'une erreur de ma part.
+
+**Le halo.** Le fragment de l'étang convertit toute hauteur positive en crête
+claire. À 0.22 d'amplitude, le bourrelet du sillage dépassait largement le
+clapot de brise (0.098) : il ne lisait plus comme de l'eau soulevée mais comme
+un anneau lumineux posé sur la nappe. Amplitude 0.22 → **0.13**, bourrelet
+0.55 → **0.32**, gaussienne deux fois plus large et poussée plus loin du corps.
+L'histoire complète du nombre est en commentaire : à 0.08 il passait SOUS le
+clapot, à 0.22 il devenait un halo — les deux bouts constatés en jeu.
+
+**Les bulles.** Ce n'était pas un problème d'intensité mais de FORME : le grain
+était un disque à cœur plein (opaque à 100 % jusqu'à `r = 0.52`) et à bord
+circulaire, donc chaque particule lisait comme une bille. Remplacé par une
+décroissance douce sans palier, avec un rayon modulé par l'angle (graine tirée
+de la date de naissance, donc deux grains nés à la même frame diffèrent) et une
+luminosité qui varie d'un grain à l'autre. Les gouttes, elles, **restent des
+disques nets** — une goutte EST une bille.
+
+**Le piège que je me suis tendu.** En corrigeant les bulles j'ai baissé la forme
+ET l'intensité, et la poussière a disparu une deuxième fois. Or le seul passage
+du disque plein à la décroissance douce divise déjà l'opacité effective par ~2
+(0.46 contre 1.0 au même rayon). Corriger une forme et compenser sa part, oui ;
+cumuler les deux baisses, non.
+
+**Conclusion méthodologique** : trois allers-retours capture/relance pour un
+réglage de goût, c'est deux de trop. Les deux constantes sont désormais des
+**molettes vivantes**, réglables à chaud sans rechargement :
+
+```js
+// poussière (opacité)
+__sk.world.particles.group.getObjectByName('shiba-ground-grains')
+  .material.uniforms.uDustOpacity.value = 0.9;
+// sillage de nage (profondeur du creux)
+(await import('/src/shiba.js')).SHIBA.wakeAmp = 0.2;
+```

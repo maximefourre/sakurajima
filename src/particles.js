@@ -23,7 +23,7 @@ const KIND_INDEX = Object.freeze({
   [PARTICLE_KIND.WATER]: 3,
 });
 
-const GRAIN_LIFE = 1.7;
+const GRAIN_LIFE = 1.35;
 const CROWN_LIFE = 1.05;
 const CROWN_COUNT = 32;
 
@@ -67,6 +67,10 @@ function createGrainPool(count, life, season) {
         value: new THREE.Color(season === 'autumn' ? 0xd98b4a : 0xb9cf92),
       },
       uWaterColor: { value: new THREE.Color(0xc7efff) },
+      // Molette de reglage, exposee en uniform pour se tourner A CHAUD depuis
+      // la console sans rechargement — ce reglage est un jugement de gout et
+      // l'aller-retour capture/relance coutait plus cher que le reglage.
+      uDustOpacity: { value: 0.60 },
     },
     transparent: true,
     depthWrite: false,
@@ -111,6 +115,7 @@ function createGrainPool(count, life, season) {
       uniform vec3 uSandColor;
       uniform vec3 uMeadowColor;
       uniform vec3 uWaterColor;
+      uniform float uDustOpacity;
       varying vec2 vUv;
       varying float vBorn;
       varying float vKind;
@@ -120,14 +125,41 @@ function createGrainPool(count, life, season) {
         if (age < 0.0 || age > uLife) discard;
 
         vec2 p = vUv * 2.0 - 1.0;
-        float disc = 1.0 - smoothstep(0.52, 1.0, length(p));
+        float r = length(p);
+        float ang = atan(p.y, p.x);
+        // Graine par instance, tiree de la date de naissance : deux grains nes
+        // a la meme frame n'ont pas la meme silhouette.
+        float seed = fract(vBorn * 13.71) * 6.2831853;
+        bool drop = vKind > 2.5;
+
+        // Une GOUTTE est une bille : disque net, c'est juste. Une POUSSIERE ne
+        // l'est pas — avec un coeur plein et un bord circulaire, chaque grain
+        // lisait comme une bille et l'ensemble comme des BULLES DE SAVON
+        // (constate en jeu). D'ou une decroissance douce des le centre, sans
+        // palier, et un rayon module par l'angle pour casser le cercle.
+        float wob = drop ? 1.0
+          : 0.80 + 0.20 * sin(ang * 3.0 + seed) * sin(ang * 5.0 - seed * 1.7);
+        float shape = drop
+          ? 1.0 - smoothstep(0.52, 1.0, r)
+          : exp(-pow(r / max(wob, 0.35), 2.0) * 2.9);
+
         float fade = 1.0 - age / uLife;
         vec3 color = uDirtColor;
         if (vKind > 0.5) color = uSandColor;
         if (vKind > 1.5) color = uMeadowColor;
-        if (vKind > 2.5) color = uWaterColor;
-        float opacity = vKind > 2.5 ? 0.84 : 0.64;
-        float alpha = disc * fade * opacity;
+        if (drop) color = uWaterColor;
+        // Trois constats en jeu, dans cet ordre : invisible (couleur du sol,
+        // trop petite, trop breve), puis trop intense et lisant comme des BULLES
+        // DE SAVON, puis invisible a nouveau. La derniere rechute venait d'un
+        // cumul : le passage du disque a coeur plein (opaque a 100 % jusqu'a
+        // r = 0.52) vers la decroissance douce ci-dessus (0.46 au meme rayon)
+        // divise deja l'opacite effective par ~2 — baisser l'opacite EN PLUS
+        // revenait a couper deux fois. On corrige la FORME, on compense sa part,
+        // on ne cumule pas. La luminosite varie ensuite d'un grain a l'autre :
+        // un nuage uniforme lit comme un objet, un nuage irregulier lit comme
+        // de la matiere.
+        float opacity = (drop ? 0.84 : uDustOpacity) * (drop ? 1.0 : 0.78 + 0.22 * sin(seed * 2.3));
+        float alpha = shape * fade * opacity;
         if (alpha < 0.005) discard;
         gl_FragColor = vec4(color, alpha);
       }
@@ -249,15 +281,15 @@ export function createParticles({ quality = null, seed = 1337, season = 'spring'
     } else if (kindIndex === KIND_INDEX[PARTICLE_KIND.DIRT]) {
       radial = R.range(rng, 0.25, 1.05) * strength;
       rise = R.range(rng, 0.65, 1.65) * strength;
-      loSize = 0.30; hiSize = 0.58;
+      loSize = 0.26; hiSize = 0.48;
     } else if (kindIndex === KIND_INDEX[PARTICLE_KIND.SAND]) {
       radial = R.range(rng, 0.45, 1.45) * strength;
       rise = R.range(rng, 0.75, 1.9) * strength;
-      loSize = 0.24; hiSize = 0.46;
+      loSize = 0.21; hiSize = 0.39;
     } else {
       radial = R.range(rng, 0.55, 1.75) * strength;
       rise = R.range(rng, 1.0, 2.55) * strength;
-      loSize = 0.16; hiSize = 0.34;
+      loSize = 0.15; hiSize = 0.30;
     }
 
     const v = i * 3;

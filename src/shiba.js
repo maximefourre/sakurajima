@@ -40,6 +40,10 @@ export const SHIBA = {
   idleBeforeSit: 4.2,     // seconds of stillness before he sits down
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
+  /** Molette : amplitude du creux de sillage en nage. Se regle A CHAUD via
+   *  (await import('/src/shiba.js')).SHIBA.wakeAmp = x — a 0.08 le sillage
+   *  passe sous le clapot de brise, a 0.22 il devient un halo lumineux. */
+  wakeAmp: 0.13,
 };
 
 const GAITS = {
@@ -71,7 +75,7 @@ const BLINK_DURATION = 0.09;
 // Ground-reaction tuning: these two formulas are deliberately the only knobs.
 // If the gait ever reads as permanent fog, lower their floors (1 and 0.6), not
 // the event structure or the progressive response from walk through run.
-const PAW_BURST_COUNT = (speedN) => 1 + Math.round(3 * speedN);
+const PAW_BURST_COUNT = (speedN) => 1 + Math.round(2 * speedN);
 const PAW_BURST_SIZE = (speedN) => 0.6 + 0.8 * speedN;
 
 // Hard flotation invariant: 0.66 * 1.35 = 0.891 > 0.85. The back therefore
@@ -835,10 +839,12 @@ export function createShiba({
 
     // Keep dog ripples enabled while wading as well as swimming; the analytic
     // hull depression itself fades in only with the swimming pose.
-    // 0.22 et non 0.08 : le creux de coque doit dominer le clapot de brise, qui
-    // culmine deja a 0.098 dans pk_surface. Mesure en jeu avant correction : le
-    // sillage etait present mais illisible.
-    waterSetSwimmer(position.x, position.z, state.depth > 0.10, 0.22 * state.swimBlend, dt);
+    // Histoire de ce nombre, en deux corrections opposees. A 0.08 le sillage
+    // passait SOUS le clapot de brise (qui culmine a 0.098) et ne se voyait
+    // pas ; a 0.22 il devenait un halo lumineux, parce que le fragment convertit
+    // toute hauteur positive en crete claire. 0.13 est le point ou l'on lit un
+    // creux d'eau et pas un cerne. Les deux bouts ont ete constates en jeu.
+    waterSetSwimmer(position.x, position.z, state.depth > 0.10, SHIBA.wakeAmp * state.swimBlend, dt);
     animate(t, dt, speedN);
   }
 

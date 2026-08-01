@@ -178,8 +178,14 @@ const WATER_FRAG = /* glsl */ `
 
   float pk_wake(vec2 p) {
     float d = sdSegment(p, uDogWake.xy, uDogTrail);
+    // Le bourrelet est volontairement DISCRET : le fragment convertit toute
+    // hauteur positive en crete claire (voir le terme uKeyColor plus bas), donc
+    // un bourrelet ample n'a pas l'air d'eau soulevee, il a l'air d'un HALO
+    // lumineux pose sur la nappe — constate en jeu. 0.32 et non 0.55, etale sur
+    // une gaussienne deux fois plus large et poussee un peu plus loin du corps :
+    // l'anneau devient une ondulation au lieu d'un cerne.
     return -uDogWake.z * exp(-d * d * 1.6)
-         +  uDogWake.z * 0.55 * exp(-pow(d - 1.15, 2.0) * 3.2);
+         +  uDogWake.z * 0.32 * exp(-pow(d - 1.32, 2.0) * 1.7);
   }
 
   // Surface height in world units. Two contributions: a breeze chop whose
