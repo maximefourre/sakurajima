@@ -156,8 +156,13 @@ Mais le seuil **n'est pas 0.85** : 0.85 est la valeur passée au constructeur
 (`sky.js:385`), qui descend à **0.42 en pleine nuit** — calibré pour que la lune
 (~2.1 linéaire) et les étoiles les plus vives (~1.3) fassent halo. Le ×2.6 des
 lanternes vise le seuil de crépuscule sur une sphère de 0.185 u ; à 0.42 et sur
-un quad plus petit, ~1.6 suffit et 2.8 cramerait. Chiffre de départ, à trancher
-en A/B contre les lanternes dans le même plan.
+un quad plus petit, ~1.6 suffit et 2.8 cramerait.
+
+**Confirmé indépendamment** : les bougies d'offrande du hokora (commit `71b5cfb`)
+sont réglées à **1.55** pour un émetteur de r 0.019, avec la même conclusion
+tirée d'un premier essai trop chaud — « le halo doit venir du bloom, pas de
+l'émetteur ». Une luciole doit sortir entre 1.5 et 1.8. À trancher en A/B contre
+lanterne et bougie dans le même plan.
 
 **Le tier `low` n'a pas de bloom du tout** (`QUALITY.low.bloom = false`, donc pas
 de composer). Le sprite doit donc porter sa propre décroissance douce —
@@ -408,10 +413,12 @@ différent : relever la référence nocturne AVANT d'ajouter quoi que ce soit.
 
 ## Ordre des chantiers — arbre partagé
 
-Au moment d'écrire ce spec, `src/details.js` porte **172 lignes non commitées**
-d'une autre session (construction d'un sanctuaire : `applyShrineSurface`, mousse,
-lichen, toiture). `main.js` et `config.js` sont vierges — le sanctuaire vit
-entièrement dans `details.js`.
+Au moment d'écrire ce spec, `src/details.js` portait 172 lignes non commitées
+d'une autre session (un hokora : `applyShrineSurface`, mousse, lichen, toiture,
+puis des bougies d'offrande allumées la nuit). **Cette session a depuis commité**
+(`71b5cfb`) — le blocage est levé et les deux chantiers peuvent s'enchaîner sur
+un arbre propre. Le séquençage ci-dessous reste néanmoins le bon ordre : il
+répond d'abord à la demande d'origine, qui portait sur la nuit.
 
 Or les **lucioles ne touchent pas `details.js`** : leur habitat vient de
 `ponds.js`. Seuls les papillons en ont besoin, pour l'export des positions de

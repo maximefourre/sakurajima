@@ -36,9 +36,10 @@ Copiées d'`AGENTS.md` et du spec. Elles s'appliquent à **toutes** les tâches.
 - **Piège 9 (mesure fps) :** toute mesure exige `gl.readPixels(0,0,1,1,…)` après
   chaque frame ET `setCamMode('orbit')` + `autoRotate = false` +
   `enableDamping = false` + dérive de caméra vérifiée nulle.
-- **Le fichier `src/details.js` est en cours de modification par une autre
-  session** (sanctuaire, 172 lignes non commitées). **Ce chantier n'y touche
-  pas.** Si une tâche vous amène à l'éditer, arrêtez-vous et signalez-le.
+- **Ce chantier ne touche pas `src/details.js`.** Si une tâche vous y amène,
+  arrêtez-vous et signalez-le. (La session parallèle qui y construisait un hokora
+  a commité — `71b5cfb` — mais la règle tient : les lucioles n'ont rien à y
+  faire.)
 - Après chaque tâche : `node --check` sur les fichiers touchés, puis commit.
 - Écrire les commentaires en français ou en anglais selon le fichier voisin ;
   `src/` est majoritairement en anglais avec des passages français récents. Suivre
@@ -1045,11 +1046,24 @@ la sphère englobante fait son travail (`mesh.visible` doit passer à `false` qu
 on regarde à l'opposé des étangs), puis le surdessin (800 quads additifs qui se
 recouvrent tous à l'écran, ça se voit en s'approchant très près).
 
-- [ ] **Étape 3 : trancher `overdrive` en A/B contre une lanterne**
+- [ ] **Étape 3 : trancher `overdrive` en A/B contre les émetteurs existants**
 
-Le 1.6 de la tâche 2 est un point de départ raisonné, pas une mesure. Se placer
-de nuit dans un plan qui contient **à la fois** une lanterne allumée et des
-lucioles, puis :
+Le 1.6 de la tâche 2 est un point de départ raisonné, pas une mesure. Deux
+étalons existent déjà dans la scène, et ils encadrent la réponse :
+
+| Émetteur | Surtension | Taille |
+| --- | --- | --- |
+| Fire box de lanterne (`details.js`, `LANTERN_LIGHT`) | **2.6** | sphère r 0.185 |
+| Flamme de bougie du hokora (`CANDLE_LIGHT`, commit `71b5cfb`) | **1.55** | r 0.019 étirée ×2 |
+
+La bougie est l'analogue le plus proche — petit émetteur, même seuil de bloom
+nocturne — et la session qui l'a réglée a tiré la même conclusion par un autre
+chemin : « le halo doit venir du bloom, pas de l'émetteur », après un premier
+essai trop gros qui donnait « des flammes de la taille des coupes à saké ».
+**Une luciole doit sortir entre 1.5 et 1.8, pas près de 2.6.**
+
+Se placer de nuit dans un plan qui contient **à la fois** une lanterne allumée et
+des lucioles, puis :
 
 ```js
 const u = __sk.world.fireflies.mesh.material.uniforms;
@@ -1122,9 +1136,17 @@ substantielle, via le skill `codex:adversarial-review` du plugin Claude Code
 (**pas** en appelant le CLI `codex` à la main). Le rapport va dans
 `ADVERSARIAL_REVIEW_CLAUDE.md` avec un id `ADV-…` versionné.
 
-**Chantier P (papillons).** Bloqué tant que `src/details.js` porte les
-modifications non commitées de l'autre session. Le spec le décrit intégralement :
-`docs/superpowers/specs/2026-08-01-lucioles-papillons-design.md`.
+**Chantier P (papillons). Débloqué** — la session parallèle a commité
+`src/details.js` (`71b5cfb`), l'arbre est propre. Il peut donc s'enchaîner
+directement, y compris l'export des positions de fleurs. Le spec le décrit
+intégralement : `docs/superpowers/specs/2026-08-01-lucioles-papillons-design.md`.
+
+**Ce que le hokora change pour la nuit.** Le sanctuaire de la falaise porte
+désormais deux bougies allumées du crépuscule à l'aube. C'est un troisième foyer
+lumineux nocturne après les lanternes et les lucioles — sans conséquence pour ce
+chantier (les étangs sont à l'opposé de la falaise ouest), mais à garder en tête
+au moment de juger si la nuit est « assez vivante » : elle l'est déjà un peu plus
+qu'au moment où ce plan a été écrit.
 
 ## Auto-revue de ce plan
 
