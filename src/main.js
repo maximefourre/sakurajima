@@ -22,10 +22,14 @@ import { createPetals } from './petals.js';
 import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createFireflies } from './fireflies.js';
+import { createButterflies } from './butterflies.js';
 import { createClouds } from './clouds.js';
 import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
-import { createDetails, isOnPath, initPath, pathSurfaceLiftAt } from './details.js';
+// `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
+// createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
+// `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
+import { createDetails, isOnPath, initPath, pathSurfaceLiftAt, flowerSpots } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -447,6 +451,21 @@ async function boot() {
   });
   scene.add(world.details.group);
 
+  await step('papillons');
+  // APRES createDetails, et l'ordre n'est pas negociable : `flowerSpots` est
+  // REMPLI par createDetails et vaut un Float32Array VIDE avant lui. Construire
+  // les papillons plus haut — a cote des lucioles, ou l'envie est forte — donne
+  // une population de zero sans la moindre erreur.
+  //
+  // Meme piege que pour les lucioles : `q`, l'OBJET de qualite, jamais
+  // `world.quality` qui est la CHAINE du tier.
+  world.butterflies = createButterflies({
+    seed: SEED, quality: q, season: world.season,
+    heightAt: world.heightAt,
+    flowerSpots,
+  });
+  scene.add(world.butterflies.mesh);
+
   await step('shiba');
   // Une seule question posée à l'eau. Le chien ne connaît plus ni les étangs ni
   // le niveau de la mer : il connaît une hauteur d'eau, ou rien. Les trois règles
@@ -576,6 +595,11 @@ function frame() {
   // `phase` brut et non `shaderPhase` : le materiau est additif et non eclaire,
   // il n'a aucun usage de keyIntensity normalise.
   world.fireflies.update(t, phase);
+  // `shaderPhase` et NON `phase` : contrairement aux lucioles (additives, non
+  // eclairees), les ailes sont eclairees par la cle. keyIntensity brut vaut
+  // ~4.3 a midi — l'echelle d'une DirectionalLight — et brulerait les ailes en
+  // blanc pur. main.js le normalise une fois, ici.
+  world.butterflies.update(t, dt, shaderPhase);
 
   // The dog reads the camera to work out which way "forward" is, so he updates
   // before the camera moves this frame. One frame of lag in the control frame is
@@ -605,6 +629,10 @@ function frame() {
   }
 
   world.birds.setRepeller?.(world.shiba.position);
+  // Meme repulseur, rayon dix fois plus court (4 u contre 26) : on approche un
+  // papillon de tres pres avant qu'il ne parte, et un papillon qui decolle a
+  // 26 u lit comme un oiseau.
+  world.butterflies.setRepeller?.(world.shiba.position);
   // The meadow parts around him. Placed after shiba.update so the uniform is
   // this frame's position, and unconditional: it applies in both camera modes —
   // in follow mode you swim through it, in orbit mode you watch him wade.
