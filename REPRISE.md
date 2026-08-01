@@ -1451,3 +1451,107 @@ de ~0.80 (crépuscule) à ~0.25 (aube), vérifié par balayage de `dayTime`.
   deux blocs sont maintenant indépendants sous la même valeur `lit`.
 
 Invariants 10/10 en `?q=ultra`.
+
+## Chantier L — lucioles nocturnes (01/08/2026)
+
+Demande : « luciole la nuit ? j'essaye de rendre ça plus vivant parce qu'il fait
+sombre », puis « papillons en journée ». Diagnostic retenu après questions : la
+nuit n'est pas trop sombre, elle est **inhabitée** — il manque du mouvement, pas
+de la lumière. Aucune retouche de la courbe nocturne de `sky.js`.
+
+Spec des deux chantiers (lucioles + papillons) :
+`docs/superpowers/specs/2026-08-01-lucioles-papillons-design.md`.
+Plan détaillé : `docs/superpowers/plans/2026-08-01-chantier-L-lucioles.md`.
+Implémentation déléguée à Codex (Grok non authentifié — repli prévu par AGENTS.md).
+
+### Ce qui a été construit
+
+`src/fireflies.js` : placement pur par rejet + `InstancedBufferGeometry` dont
+tout le mouvement vit dans le vertex shader (patron `petals.js`, pas `birds.js` —
+une luciole n'interagit avec rien). 160 / 420 / 800 individus selon le tier, en
+**absolu et non `AREA_SOFT`** : elles sont ancrées sur trois bassins de taille
+fixe, les diluer avec l'île n'aurait rien apporté.
+
+**La synchronie est PAR BASSIN**, ce qui est le comportement réel des
+genji-botaru : chaque étang porte sa phase, chaque individu s'en écarte de
+±0.25 s. Vérifié numériquement sur un cycle complet plutôt qu'à l'œil — bassin 0
+allumé aux pas 0-5, bassin 1 aux pas 6-13, bassin 2 aux pas 14-19, pic à ~55 % de
+la population. Une vague, pas un interrupteur.
+
+### Ce que la mesure préalable a rattrapé
+
+Le banc fps **avant** (T1) devait juste donner une référence ; il a surtout révélé
+que `ponds.attach()` élargit les bassins de ~42 % (32.5 / 19.3 / 13.6 au lieu de
+22.9 / 16.5 / 12.7 nominaux), donc que les trois habitats **se chevauchent**. Avec
+un `exp(-u²)` nu, la densité valait encore **0.368 au rayon d'habitat** où le
+placement coupe net : chaque nuée aurait été tranchée en cercle visible, et deux
+bassins déphasés se seraient touchés à densité franche.
+
+D'où `densityFalloff = -ln(densityFloor)` : la décroissance atteint le plancher
+**exactement** à la coupure, les deux mécanismes disent la même chose au lieu de
+se contredire. Vérifié : `exp(-2.81) = 0.0602` contre un plancher à 0.06.
+
+### Le seuil de bloom n'est pas 0.85
+
+Le spec initial prévoyait une surtension ×2.8 « pour passer le seuil de 0.85 ».
+Faux : 0.85 est la valeur du **constructeur** (`sky.js:1148`), écrasée chaque
+frame par `K_BLOOM_THRESHOLD` (`sky.js:385`), qui descend à **0.42 en pleine
+nuit**. Les bougies du hokora, réglées le même jour par l'autre session, étaient
+déjà à 1.55 pour un petit émetteur.
+
+Courbe mesurée au framebuffer (différence avec/sans mesh, scène gelée, ultra) :
+
+| Surtension | % d'écran touché | Delta max /765 | Cœurs saturés |
+| --- | --- | --- | --- |
+| 1.0 | 0.30 % | 553 | 0 |
+| 1.2 | 0.79 % | 632 | 0 |
+| **1.6 retenu** | **3.79 %** | **682** | 0 |
+| 2.2 | 10.0 % | 708 | 0 |
+| 2.8 | 15.1 % | 721 | 16 |
+
+**Le delta max bouge à peine quand l'emprise écran est multipliée par 50.**
+Au-delà du seuil, monter la surtension n'éclaircit pas la luciole : ça étale son
+halo. À 2.8, 15 % de l'écran est voilé de vert — le « cœur noyé dans son propre
+halo » que le commentaire des lanternes annonçait. 1.6 est au genou de la courbe.
+
+### Performance
+
+Protocole du piège 9 respecté des deux côtés (resync `readPixels`, orbit,
+`autoRotate` off, damping off, dérive vérifiée nulle), même buffer 3600×2008,
+`dayTime = 0.97`, deux passes de 240 frames par cadrage.
+
+| | Avant | Après (800 lucioles) |
+| --- | --- | --- |
+| Ouverture | 71.0 / 71.6 | 71.7 / 72.5 |
+| Sol | 73.2 / 73.3 | 73.7 / 73.4 |
+
+L'écart est **dans le bruit** : le coût est sous le plancher de mesure, ce qui
+n'est pas la même chose que nul. À noter au passage : **la nuit tourne deux fois
+plus vite que le jour** (71 contre 33.7 à l'ouverture) — clé solaire éteinte, la
+passe d'ombres cesse de payer le feuillage.
+
+### Pièges payés
+
+- **`world.quality` est la CHAÎNE du tier**, pas l'objet. Passer `world.quality`
+  à `createFireflies` donne `quality?.fireflies === undefined`, donc un compte de
+  zéro et une population VIDE sans la moindre erreur. `main.js` doit passer `q`.
+  Une heure perdue à chercher un bug de shader qui n'existait pas.
+- **Piège 8, revisité** : sous pilotage navigateur l'onglet n'a pas le focus, donc
+  rAF ne tourne PAS. `renderer.info.render.frame` restait à 0 et les uniformes
+  n'étaient jamais mis à jour. Toute vérification passe par `__sk.frame()` explicite.
+- Le brouillard est un `FogExp2` : sur un matériau additif il faut **atténuer**
+  (`col *= 1 - fogF`) et surtout pas mélanger vers `fogColor`, sinon une luciole
+  lointaine devient plus brillante que de près.
+- **Sphère englobante posée à la main, obligatoire** : la géométrie ne contient
+  qu'un quad unité à l'origine, le calcul automatique de three ignore `aPos` et
+  aurait culé toute la population dès qu'on regarde ailleurs.
+
+### État
+
+`INVARIANTS: 17 pass, 0 fail` en `?q=ultra` (les 16 existants — dont les cinq du
+chien et de l'eau arrivés par merge pendant le chantier — plus les deux des
+lucioles). Trois tiers vérifiés visuellement.
+
+Reste : **chantier P (papillons)**, entièrement spécifié, débloqué depuis que
+`details.js` est commité. Il demandera d'exporter les positions de fleurs sur le
+modèle de `lanternSpots`.
