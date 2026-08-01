@@ -64,6 +64,11 @@ Un chantier à la fois. Grok CLI toujours non authentifié.
   AGENTS.md. Ne pas réintroduire de max ni de résidu sur un voisinage.
 - **E — Autel de divinité canine** — **SOLDÉ le 30/07** (`e16631b`) : hokora de
   pierre + deux gardiens canins au bout de la route 'torii', sur la terrasse.
+- **F — Autel enrichi** — **SOLDÉ le 01/08** : grain de pierre (`makeGrainBump`
+  + UV planaires), patine par PIXEL en fragment shader (mousse en taches,
+  coulures, lichen), mobilier de culte (offrandes, shimenawa, shide, tuiles),
+  komainu a-un. Voir REPRISE pour les trois pièges (patine par sommet
+  impossible sur des boîtes, `bumpScale` mort à 0.20, `patch` réservé en GLSL).
 - **A — Arbres automne** — **SOLDÉ le 30/07** (`964f282`) : `foliageDensity`
   automne 3.6/2.8/2.0, feuilles maple +15 %, branches plongeantes redressées
   (pas supprimées — flux RNG préservé), silhouettes printemps intactes.

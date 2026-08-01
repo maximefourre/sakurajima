@@ -979,3 +979,48 @@ tout futur réglage : **régler le bloc AVANT de juger la fraction.**
 
 Étalon final printemps ultra : **ouverture 33.7 fps** (contre 15.4 au départ,
 ×2.2), sol 24.6.
+
+## Chantier F — autel enrichi : texture et mobilier de culte (01/08/2026, Codex sol)
+
+Demande utilisateur : « plus de détails et de texture à l'autel ». Deux passes
+Codex (effort high) + réglage final par Claude en navigateur. `src/details.js`
+uniquement.
+
+- **Texture** : `makeGrainBump` (jusque-là réservé au terrain) appliqué à
+  `shrineMat`. Débloqué en remplaçant le `deleteAttribute('uv')` des helpers
+  `part()` par une projection planaire à l'échelle du monde (`applyShrineSurface`,
+  plan choisi sur la normale dominante, 1.6 UV/u).
+- **Patine par PIXEL** (`onBeforeCompile`, idiome de `pathMat`) : bruit de valeur
+  3D sur la position locale → variation de valeur, mousse en taches + coulures
+  sous l'avant-toit, lichen en haut et sur le toit. Attribut `aPatina`
+  (1 pierre / 0.5 toit / 0 exclu : ouverture, vermillon, paille, offrandes).
+- **Mobilier** : socle de pierres à jupe enterrée, dalle d'offrandes, deux coupes
+  et un bol, shimenawa + ligatures + shide en zigzag, rive de tuiles à
+  l'avant-toit, embouts de faîtage, kegyo. Hokora 117 → 863 tris.
+- **Komainu a-un** : deux géométries distinctes (429 / 421 tris). Gauche gueule
+  OUVERTE (cavité en retrait entre chops et mâchoire) + boule ; droite gueule
+  fermée + chiot.
+
+### Trois pièges payés, à ne pas re-payer
+
+1. **Une couleur par SOMMET ne peut pas peindre une patine sur des `BoxGeometry`.**
+   Un bloc a 8 sommets : sur une face de 1.1 × 1.2 u on n'obtient qu'un dégradé à
+   quatre coins, jamais une tache. La première passe a livré une patine par sommet
+   invisible. La réponse n'est pas de tesseller, c'est le fragment shader.
+2. **`bumpScale: 0.20` ne produit RIEN sur cette pierre** ; il a fallu 0.85.
+   Diagnostic éclair quand un bump semble mort : l'afficher en `material.map` —
+   si le grain apparaît net, les UV sont bonnes et le problème est l'amplitude.
+3. **La mousse doit DARKENER, pas seulement teinter.** `0x5d6b33` et `0x9a9691`
+   sont voisins une fois en linéaire ; sans le `*= mix(1.0, 0.84, w)` la patine
+   disparaît dans l'ACES. Et `patch` est un **mot réservé GLSL ES 3.00** — le
+   shader ne compile pas et l'objet disparaît sans autre symptôme.
+
+Pose : la surface visible de la terrasse est à **y = 0.083** dans le repère local
+du hokora (mesuré au raycast sur `overlook-terrace`) — la première passe avait
+supposé 0.04 et enterrait la dalle d'offrandes. Ancrages `heightAt + 0.10 / + 0.11`
+inchangés.
+
+Vérifications : `node --check`, `INVARIANTS: 10 pass, 0 fail` en `?q=ultra`
+(Chrome réel), visuel midi et nuit à 3 u en `?q=high`. Deux jobs Codex fantômes
+(un doublon de relance, un zombie à 9 h d'« elapsed » journal figé) ont dû être
+annulés à la main ; le fichier avait bien été écrit dans les deux cas.

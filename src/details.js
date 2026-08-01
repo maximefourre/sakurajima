@@ -24,7 +24,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { streamFor, R, fbm2, clamp, smoothstep } from './noise.js';
-import { makeWoodBump } from './detailtex.js';
+import { makeGrainBump, makeWoodBump } from './detailtex.js';
 import { WORLD, LAND_SCALE, AREA, PATHS } from './config.js';
 
 const TAU = Math.PI * 2;
@@ -711,6 +711,42 @@ const FLOWER_PROFILES = {
 const STONE = 0x9a9691;
 const STONE_DARK = 0x716d69;
 const LANTERN_LIGHT = 0xffc978;
+const SHRINE_MOSS = 0x5d6b33;
+const SHRINE_LICHEN = 0xc8c2a2;
+const SHRINE_UV_PER_UNIT = 1.6;
+
+/** World-scale triplanar choice baked into ordinary UVs for the shrine bump. */
+function applyShrineSurface(geo, hex, treatment = 'stone') {
+  const pos = geo.attributes.position;
+  const normal = geo.attributes.normal;
+  const count = pos.count;
+  const uv = new Float32Array(count * 2);
+  const colors = new Float32Array(count * 3);
+  const patina = new Float32Array(count);
+  const base = new THREE.Color(hex);
+  const patinaLevel = treatment === 'stone' ? 1 : treatment === 'roof' ? 0.5 : 0;
+
+  for (let i = 0; i < count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const ax = Math.abs(normal.getX(i));
+    const ay = Math.abs(normal.getY(i));
+    const az = Math.abs(normal.getZ(i));
+    let a, b;
+    if (ay >= ax && ay >= az) { a = x; b = z; }
+    else if (ax >= az) { a = z; b = y; }
+    else { a = x; b = y; }
+    uv[i * 2] = a * SHRINE_UV_PER_UNIT;
+    uv[i * 2 + 1] = b * SHRINE_UV_PER_UNIT;
+
+    colors[i * 3] = base.r;
+    colors[i * 3 + 1] = base.g;
+    colors[i * 3 + 2] = base.b;
+    patina[i] = patinaLevel;
+  }
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setAttribute('aPatina', new THREE.Float32BufferAttribute(patina, 1));
+}
 
 /* ────────────────────────────────────────────────────────────────
    Flower geometry
@@ -850,28 +886,39 @@ function makeLanternGeometry() {
  */
 function makeHokoraGeometry() {
   const parts = [];
-  const tint = new THREE.Color();
 
-  const part = (geo, hex, x, y, z, rz = 0, rx = 0) => {
+  const part = (geo, hex, x, y, z, rz = 0, rx = 0, treatment = 'stone') => {
     if (rz) geo.rotateZ(rz);
     if (rx) geo.rotateX(rx);
     geo.translate(x, y, z);
-    tint.setHex(hex);
-    const n = geo.attributes.position.count;
-    const c = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      c[i * 3] = tint.r;
-      c[i * 3 + 1] = tint.g;
-      c[i * 3 + 2] = tint.b;
-    }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
-    geo.deleteAttribute('uv');
+    applyShrineSurface(geo, hex, treatment);
     parts.push(geo);
   };
 
+  // A buried skirt catches the downhill side of the sloping terrace; the
+  // irregular stone bed above it softens the otherwise rectangular footing.
+  part(new THREE.BoxGeometry(1.46, 0.45, 1.10), STONE_DARK, 0, -0.125, 0);
   part(new THREE.BoxGeometry(1.52, 0.20, 1.18), STONE_DARK, 0, 0.10, 0);
   part(new THREE.BoxGeometry(1.30, 0.18, 1.00), STONE, 0, 0.29, 0);
   part(new THREE.BoxGeometry(1.10, 1.20, 0.84), STONE, 0, 0.98, 0);
+
+  const footing = [
+    [-0.72, 0.12, -0.48, 0.25, 0.14, 0.20, 0.18],
+    [-0.76, 0.11,  0.00, 0.23, 0.12, 0.27, -0.22],
+    [-0.70, 0.11,  0.48, 0.27, 0.13, 0.21, 0.31],
+    [-0.35, 0.10,  0.67, 0.24, 0.12, 0.20, -0.14],
+    [ 0.28, 0.10,  0.68, 0.28, 0.13, 0.19, 0.24],
+    [ 0.72, 0.11,  0.49, 0.22, 0.12, 0.25, -0.28],
+    [ 0.77, 0.12, -0.02, 0.25, 0.14, 0.21, 0.16],
+    [ 0.70, 0.11, -0.48, 0.27, 0.13, 0.20, -0.19],
+  ];
+  for (const [x, y, z, sx, sy, sz, turn] of footing) {
+    const stone = new THREE.SphereGeometry(1, 6, 3);
+    stone.scale(sx, sy, sz);
+    stone.rotateY(turn);
+    stone.rotateZ(turn * 0.35);
+    part(stone, STONE_DARK, x, y, z);
+  }
 
   // Front gable closes the triangular wall under the two roof planes.
   {
@@ -889,16 +936,70 @@ function makeHokoraGeometry() {
 
   // The opening is a deliberately shallow dark inset rather than a painted
   // mark, so the facade keeps a readable recess in hard daylight.
-  part(new THREE.BoxGeometry(0.54, 0.68, 0.055), TORII_DARK, 0, 1.08, 0.455);
+  part(new THREE.BoxGeometry(0.54, 0.68, 0.055), TORII_DARK,
+    0, 1.08, 0.455, 0, 0, 'plain');
   part(new THREE.BoxGeometry(0.68, 0.10, 0.16), STONE_DARK, 0, 0.70, 0.49);
+
+  // The measured terrace surface is local y=0.083. The slab and service sit
+  // above it while the separate foundation skirt remains buried downhill.
+  part(new THREE.BoxGeometry(0.72, 0.08, 0.50), STONE_DARK, 0, 0.14, 0.78);
+  const offering = 0xe3ddd0;
+  part(new THREE.CylinderGeometry(0.060, 0.054, 0.14, 8), offering,
+    -0.20, 0.25, 0.76, 0, 0, 'plain');
+  part(new THREE.CylinderGeometry(0.058, 0.052, 0.13, 8), offering,
+     0.00, 0.245, 0.83, 0, 0, 'plain');
+  {
+    const rice = new THREE.SphereGeometry(1, 6, 3);
+    rice.scale(0.105, 0.060, 0.10);
+    part(rice, offering, 0.20, 0.24, 0.74, 0, 0, 'plain');
+  }
+
+  // Shimenawa, four bindings and two thick folded-paper shide. All remain
+  // solid primitives because the shared shrine material is FrontSide.
+  const straw = 0xd9cba6;
+  part(new THREE.CylinderGeometry(0.042, 0.055, 0.84, 8), straw,
+    0, 1.52, 0.505, Math.PI * 0.5, 0, 'plain');
+  for (const x of [-0.31, -0.105, 0.105, 0.31]) {
+    const tie = new THREE.TorusGeometry(0.058, 0.010, 3, 8);
+    tie.rotateY(Math.PI * 0.5);
+    part(tie, 0xb9a77e, x, 1.52, 0.505, 0, 0, 'plain');
+  }
+  for (const side of [-1, 1]) {
+    for (let segment = 0; segment < 3; segment++) {
+      const outward = segment % 2 === 0 ? 0 : 0.035;
+      part(new THREE.BoxGeometry(0.07, 0.106, 0.016), 0xeee9dc,
+        side * (0.16 + outward), 1.447 - segment * 0.106, 0.522,
+        0, 0, 'plain');
+    }
+  }
 
   const roofTilt = 0.48;
   part(new THREE.BoxGeometry(0.88, 0.12, 1.28), STONE_DARK,
-    -0.36, 1.82, 0, roofTilt);
+    -0.36, 1.82, 0, roofTilt, 0, 'roof');
   part(new THREE.BoxGeometry(0.88, 0.12, 1.28), STONE_DARK,
-     0.36, 1.82, 0, -roofTilt);
+     0.36, 1.82, 0, -roofTilt, 0, 'roof');
   part(new THREE.CylinderGeometry(0.075, 0.075, 1.36, 8), STONE_DARK,
-    0, 2.05, 0, 0, Math.PI * 0.5);
+    0, 2.05, 0, 0, Math.PI * 0.5, 'roof');
+
+  // A bold tiled verge follows the front eave. At approach distance this clear
+  // chevron reads as a roof edge where several shallow channels read as stripes.
+  for (const side of [-1, 1]) {
+    const verge = new THREE.CylinderGeometry(0.060, 0.070, 0.92, 8);
+    part(verge, STONE_DARK, side * 0.36, 1.855, 0.655,
+      side * (Math.PI * 0.5 - roofTilt), 0, 'roof');
+  }
+  for (const z of [-0.69, 0.69]) {
+    const cap = new THREE.SphereGeometry(0.105, 6, 3);
+    cap.scale(1, 0.82, 0.72);
+    part(cap, STONE_DARK, 0, 2.05, z, 0, 0, 'roof');
+  }
+  {
+    const flower = new THREE.SphereGeometry(0.10, 6, 3);
+    flower.scale(1, 1.15, 0.28);
+    part(flower, STONE_DARK, 0, 1.79, 0.682, 0, 0, 'roof');
+    part(new THREE.ConeGeometry(0.065, 0.16, 5), STONE_DARK,
+      0, 1.66, 0.682, Math.PI, 0, 'roof');
+  }
 
   const merged = mergeGeometries(parts);
   for (const p of parts) p.dispose();
@@ -911,25 +1012,16 @@ function makeHokoraGeometry() {
  * The vermilion collar and bib echo the torii without turning the statue into
  * a painted figure.
  */
-function makeCanineGuardianGeometry() {
+function makeCanineGuardianGeometry(variant) {
   const parts = [];
-  const tint = new THREE.Color();
 
-  const part = (geo, hex, x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) => {
+  const part = (geo, hex, x, y, z, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0,
+    treatment = 'stone') => {
     geo.scale(sx, sy, sz);
     if (rx) geo.rotateX(rx);
     if (rz) geo.rotateZ(rz);
     geo.translate(x, y, z);
-    tint.setHex(hex);
-    const n = geo.attributes.position.count;
-    const c = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      c[i * 3] = tint.r;
-      c[i * 3 + 1] = tint.g;
-      c[i * 3 + 2] = tint.b;
-    }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
-    geo.deleteAttribute('uv');
+    applyShrineSurface(geo, hex, treatment);
     parts.push(geo);
   };
 
@@ -939,10 +1031,27 @@ function makeCanineGuardianGeometry() {
     0, 0.39, -0.04, 0.78, 1.18, 0.82);
   part(new THREE.SphereGeometry(0.25, 7, 5), STONE,
     0, 0.70, 0.07, 0.92, 0.96, 0.90);
-  part(new THREE.BoxGeometry(0.22, 0.16, 0.20), STONE,
-    0, 0.66, 0.27);
+  if (variant === 'a') {
+    // Paired rounded chops leave an actual opening below the nose. The dark
+    // oval sits behind their front plane and the lower jaw, so it reads as a
+    // cavity rather than a black bar pasted onto the muzzle.
+    part(new THREE.SphereGeometry(1, 6, 4), STONE,
+      -0.065, 0.735, 0.255, 0.125, 0.075, 0.135);
+    part(new THREE.SphereGeometry(1, 6, 4), STONE,
+       0.065, 0.735, 0.255, 0.125, 0.075, 0.135);
+  } else {
+    part(new THREE.BoxGeometry(0.22, 0.16, 0.20), STONE,
+      0, 0.66, 0.27);
+  }
   part(new THREE.SphereGeometry(0.055, 6, 4), STONE_DARK,
-    0, 0.68, 0.385);
+    0, variant === 'a' ? 0.72 : 0.68, 0.385);
+
+  if (variant === 'a') {
+    part(new THREE.SphereGeometry(1, 7, 4), STONE,
+      0, 0.50, 0.225, 0.14, 0.09, 0.14, -0.10);
+    part(new THREE.SphereGeometry(1, 8, 5), TORII_DARK,
+      0, 0.635, 0.342, 0.115, 0.060, 0.012, 0, 0, 'plain');
+  }
 
   // Tall ears and compact forepaws make the dog/fox silhouette legible from
   // the path even at this deliberately small scale.
@@ -959,7 +1068,7 @@ function makeCanineGuardianGeometry() {
   part(new THREE.ConeGeometry(0.13, 0.48, 6), STONE,
     0.20, 0.42, -0.27, 1, 1, 1, -0.76, 0.18);
   part(new THREE.TorusGeometry(0.205, 0.032, 5, 10), VERMILION,
-    0, 0.58, 0.04, 1, 1, 1, Math.PI * 0.5);
+    0, 0.58, 0.04, 1, 1, 1, Math.PI * 0.5, 0, 'plain');
 
   {
     const bib = new THREE.BufferGeometry();
@@ -971,7 +1080,17 @@ function makeCanineGuardianGeometry() {
     // Front face toward local +Z, matching the gable and the approach view.
     bib.setIndex([0, 2, 1]);
     bib.computeVertexNormals();
-    part(bib, VERMILION, 0, 0, 0);
+    part(bib, VERMILION, 0, 0, 0, 1, 1, 1, 0, 0, 'plain');
+  }
+
+  if (variant === 'a') {
+    part(new THREE.SphereGeometry(0.09, 7, 5), STONE_DARK,
+      -0.12, 0.18, 0.25);
+  } else {
+    part(new THREE.SphereGeometry(1, 6, 4), STONE,
+      0.19, 0.20, 0.24, 0.12, 0.16, 0.12, -0.12, 0.08);
+    part(new THREE.SphereGeometry(1, 6, 4), STONE,
+      0.18, 0.34, 0.29, 0.095, 0.10, 0.095, 0.08, -0.08);
   }
 
   const merged = mergeGeometries(parts);
@@ -1423,11 +1542,86 @@ export function createDetails({
         // Local +Z faces back down the final path tangent, toward the player.
         const facing = Math.atan2(-tx, -tz);
         const shrineGeo = makeHokoraGeometry();
-        const guardianGeo = makeCanineGuardianGeometry();
+        const guardianAGeo = makeCanineGuardianGeometry('a');
+        const guardianUnGeo = makeCanineGuardianGeometry('un');
+        const shrineBump = makeGrainBump(seed);
+        const shrineMoss = new THREE.Color(SHRINE_MOSS);
+        const shrineLichen = new THREE.Color(SHRINE_LICHEN);
         const shrineMat = new THREE.MeshStandardMaterial({
           vertexColors: true, roughness: 0.94, metalness: 0, flatShading: true,
+          bumpMap: shrineBump, bumpScale: 0.85,
         });
-        disposables.push(shrineGeo, guardianGeo, shrineMat);
+        shrineMat.onBeforeCompile = (shader) => {
+          shader.vertexShader = 'attribute float aPatina;\nvarying vec3 vShrineLocal;\nvarying float vPatina;\n'
+            + shader.vertexShader.replace(
+              '#include <begin_vertex>',
+              '#include <begin_vertex>\n\tvShrineLocal = position;\n\tvPatina = aPatina;'
+            );
+          shader.fragmentShader = /* glsl */ `
+            varying vec3 vShrineLocal;
+            varying float vPatina;
+            float shrineHash31(vec3 p) {
+              p = fract(p * 0.1031);
+              p += dot(p, p.yzx + 33.33);
+              return fract((p.x + p.y) * p.z);
+            }
+            float shrineNoise3(vec3 p) {
+              vec3 i = floor(p), f = fract(p);
+              f = f * f * (3.0 - 2.0 * f);
+              return mix(
+                mix(mix(shrineHash31(i), shrineHash31(i + vec3(1.0, 0.0, 0.0)), f.x),
+                    mix(shrineHash31(i + vec3(0.0, 1.0, 0.0)), shrineHash31(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+                mix(mix(shrineHash31(i + vec3(0.0, 0.0, 1.0)), shrineHash31(i + vec3(1.0, 0.0, 1.0)), f.x),
+                    mix(shrineHash31(i + vec3(0.0, 1.0, 1.0)), shrineHash31(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+            }
+          ` + shader.fragmentShader.replace(
+            '#include <color_fragment>',
+            /* glsl */ `#include <color_fragment>
+            {
+              float patinaOn = step(0.25, vPatina);
+              float stonePatina = step(0.75, vPatina);
+              float roofPatina = patinaOn - stonePatina;
+
+              // Two scales of value noise. One alone reads as a smooth gradient
+              // on a face this large; the pair gives blotches AND speckle.
+              float valueBig = shrineNoise3(vShrineLocal * 1.15);
+              float valueFine = shrineNoise3(vShrineLocal * 4.10 + vec3(11.3, 5.9, 2.7));
+              diffuseColor.rgb *= mix(1.0,
+                mix(0.80, 1.18, valueBig * 0.60 + valueFine * 0.40), patinaOn);
+
+              // Moss climbs the whole lower body, not just the steps: the wall
+              // spans y 0.38 to 1.58 and is what the visitor actually faces.
+              float mossBroad = smoothstep(0.44, 0.62,
+                shrineNoise3(vShrineLocal * 2.35 + vec3(9.2, 2.4, 5.7)));
+              float mossFine = smoothstep(0.40, 0.72,
+                shrineNoise3(vShrineLocal * 6.10 + vec3(1.5, 7.7, 3.3)));
+              float mossPatch = mossBroad * mix(0.55, 1.0, mossFine);
+              float mossLow = (1.0 - smoothstep(0.30, 1.62, vShrineLocal.y)) * mossPatch;
+              float streakNoise = shrineNoise3(vec3(vShrineLocal.x * 6.2,
+                vShrineLocal.y * 0.30, vShrineLocal.z * 6.2) + vec3(3.1, 8.7, 1.9));
+              float streakPatch = smoothstep(0.56, 0.74, streakNoise);
+              float streakZone = smoothstep(0.60, 1.15, vShrineLocal.y)
+                * (1.0 - smoothstep(1.34, 1.60, vShrineLocal.y));
+              float mossWeight = stonePatina
+                * clamp(mossLow * 0.85 + streakPatch * streakZone * 0.60, 0.0, 0.82);
+              diffuseColor.rgb = mix(diffuseColor.rgb,
+                vec3(${shrineMoss.r.toFixed(7)}, ${shrineMoss.g.toFixed(7)}, ${shrineMoss.b.toFixed(7)}), mossWeight);
+              // Moss also DARKENS. Tinting alone barely survives the tone map:
+              // moss and this stone are close neighbours once in linear space.
+              diffuseColor.rgb *= mix(1.0, 0.84, mossWeight);
+
+              float lichenNoise = shrineNoise3(vShrineLocal * 4.35 + vec3(6.8, 1.3, 11.2));
+              float lichenPatch = smoothstep(0.58, 0.76, lichenNoise);
+              float lichenZone = max(roofPatina,
+                stonePatina * smoothstep(1.28, 1.58, vShrineLocal.y));
+              float lichenWeight = patinaOn * lichenZone * lichenPatch * 0.55;
+              diffuseColor.rgb = mix(diffuseColor.rgb,
+                vec3(${shrineLichen.r.toFixed(7)}, ${shrineLichen.g.toFixed(7)}, ${shrineLichen.b.toFixed(7)}), lichenWeight);
+            }`
+          );
+        };
+        shrineMat.customProgramCacheKey = () => 'sakurajima-shrine-v1';
+        disposables.push(shrineBump, shrineGeo, guardianAGeo, guardianUnGeo, shrineMat);
 
         // The shrine sits beyond the route end, on the west/cliff half of the
         // pad. Its broad bottom step is sunk slightly into the raised earth.
@@ -1449,7 +1643,7 @@ export function createDetails({
           const lateral = 1.02 * side;
           const gx = end[0] + tx * forward + nx * lateral;
           const gz = end[1] + tz * forward + nz * lateral;
-          const statue = new THREE.Mesh(guardianGeo, shrineMat);
+          const statue = new THREE.Mesh(side < 0 ? guardianAGeo : guardianUnGeo, shrineMat);
           statue.name = side < 0 ? 'guardian-canine-left' : 'guardian-canine-right';
           statue.position.set(gx, heightAt(gx, gz) + 0.11, gz);
           statue.rotation.y = facing + side * 0.08;
