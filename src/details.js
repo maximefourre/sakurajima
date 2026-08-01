@@ -557,6 +557,13 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
     const len = route.curve.getLength();
     const N = Math.max(260, Math.ceil(len / 0.5));
     const pos = [], edge = [], edgeRaw = [], idx = [];
+    // Longueur de dissolution en unites MONDE, convertie en fraction du
+    // parametre : t court sur toute la route, donc une fraction ecrite en dur
+    // dissoudrait des dizaines d'unites sur un long trace et rien sur un court.
+    const DISSOLVE_LEN = 16;
+    const routeLen = Math.max(1, route.curve.getLength());
+    const dissolveFrac = Math.min(0.5, DISSOLVE_LEN / routeLen);
+
     for (let i = 0; i <= N; i++) {
       const t = i / N;
       // Closed curves: t=1 wraps to the start. Open: getPointAt(1) is fine.
@@ -574,16 +581,21 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
       // carrefour, pas en pleine nature, et le pincement de depart y lisait
       // comme un coup de pinceau leve pose sur l'herbe (capture joueur).
       // La fusion des trois routes est faite par le patin de carrefour.
-      // La fin du ruban est FRANCHE, pas effilee. Le fuseau precedent
-      // (1 - smoothstep(0.94, 1, t)) faisait tendre la largeur vers zero, donc
-      // une aiguille — rejete par l'utilisateur ("sans une fin pointue"). Il
-      // avait ete demande plus tot comme "un coup de pinceau leve" : arbitrage
-      // inverse, assume. On garde un simple resserrement de 25 %, qui evite le
-      // bord coupe au couteau sans dessiner de pointe.
-      let tap = 1;
-      if (!route.closed && route.name === 'plage') {
-        tap = 1 - 0.25 * smoothstep(0.86, 1, t);
-      }
+      // La fin du ruban ne se joue PAS sur la largeur. Deux tentatives l'ont
+      // prouve : un fuseau vers zero donne une aiguille, une largeur constante
+      // donne une coupe au couteau — les deux rejetees par l'utilisateur. Une
+      // sente reelle ne se termine pas, elle se DISSOUT : la terre se fait
+      // manger par l'herbe en mouchetures irregulieres.
+      //
+      // Le fragment sait deja faire exactement ca : il decoupe le ruban par
+      // "vPathEdge + bruit > 0.90 -> discard", ce qui donne les bords lateraux
+      // effiloches. Il suffit donc de pousser aPathEdge vers 1 sur le dernier
+      // troncon pour livrer la FIN au meme effilochage — meme bruit, meme
+      // grain, donc meme famille de contours. Zero geometrie ajoutee.
+      const tap = 1;
+      const endK = (!route.closed && route.name === 'plage')
+        ? smoothstep(1 - dissolveFrac, 1.0, t)
+        : 0;
       // Etages du carrefour : chaque route garde son etage (empilement
       // deterministe, pas de z-fight), resserres pour ne plus lire comme des
       // marches. Le patin de carrefour est SOUS le plus bas (0.04 < 0.06+0).
@@ -605,7 +617,10 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
         const edg = Math.abs(f);
         const lift = 0.06 + 0.06 * (1 - edg);   // camber: 0.06 bord -> 0.12 axe
         edgeRaw.push(edg);
-        edge.push(edg * edgeK);
+        // Le max, pas une somme : au milieu du ruban la fin domine, sur les
+        // bords c'est le lisere lateral. Les deux se rejoignent dans le coin
+        // sans marche.
+        edge.push(Math.max(edg * edgeK, endK));
         pos.push(cx, heightAt(cx, cz) + lift + liftBias, cz);
       }
       if (i < N) {

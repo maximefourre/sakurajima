@@ -1310,3 +1310,32 @@ dernier tronçon se fait sur le sable ouvert, ce qui était le but.
 Vérifié : `INVARIANTS: 15 pass, 0 fail` en `?q=ultra` (39 368 triangles de
 ruban, marge exacte 0.0200, élévation max 0.2376, 41 lanternes sans orpheline),
 plus contrôle visuel des empreintes de face et de la fin du sentier.
+
+### La fin du sentier, troisième et dernière tentative
+
+Deux échecs successifs, tous deux sur le même axe : **la largeur**. Un fuseau
+vers zéro donne une aiguille ; une largeur constante donne une coupe au couteau.
+« Trop nette, trop droite, pas naturelle. »
+
+L'erreur était de chercher au mauvais endroit. Une sente réelle ne se termine
+pas, elle se **dissout** : la terre se fait manger par l'herbe en mouchetures.
+Or le fragment du ruban sait déjà faire exactement cela — c'est lui qui produit
+les bords latéraux effilochés, par `vPathEdge + bruit > 0.90 → discard`. Il
+suffisait donc de pousser `aPathEdge` vers 1 sur le dernier tronçon pour livrer
+la FIN au **même** effilochage : même bruit, même grain, donc même famille de
+contours que les côtés. Zéro géométrie ajoutée, zéro constante artistique neuve.
+
+`edge = max(latéral, fin)` et non une somme : au milieu du ruban la fin domine,
+sur les bords c'est le liseré latéral, et les deux se rejoignent dans le coin
+sans marche.
+
+La longueur de dissolution est écrite en **unités monde** (16 u) puis convertie
+en fraction du paramètre via `route.curve.getLength()`. `t` court sur toute la
+route : une fraction en dur dissoudrait des dizaines d'unités sur un tracé long
+et rien du tout sur un court. Premier jet à `smoothstep(0.72, 1)` : 130 unités
+de dissolution, attrapé avant capture.
+
+**Leçon** : quand deux réglages opposés du même paramètre échouent tous les
+deux, c'est le paramètre qui est le mauvais — pas sa valeur. Même forme que la
+leçon de la rivière (« c'est l'axiome commun qui est faux ») et que celle des
+ondes (« un garde-fou de coût n'est pas une durée de vie »).
