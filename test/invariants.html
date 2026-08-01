@@ -33,13 +33,14 @@ const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`
 window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
 window.addEventListener('unhandledrejection', e => { say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
 import { initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
+import { computeFireflySpots } from '../src/fireflies.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -66,6 +67,10 @@ const carve = (x, z, h) => ponds.carvePonds(x, z, h);
 const t0 = performance.now();
 const island = createIsland({ seed: SEED, quality: { label: TIER, rocks: 8 }, carve });
 say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier ${TIER})`);
+
+// Comme main.js:311 — sans ça PONDS porte des rayons NOMINAUX, et l'habitat des
+// lucioles serait vérifié contre un bassin qui n'existe pas.
+ponds.attach({ heightAt: island.heightAt });
 
 /* ── 1. fin de la montée aux torii sur la terre ferme ────────────────────── */
 {
@@ -235,6 +240,60 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   // le plafond 0.25 conserve 0.018 u de marge d'echantillonnage.
   check('hauteur logique des chemins fidèle à la surface visible', liftError <= 0.25,
     `écart max ${liftError.toFixed(3)} (${liftErrorAt}), plafond 0.250`);
+}
+
+/* ── 11. lucioles dans leur habitat ──────────────────────────────────────── */
+{
+  const spots = computeFireflySpots({
+    ponds: ponds.PONDS,
+    heightAt: island.heightAt,
+    isInPond: ponds.isInPond,
+    count: QUALITY[TIER].fireflies,
+    seed: SEED,
+  });
+
+  let ok = spots.length > 0;
+  let detail = spots.length ? '' : 'aucune position produite';
+  let worstRatio = 0, worstAt = '';
+
+  for (const s of spots) {
+    // 1. jamais plus loin que le rayon d'habitat du bassin qu'on lui attribue
+    const p = ponds.PONDS[s.pond];
+    if (!p) { ok = false; detail = `pond index ${s.pond} hors bornes`; break; }
+    const r = Math.hypot(s.x - p.x, s.z - p.z);
+    const ratio = r / (p.radius * FIREFLIES.habitatK);
+    if (ratio > worstRatio) { worstRatio = ratio; worstAt = `(${s.x.toFixed(0)},${s.z.toFixed(0)})`; }
+    if (ratio > 1) {
+      ok = false;
+      detail = `individu à ${r.toFixed(1)} u du bassin ${s.pond} (habitat ${(p.radius * FIREFLIES.habitatK).toFixed(1)})`;
+      break;
+    }
+    // 2. le bassin attribué est bien le PLUS PROCHE — sinon la phase partagée
+    //    fait clignoter un individu au rythme d'un étang qui n'est pas le sien
+    let best = s.pond, bestD = r;
+    for (let k = 0; k < ponds.PONDS.length; k++) {
+      const q = ponds.PONDS[k];
+      const d = Math.hypot(s.x - q.x, s.z - q.z);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    if (best !== s.pond) {
+      ok = false;
+      detail = `individu à (${s.x.toFixed(0)},${s.z.toFixed(0)}) attribué au bassin ${s.pond}, plus proche du ${best}`;
+      break;
+    }
+    // 3. au-dessus de la surface, jamais dedans
+    const surf = ponds.isInPond(s.x, s.z) ? p.waterY : island.heightAt(s.x, s.z);
+    const clearance = s.y - surf;
+    if (!(clearance >= FIREFLIES.minHeight - 1e-3 && clearance <= FIREFLIES.maxHeight + 1e-3)) {
+      ok = false;
+      detail = `garde au sol ${clearance.toFixed(2)} hors [${FIREFLIES.minHeight}, ${FIREFLIES.maxHeight}]`;
+      break;
+    }
+  }
+
+  check('lucioles dans l’habitat des bassins', ok,
+    ok ? `${spots.length} lucioles, 3 bassins, pire rayon ${(worstRatio * 100).toFixed(0)} % de l’habitat ${worstAt}`
+       : detail);
 }
 
 const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
