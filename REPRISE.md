@@ -1614,3 +1614,32 @@ l'autre en biseau. L'échancrure et le corps fonctionnent, la lecture « papillo
 passe à distance de jeu, mais un examen rapproché montre que les deux ailes ne se
 présentent pas identiquement. Piste probable : le roulis
 `sin(flapPhase) * 0.10` composé après le lacet dans l'Euler XYZ. Non investigué.
+
+## Correctif — variété individuelle des lucioles (01/08/2026)
+
+Retour utilisateur : « elles brillent toutes à la même fréquence ». Le constat
+était juste et le défaut plus large qu'annoncé : `uPeriod` était un uniforme
+**global** et l'éclat une constante. Toute la population partageait période ET
+intensité, seule la phase changeait — le défaut que la synchronie par bassin
+devait éviter, réintroduit un cran plus bas : trois groupes qui pulsent, mais
+chaque groupe rigide.
+
+La difficulté est qu'on **ne peut pas simplement randomiser la période** : la
+synchronie par bassin est le comportement réel des genji-botaru, et des périodes
+toutes différentes la dissoudraient en quelques dizaines de secondes. D'où trois
+leviers dont un seul touche à la fréquence :
+
+- **éclat individuel** 0.30–1.00 et **décroissance** 0.62–1.55 (durée du flash) —
+  aucun effet sur la synchronie, et c'est de là que vient l'essentiel de la
+  variété perçue ;
+- **22 % de solitaires** à période propre (1.25–3.60 s), hors du chœur de leur
+  bassin. Biologiquement vrai : tous les mâles ne se joignent pas au chant, et ce
+  sont ces traînards qui empêchent l'ensemble de lire comme une horloge.
+
+Vérifié après coup sur un cycle complet : le chœur respire toujours (pics 0.64 /
+0.67 / 0.73 par bassin, chacun dans sa fenêtre) et les solitaires tiennent un
+fond constant de 0.11 à 0.30 qui comble les creux. 185 périodes distinctes contre
+une. Coût mesuré mesh caché/affiché au même cadrage : **−0.1 fps**.
+
+**Leçon générale : une variation par instance ne se met pas dans un uniforme.**
+Le même piège guette tout système instancié de ce projet.
