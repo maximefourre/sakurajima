@@ -296,6 +296,28 @@ export const FIREFLIES = Object.freeze({
   flashRise: 0.04,       // fraction du cycle : 80 ms à 2 s. Un éclair, pas un sinus.
   flashDecay: 6.0,       // décroissance exponentielle, en unités de cycle
 
+  /*
+   * VARIÉTÉ INDIVIDUELLE — sans elle la population bat comme un métronome.
+   *
+   * Le premier jet donnait à TOUTES les lucioles la même période et le même
+   * éclat, portés par des uniformes globaux ; seule la phase changeait. C'est
+   * exactement le défaut que la synchronie par bassin devait éviter, réintroduit
+   * un cran plus bas : trois groupes qui pulsent, mais chaque groupe rigide.
+   *
+   * La difficulté est qu'on ne peut pas simplement randomiser la période : la
+   * synchronie par bassin est le comportement réel des genji-botaru, et des
+   * périodes toutes différentes la dissoudraient en quelques dizaines de
+   * secondes. La sortie est de garder le CHOEUR sur une période commune et de
+   * faire varier tout le reste — plus une minorité de solitaires.
+   */
+  brightness: [0.30, 1.0],   // éclat individuel : une luciole proche n'a pas l'éclat d'une lointaine
+  decayJitter: [0.62, 1.55], // durée du flash ; toutes identiques = des flashes tamponnés
+  // Part qui NE rejoint PAS le choeur de son bassin, avec sa période propre.
+  // Biologiquement vrai : tous les mâles ne se joignent pas au chant, et ce sont
+  // ces traînards qui empêchent l'ensemble de lire comme une horloge.
+  loneFraction: 0.22,
+  lonePeriod: [1.25, 3.60],
+
   size: [0.13, 0.20],    // demi-côté du quad, unités monde
 
   color: 0x9dff6a,       // jaune-vert, ~560 nm

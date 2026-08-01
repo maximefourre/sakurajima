@@ -135,7 +135,8 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
 
   const aPos   = new Float32Array(n * 3);  // position monde de l'individu
   const aSeed  = new Float32Array(n * 4);  // phase, driftRate, driftRadius, size
-  const aFlash = new Float32Array(n * 2);  // decalage de phase du flash, posee 0/1
+  const aFlash = new Float32Array(n * 3);  // decalage de phase, posee 0/1, periode propre
+  const aGlow  = new Float32Array(n * 2);  // eclat individuel, multiplicateur de decroissance
 
   // Phase de flash PAR BASSIN — le coeur du rendu. Decorrelees par un decalage
   // irrationnel plutot qu'un tirage : trois bassins tires au hasard peuvent
@@ -152,13 +153,28 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
     aSeed[i * 4 + 2] = R.range(rng, FIREFLIES.driftRadius[0], FIREFLIES.driftRadius[1]);
     aSeed[i * 4 + 3] = R.range(rng, FIREFLIES.size[0], FIREFLIES.size[1]);
 
-    aFlash[i * 2]     = pondPhase[s.pond] + R.range(rng, -FIREFLIES.flashJitter, FIREFLIES.flashJitter);
-    aFlash[i * 2 + 1] = s.perched ? 1 : 0;
+    // Une minorite de SOLITAIRES bat a sa propre periode, hors du choeur de son
+    // bassin. Sans eux la population entiere partage une seule frequence et lit
+    // comme une horloge ; avec eux, le choeur reste lisible et l'ensemble respire.
+    const lone = rng() < FIREFLIES.loneFraction;
+    aFlash[i * 3]     = lone
+      ? R.range(rng, 0, FIREFLIES.flashPeriod * 2)
+      : pondPhase[s.pond] + R.range(rng, -FIREFLIES.flashJitter, FIREFLIES.flashJitter);
+    aFlash[i * 3 + 1] = s.perched ? 1 : 0;
+    aFlash[i * 3 + 2] = lone
+      ? R.range(rng, FIREFLIES.lonePeriod[0], FIREFLIES.lonePeriod[1])
+      : FIREFLIES.flashPeriod;
+
+    // Eclat et duree de flash propres. C'est ce qui empeche les flashes d'avoir
+    // tous l'air tamponnes depuis le meme gabarit, meme quand ils sont synchrones.
+    aGlow[i * 2]     = R.range(rng, FIREFLIES.brightness[0], FIREFLIES.brightness[1]);
+    aGlow[i * 2 + 1] = R.range(rng, FIREFLIES.decayJitter[0], FIREFLIES.decayJitter[1]);
   }
 
   geo.setAttribute('aPos',   new THREE.InstancedBufferAttribute(aPos, 3));
   geo.setAttribute('aSeed',  new THREE.InstancedBufferAttribute(aSeed, 4));
-  geo.setAttribute('aFlash', new THREE.InstancedBufferAttribute(aFlash, 2));
+  geo.setAttribute('aFlash', new THREE.InstancedBufferAttribute(aFlash, 3));
+  geo.setAttribute('aGlow',  new THREE.InstancedBufferAttribute(aGlow, 2));
   geo.instanceCount = n;
 
   const uniforms = THREE.UniformsUtils.merge([
@@ -166,7 +182,8 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
     {
       uTime:      { value: 0 },
       uActivity:  { value: 0 },
-      uPeriod:    { value: FIREFLIES.flashPeriod },
+      // Plus de uPeriod global : la periode est passee PAR INSTANCE (aFlash.z).
+      // C'etait la cause du "toutes a la meme frequence".
       uColor:     { value: new THREE.Color(FIREFLIES.color) },
       uOverdrive: { value: FIREFLIES.overdrive },
       uLift:      { value: FIREFLIES.driftLift },
@@ -187,10 +204,10 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
     vertexShader: /* glsl */ `
       attribute vec3  aPos;
       attribute vec4  aSeed;
-      attribute vec2  aFlash;
+      attribute vec3  aFlash;   // decalage de phase, posee (0/1), PERIODE PROPRE
+      attribute vec2  aGlow;    // eclat individuel, multiplicateur de decroissance
 
       uniform float uTime;
-      uniform float uPeriod;
       uniform float uActivity;
       uniform float uLift;
       uniform float uRise;
@@ -218,10 +235,18 @@ export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond }
 
         // Le flash. Montee rapide puis decroissance exponentielle, PAS un sinus :
         // un sinus donne une respiration douce, une luciole fait un eclair.
-        float u = fract((uTime + aFlash.x) / uPeriod);
+        // La PERIODE est desormais par instance : le choeur du bassin garde la
+        // periode commune (c'est le comportement reel des genji-botaru, et des
+        // periodes toutes differentes le dissoudraient en quelques dizaines de
+        // secondes), mais une minorite de solitaires bat a son propre rythme.
+        float u = fract((uTime + aFlash.x) / aFlash.z);
         float rise  = smoothstep(0.0, uRise, u);
-        float decay = exp(-max(u - uRise, 0.0) * uDecay);
-        vGlow = rise * decay * uActivity;
+        // Decroissance propre : sans elle tous les flashes ont la meme duree et
+        // paraissent tamponnes depuis un seul gabarit, meme bien dephases.
+        float decay = exp(-max(u - uRise, 0.0) * uDecay * aGlow.y);
+        // Eclat propre. C'est ce que l'oeil lit en premier comme "des individus"
+        // plutot que "une population".
+        vGlow = rise * decay * uActivity * aGlow.x;
 
         // -1..1 pour la gaussienne du fragment (position.xy court dans -0.5..0.5)
         vQuad = position.xy * 2.0;
