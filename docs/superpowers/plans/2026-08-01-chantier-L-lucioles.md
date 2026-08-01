@@ -990,6 +990,12 @@ cet ordre qui garantit des rayons de bassin mesurés et non nominaux.
   // APRES ponds.attach() (l.311) : PONDS ne porte les rayons et le plan d'eau
   // REELLEMENT creuses qu'une fois attach passe. Construire avant donnerait un
   // habitat calcule sur des rayons nominaux que rien d'autre n'utilise.
+  //
+  // PIEGE, paye pendant T5 : passer `q`, l'OBJET de qualite, et surtout PAS
+  // `world.quality` — qui est la CHAINE 'low'/'high'/'ultra'. Avec la chaine,
+  // `quality?.fireflies` vaut undefined, le `?? 0` de createFireflies donne un
+  // compte de zero, et on obtient une population VIDE sans la moindre erreur.
+  // C'est exactement la casse silencieuse contre laquelle AGENTS.md met en garde.
   world.fireflies = createFireflies({
     seed: SEED, quality: q,
     heightAt: world.heightAt,

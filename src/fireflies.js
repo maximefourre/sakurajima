@@ -16,6 +16,7 @@
  * une luciole emportée par une rafale lit faux.
  */
 
+import * as THREE from 'three';
 import { FIREFLIES } from './config.js';
 import { streamFor, R } from './noise.js';
 
@@ -87,4 +88,240 @@ export function computeFireflySpots({ ponds, heightAt, isInPond, count, seed = 1
   }
 
   return out;
+}
+
+/**
+ * Quelle part de la population brille, entre 0 et 1.
+ *
+ * Un PIC, pas un plateau : les vraies hotaru culminent dans les deux heures qui
+ * suivent le coucher, puis retombent. `phase.solar` est cyclique — d'ou la
+ * distance circulaire, sans quoi minuit (solar 0) serait vu comme tres loin du
+ * pic (solar 0.82) alors qu'il n'en est qu'a 0.18.
+ *
+ * Exportee parce que l'invariant 12 du banc l'importe et la teste directement :
+ * une copie de la formule dans le test deriverait en silence.
+ */
+export function fireflyActivity(phase) {
+  if (!phase) return 0;
+  // Allumees la nuit et sur les deux crepuscules, comme les lanternes.
+  const lit = Math.max(0, Math.min(1, (phase.night ?? 0) + (phase.twilight ?? 0) * 0.6));
+  if (lit <= 0) return 0;
+  let d = Math.abs((phase.solar ?? 0) - FIREFLIES.peakSolar);
+  if (d > 0.5) d = 1 - d;
+  const peak = Math.exp(-(d * d) / (FIREFLIES.peakWidth * FIREFLIES.peakWidth));
+  return lit * (FIREFLIES.peakFloor + (1 - FIREFLIES.peakFloor) * peak);
+}
+
+/**
+ * Construit la population. Tout est fixe ici : le mesh n'est jamais reconstruit,
+ * conformement a la doctrine « changement de qualite = reload » d'AGENTS.md.
+ */
+export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond } = {}) {
+  const count = quality?.fireflies ?? 0;
+  const spots = computeFireflySpots({ ponds, heightAt, isInPond, count, seed });
+  const n = spots.length;
+
+  const geo = new THREE.InstancedBufferGeometry();
+  {
+    // Quad unite ecrit a la main plutot qu'emprunte a une PlaneGeometry : passer
+    // les attributs d'une geometrie temporaire PUIS la disposer ferait supprimer
+    // des buffers GPU partages le jour ou l'ordre de construction changerait.
+    // position.xy court dans [-0.5, 0.5] — le vertex shader en depend.
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.5, -0.5, 0,   0.5, -0.5, 0,   0.5, 0.5, 0,   -0.5, 0.5, 0,
+    ], 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+  }
+
+  const aPos   = new Float32Array(n * 3);  // position monde de l'individu
+  const aSeed  = new Float32Array(n * 4);  // phase, driftRate, driftRadius, size
+  const aFlash = new Float32Array(n * 2);  // decalage de phase du flash, posee 0/1
+
+  // Phase de flash PAR BASSIN — le coeur du rendu. Decorrelees par un decalage
+  // irrationnel plutot qu'un tirage : trois bassins tires au hasard peuvent
+  // sortir presque en phase, ce qui ruine l'effet une fois sur dix.
+  const pondPhase = ponds.map((_, i) => i * 0.618034 * FIREFLIES.flashPeriod);
+
+  const rng = streamFor(seed, 'fireflies.attrs');
+  for (let i = 0; i < n; i++) {
+    const s = spots[i];
+    aPos[i * 3] = s.x; aPos[i * 3 + 1] = s.y; aPos[i * 3 + 2] = s.z;
+
+    aSeed[i * 4]     = R.range(rng, 0, Math.PI * 2);
+    aSeed[i * 4 + 1] = R.range(rng, FIREFLIES.driftRate[0], FIREFLIES.driftRate[1]);
+    aSeed[i * 4 + 2] = R.range(rng, FIREFLIES.driftRadius[0], FIREFLIES.driftRadius[1]);
+    aSeed[i * 4 + 3] = R.range(rng, FIREFLIES.size[0], FIREFLIES.size[1]);
+
+    aFlash[i * 2]     = pondPhase[s.pond] + R.range(rng, -FIREFLIES.flashJitter, FIREFLIES.flashJitter);
+    aFlash[i * 2 + 1] = s.perched ? 1 : 0;
+  }
+
+  geo.setAttribute('aPos',   new THREE.InstancedBufferAttribute(aPos, 3));
+  geo.setAttribute('aSeed',  new THREE.InstancedBufferAttribute(aSeed, 4));
+  geo.setAttribute('aFlash', new THREE.InstancedBufferAttribute(aFlash, 2));
+  geo.instanceCount = n;
+
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    {
+      uTime:      { value: 0 },
+      uActivity:  { value: 0 },
+      uPeriod:    { value: FIREFLIES.flashPeriod },
+      uColor:     { value: new THREE.Color(FIREFLIES.color) },
+      uOverdrive: { value: FIREFLIES.overdrive },
+      uLift:      { value: FIREFLIES.driftLift },
+      uRise:      { value: FIREFLIES.flashRise },
+      uDecay:     { value: FIREFLIES.flashDecay },
+    },
+  ]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    fog: true,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+
+    vertexShader: /* glsl */ `
+      attribute vec3  aPos;
+      attribute vec4  aSeed;
+      attribute vec2  aFlash;
+
+      uniform float uTime;
+      uniform float uPeriod;
+      uniform float uActivity;
+      uniform float uLift;
+      uniform float uRise;
+      uniform float uDecay;
+
+      varying float vGlow;
+      varying vec2  vQuad;
+
+      #include <fog_pars_vertex>
+
+      void main() {
+        float phase  = aSeed.x;
+        float rate   = aSeed.y;
+        float radius = aSeed.z;
+        float size   = aSeed.w;
+
+        // Les posees ne derivent pas : elles clignotent sur place dans l'herbe.
+        float airborne = 1.0 - aFlash.y;
+
+        vec3 p = aPos;
+        p.x += airborne * radius * sin(uTime * rate + phase);
+        p.z += airborne * radius * 0.82 * sin(uTime * rate * 0.71 + phase * 1.7);
+        // Quasi horizontal : une hotaru traine, elle ne monte pas.
+        p.y += airborne * radius * uLift * sin(uTime * rate * 0.53 + phase * 2.3);
+
+        // Le flash. Montee rapide puis decroissance exponentielle, PAS un sinus :
+        // un sinus donne une respiration douce, une luciole fait un eclair.
+        float u = fract((uTime + aFlash.x) / uPeriod);
+        float rise  = smoothstep(0.0, uRise, u);
+        float decay = exp(-max(u - uRise, 0.0) * uDecay);
+        vGlow = rise * decay * uActivity;
+
+        // -1..1 pour la gaussienne du fragment (position.xy court dans -0.5..0.5)
+        vQuad = position.xy * 2.0;
+
+        // Le nom mvPosition est OBLIGATOIRE : fog_vertex le lit litteralement.
+        vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+        // Billboard : le decalage se fait en espace vue, donc le quad fait
+        // toujours face a la camera sans qu'on ait a composer une rotation.
+        mvPosition.xy += position.xy * size;
+        gl_Position = projectionMatrix * mvPosition;
+
+        #include <fog_vertex>
+      }
+    `,
+
+    fragmentShader: /* glsl */ `
+      uniform vec3  uColor;
+      uniform float uOverdrive;
+
+      varying float vGlow;
+      varying vec2  vQuad;
+
+      #include <fog_pars_fragment>
+
+      void main() {
+        float r2 = dot(vQuad, vQuad);
+        if (r2 > 1.0) discard;
+
+        // exp(-k r^2) et non un smoothstep : le tier low n'a PAS de bloom
+        // (QUALITY.low.bloom === false, donc pas de composer), et un bord franc
+        // y lirait comme une pastille au lieu d'une lumiere. Le halo du bloom
+        // vient par-dessus quand il existe, il ne le remplace pas.
+        float core = exp(-r2 * 7.0);
+
+        vec3 col = uColor * core * vGlow * uOverdrive;
+
+        // Brouillard ADDITIF : on ATTENUE, on ne melange pas vers fogColor.
+        // Le chunk fog_fragment standard fait mix(rgb, fogColor, f), ce qui
+        // AJOUTERAIT du brouillard sur un materiau additif : une luciole
+        // lointaine deviendrait plus brillante que de pres.
+        #ifdef USE_FOG
+          #ifdef FOG_EXP2
+            float fogF = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+          #else
+            float fogF = smoothstep(fogNear, fogFar, vFogDepth);
+          #endif
+          col *= 1.0 - clamp(fogF, 0.0, 1.0);
+        #endif
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.name = 'fireflies';
+  mesh.renderOrder = 6;
+  mesh.visible = false;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+
+  // SPHERE ENGLOBANTE OBLIGATOIRE, ET PAS UNE OPTIMISATION.
+  // La geometrie ne contient qu'un quad unite a l'origine : le calcul
+  // automatique de three ne voit QUE `position` et rendrait une sphere de rayon
+  // 0.7 au centre du monde. Les positions reelles vivent dans `aPos`, que le
+  // culling ignore — les lucioles disparaitraient des qu'on ne regarde pas
+  // l'origine de la carte. On la pose donc a la main.
+  {
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < n; i++) { cx += aPos[i * 3]; cy += aPos[i * 3 + 1]; cz += aPos[i * 3 + 2]; }
+    const inv = 1 / Math.max(n, 1);
+    cx *= inv; cy *= inv; cz *= inv;
+    let r = 0;
+    for (let i = 0; i < n; i++) {
+      r = Math.max(r, Math.hypot(aPos[i * 3] - cx, aPos[i * 3 + 1] - cy, aPos[i * 3 + 2] - cz));
+    }
+    // Marge = derive maximale + demi-quad : la sphere doit couvrir la position
+    // ANIMEE, pas la position semee, sinon les bords disparaissent par a-coups.
+    geo.boundingSphere = new THREE.Sphere(
+      new THREE.Vector3(cx, cy, cz),
+      r + FIREFLIES.driftRadius[1] + FIREFLIES.size[1]
+    );
+  }
+
+  /**
+   * Deux uniformes par frame, rien d'autre. `phase` vient de sky.update().
+   */
+  function update(t, phase) {
+    if (!phase) return;
+    const activity = fireflyActivity(phase);
+    mesh.visible = activity > 0.01;
+    if (!mesh.visible) return;
+    uniforms.uTime.value = t;
+    uniforms.uActivity.value = activity;
+  }
+
+  function dispose() {
+    geo.dispose();
+    material.dispose();
+  }
+
+  return { mesh, update, dispose };
 }
