@@ -70,7 +70,7 @@ function createGrainPool(count, life, season) {
       // Molette de reglage, exposee en uniform pour se tourner A CHAUD depuis
       // la console sans rechargement — ce reglage est un jugement de gout et
       // l'aller-retour capture/relance coutait plus cher que le reglage.
-      uDustOpacity: { value: 0.60 },
+      uDustOpacity: { value: 0.20 },
     },
     transparent: true,
     depthWrite: false,
@@ -148,16 +148,18 @@ function createGrainPool(count, life, season) {
         if (vKind > 0.5) color = uSandColor;
         if (vKind > 1.5) color = uMeadowColor;
         if (drop) color = uWaterColor;
-        // Trois constats en jeu, dans cet ordre : invisible (couleur du sol,
-        // trop petite, trop breve), puis trop intense et lisant comme des BULLES
-        // DE SAVON, puis invisible a nouveau. La derniere rechute venait d'un
-        // cumul : le passage du disque a coeur plein (opaque a 100 % jusqu'a
-        // r = 0.52) vers la decroissance douce ci-dessus (0.46 au meme rayon)
-        // divise deja l'opacite effective par ~2 — baisser l'opacite EN PLUS
-        // revenait a couper deux fois. On corrige la FORME, on compense sa part,
-        // on ne cumule pas. La luminosite varie ensuite d'un grain a l'autre :
-        // un nuage uniforme lit comme un objet, un nuage irregulier lit comme
-        // de la matiere.
+        // uDustOpacity vaut 0.20 : valeur CHOISIE PAR L'UTILISATEUR a la molette,
+        // en jeu, apres avoir essaye plus fort. Ce n'est pas un compromis moyen,
+        // c'est un parti pris — la poussiere est un souffle, pas un nuage. Ne pas
+        // la remonter en croyant corriger un oubli.
+        //
+        // Historique de la FORME, qui est un autre sujet : le grain etait un
+        // disque a coeur plein (opaque a 100 % jusqu'a r = 0.52) et lisait comme
+        // une bille, l'ensemble comme des bulles de savon. La decroissance douce
+        // ci-dessus divise au passage l'opacite effective par ~2 (0.46 au meme
+        // rayon) : qui retouche la forme doit compenser cette part, pas cumuler.
+        // La luminosite varie enfin d'un grain a l'autre : un nuage uniforme lit
+        // comme un objet, un nuage irregulier lit comme de la matiere.
         float opacity = (drop ? 0.84 : uDustOpacity) * (drop ? 1.0 : 0.78 + 0.22 * sin(seed * 2.3));
         float alpha = shape * fade * opacity;
         if (alpha < 0.005) discard;

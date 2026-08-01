@@ -1271,3 +1271,8 @@ __sk.world.particles.group.getObjectByName('shiba-ground-grains')
 // sillage de nage (profondeur du creux)
 (await import('/src/shiba.js')).SHIBA.wakeAmp = 0.2;
 ```
+
+**Valeur figée par l'utilisateur : `uDustOpacity = 0.20`.** Choisie à la molette,
+en jeu, après avoir essayé plus fort. Ce n'est pas un compromis moyen, c'est un
+parti pris : la poussière est un souffle, pas un nuage. `SHIBA.wakeAmp` reste à
+0.13. Ne pas les remonter en croyant corriger un oubli.
