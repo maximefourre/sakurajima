@@ -10,14 +10,12 @@ pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
 - **Claude (Fable ou Opus) — session principale** : planifie, orchestre,
   review — ne code pas lui-même les gros chantiers. Ne PAS dépenser le
   modèle principal en implémentation déléguée.
-- **Grok 4.5, effort high — IMPLÉMENTATION** (`grok` CLI, headless :
-  `grok -p "<brief>" --model grok-4.5 --permission-mode acceptEdits`) :
-  ÉCRIT le code, un chantier à la fois, d'après un brief précis de Claude
-  (fichiers, ancrages, contraintes AGENTS). Si non authentifié
-  (`grok login --device-code`) → repli ci-dessous.
-- **Codex sol, effort high — REPLI d'implémentation** : sous-agent
-  `codex-rescue` du plugin Codex (vérifié prêt le 30/07). Sert quand Grok
-  est indisponible.
+- **Codex sol, effort high — IMPLÉMENTATION** : sous-agent `codex-rescue` du
+  plugin Codex. ÉCRIT le code, un chantier à la fois, d'après un brief précis
+  de Claude (fichiers, ancrages, contraintes AGENTS). Le brief doit lui
+  interdire explicitement de sous-traiter : laissé libre, il re-délègue et
+  attend un sous-agent qui ne répond jamais (40 min perdues le 02/08, zéro
+  octet écrit).
 - **Codex sol, effort high — REVIEW ADVERSARIALE** après chaque passe
   substantielle — via le skill du plugin Claude Code `codex:adversarial-review`,
   PAS en appelant le CLI codex à la main (consigne utilisateur).

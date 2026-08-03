@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { smoothstep } from './noise.js';
+import { smoothstep, mix, noise2 } from './noise.js';
 import { makeGrainBump } from './detailtex.js';
 
 export const TAU = Math.PI * 2;
@@ -23,7 +23,13 @@ export const COAT = {
 // somme de la chaîne de patte (hipDrop + thigh + shin + pad). Raccourcir un
 // segment sans corriger standHeight enfonce le chien dans le sol ou le fait
 // flotter. Les deux vivent ici pour qu'on ne puisse plus les désynchroniser.
-export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, hipDrop: 0.10, thigh: 0.26, shin: 0.23, pad: 0.07 };
+// Le partage thigh / shin n'est pas libre non plus, et ce n'est pas qu'une
+// affaire de somme. Il place le COUDE. À 0.26 / 0.23 le coude tombait 0.24 u
+// sous le sternum : le bras entier pendait à nu dans le vide et la patte lisait
+// comme un tuyau vissé. Chez un chien le coude est SUR la ligne du poitrail.
+// La somme est inchangée (0.49), donc `standHeight` et la garde au sol aussi ;
+// seul l'étage du coude remonte.
+export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, hipDrop: 0.10, thigh: 0.17, shin: 0.32, pad: 0.07 };
 
 /** Generated coat grain for the shared material's bumpMap (bumpScale ≈ 0.02). */
 export function makeCoatBump(seed) {
@@ -179,9 +185,38 @@ export function paintSolid(geo, col) {
   return geo;
 }
 
+/* Une limite de robe géométriquement nette lit comme de la PEINTURE, pas comme
+ * du poil : c'est la moitié de ce qui faisait « assemblage », l'autre moitié
+ * étant les marches de silhouette. On décale donc le seuil par un bruit de
+ * haute fréquence, échantillonné sur la POSITION et non sur `u` ni sur
+ * `upness` — indexée sur l'anneau, la perturbation tournerait avec lui et
+ * ferait des rayures régulières au lieu de mèches. */
+export function furEdge(p, amp = 0.10) {
+  return amp * noise2(p.x * 43.0 + p.z * 11.0, p.y * 47.0 - p.z * 23.0);
+}
+
+/**
+ * Paint an arbitrary geometry per-vertex from its own local positions. Same
+ * job as `paintSolid` but with a gradient, for the primitives that cannot go
+ * through `sweep`.
+ */
+export function paintBy(geo, fn) {
+  const pos = geo.attributes.position;
+  const c = new Float32Array(pos.count * 3);
+  const col = new THREE.Color();
+  const p = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i);
+    fn(p, col);
+    c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return geo;
+}
+
 /** Blend the coat colours by how much a surface faces up. */
-export function coatAt(upness, out, creamBias = 0) {
-  const k = smoothstep(-0.55 + creamBias, 0.15 + creamBias, upness);
+export function coatAt(upness, out, creamBias = 0, jitter = 0) {
+  const k = smoothstep(-0.55 + creamBias + jitter, 0.15 + creamBias + jitter, upness);
   out.copy(COAT.cream).lerp(COAT.red, k);
   // The saddle over the spine is a shade deeper than the flanks.
   if (upness > 0.45) out.lerp(COAT.saddle, smoothstep(0.45, 0.95, upness) * 0.55);
@@ -192,8 +227,11 @@ export function coatAt(upness, out, creamBias = 0) {
 // Every mask is evaluated in the piece's authoring space, except for the tail:
 // its transported section normal remains meaningful throughout the 270° curl.
 const URAJIRO = {
-  torso: (p) => smoothstep(-0.02, -0.10, p.y)
-    * smoothstep(0.19, 0.10, Math.abs(p.x)),
+  torso: (p) => {
+    const n = furEdge(p, 0.030);
+    return smoothstep(-0.02 + n, -0.10 + n, p.y)
+      * smoothstep(0.19 + n, 0.10 + n, Math.abs(p.x));
+  },
   head: (p, u) => {
     const x = Math.abs(p.x);
     const underJaw = smoothstep(-0.025, -0.085, p.y)
@@ -211,7 +249,15 @@ const URAJIRO = {
       * smoothstep(0.18, 0.45, u);
     return Math.max(underJaw, muzzleFlanks, cheeks);
   },
-  leg: (p, side) => smoothstep(0.02, -0.04, p.x * side),
+  // Le membre était coupé en deux dans sa longueur par un seuil de 0.06 u :
+  // moitié rousse, moitié crème, arête au rasoir. À la distance de jeu ça ne
+  // lit pas comme une marque de race mais comme deux plastiques emboîtés.
+  // La bande est élargie, décentrée vers l'intérieur (le crème ne prend pas la
+  // moitié du membre) et cassée par le bruit de poil.
+  leg: (p, side) => {
+    const n = furEdge(p, 0.022);
+    return smoothstep(-0.008 + n, -0.070 + n, p.x * side);
+  },
   ear: (p) => smoothstep(0.0, -0.02, p.z),
   tail: (upness) => smoothstep(-0.15, -0.55, upness),
 };
@@ -261,23 +307,44 @@ export function buildBody(material) {
     [0, 0.00, -0.547], [0, 0.05, -0.298], [0, 0.07, 0.00],
     [0, 0.08, 0.239], [0, 0.04, 0.447],
   ], 22);
+  // Culotte over the rear thighs, plus the smaller chest bib at the front.
+  const torsoTufts = tuftProfile((u) => Math.max(
+    0.05 * smoothstep(0.02, 0.12, u) * (1 - smoothstep(0.28, 0.45, u)),
+    0.04 * smoothstep(0.62, 0.78, u) * (1 - smoothstep(0.92, 1.00, u))
+  ));
   mesh(sweep(torso, {
-    radial: 16,
+    radial: 20,
     // Narrow and deep rather than round. A tube with equal radii reads as a
     // sausage; the 0.80 / 1.12 split is what gives him a keel-shaped chest and a
     // profile you can recognise from the side.
     radius: (u) => {
       const chest = 0.205 * (0.72 + 0.44 * Math.sin(Math.PI * Math.min(1, (u + 0.12) * 0.95)));
-      const waist = 1 - 0.22 * Math.exp(-((u - 0.42) ** 2) / 0.02);
-      return [chest * waist * 0.80, chest * waist * 1.12];
+      return [chest * 0.80, chest * 1.12];
     },
-    // Culotte over the rear thighs, plus the smaller chest bib at the front.
-    profile: tuftProfile((u) => Math.max(
-      0.05 * smoothstep(0.02, 0.12, u) * (1 - smoothstep(0.28, 0.45, u)),
-      0.04 * smoothstep(0.62, 0.78, u) * (1 - smoothstep(0.92, 1.00, u))
-    )),
+    profile: (u, a) => {
+      // Repère transporté d'une sweep vers +Z, le même que celui déjà démontré
+      // pour le crâne : le dorsal est -sin(a), donc le ventral +sin(a) et le
+      // latéral |cos(a)|.
+      const lateral = Math.abs(Math.cos(a));
+      const ventral = Math.max(0, Math.sin(a));
+      // Épaule et hanche. Sans ces deux masses LATÉRALES les membres sortent
+      // d'un tube lisse — c'est le premier de ce qui faisait lire « assemblage ».
+      const shoulder = 0.13 * lateral * Math.exp(-((u - 0.80) ** 2) / 0.012);
+      const haunch = 0.11 * lateral * Math.exp(-((u - 0.17) ** 2) / 0.016);
+      // Poitrail : le sternum doit descendre au niveau du coude. Extension
+      // purement VENTRALE — grossir ry ferait bien descendre le sternum, mais
+      // monterait d'autant la ligne de dos, qui doit rester droite.
+      // 0.26 était trop : le poitrail devenait une besace pâle sous le chien.
+      const brisket = 0.11 * ventral
+        * smoothstep(0.46, 0.80, u) * (1 - smoothstep(0.90, 1.00, u));
+      // Tuck-up. L'ancien creux de taille était un gaussien appliqué aux DEUX
+      // rayons : il pinçait aussi le dos, alors que le flanc d'un chien ne
+      // remonte que par en dessous.
+      const tuck = -0.13 * ventral * Math.exp(-((u - 0.38) ** 2) / 0.024);
+      return Math.max(0.2, torsoTufts(u, a) + shoulder + haunch + brisket + tuck);
+    },
     color: (u, up, out, p) => {
-      coatAt(up, out, -0.15);
+      coatAt(up, out, -0.15, furEdge(p, 0.05));
       out.lerp(COAT.cream, URAJIRO.torso(p));
     },
   }), body, 'torso');
@@ -334,9 +401,17 @@ export function buildBody(material) {
       // two cheeks lie at |cos(a)|. Flatten the crown (with a shallow median
       // furrow) and add volume laterally only through the cheek stations.
       const dorsal = Math.max(0, -Math.sin(a));
-      const cheek = smoothstep(0.22, 0.52, u) * (1 - smoothstep(0.86, 1.00, u));
+      const lateral = Math.abs(Math.cos(a));
+      // Arcade zygomatique : la joue est DERRIÈRE l'œil, pas devant, et c'est
+      // elle qui, par contraste, affine le museau. L'ancien 0.10 centré trop en
+      // avant élargissait le chanfrein au lieu de la joue.
+      const cheek = smoothstep(0.16, 0.44, u) * (1 - smoothstep(0.72, 0.98, u));
       const flatCrown = 0.12 * dorsal + 0.018 * dorsal ** 8;
-      return (1 - flatCrown) * (1 + 0.10 * Math.abs(Math.cos(a)) * cheek);
+      // Arcade sourcilière. Un stop, c'est une OMBRE portée par un bourrelet
+      // au-dessus de l'œil. Sans elle, la rupture de rayon crâne/museau se lit
+      // comme une tablette et le museau comme un bloc rapporté.
+      const brow = 0.075 * dorsal ** 0.7 * Math.exp(-((u - 0.80) ** 2) / 0.020);
+      return (1 - flatCrown) * (1 + 0.17 * lateral * cheek + brow);
     },
     color: (u, up, out, p) => {
       coatAt(up, out, -0.15);
@@ -364,23 +439,44 @@ export function buildBody(material) {
     return new THREE.Vector3(0, -0.008 - 0.032 * u, MUZZLE_START_Z + muzzleSpan * u);
   });
   mesh(sweep(muzzleAxis, {
-    radial: 14,
+    radial: 16,
+    /* Le museau était un PAVÉ : il démarrait à 0.132 quand le crâne finissait à
+     * 0.163 (marche franche = la tablette au stop) et ne s'affinait que de
+     * 12 % sur toute sa longueur. C'est le cône qui fait la tête de shiba.
+     * Il repart donc quasiment au rayon du crâne et perd 42 % jusqu'à la
+     * truffe, en section de COIN : large à la base, se refermant vers l'avant. */
     radius: (u) => {
       const visibleU = Math.max(0, (u - overlapU) / (1 - overlapU));
-      const taper = 1 - 0.12 * visibleU;
-      return [0.132 * taper, 0.116 * taper];
+      const taper = 1 - 0.42 * smoothstep(0.02, 1.00, visibleU);
+      const wedge = 1 - 0.16 * visibleU; // la largeur tombe plus vite que la hauteur
+      return [0.152 * taper * wedge, 0.126 * taper];
     },
-    profile: (u, a) => 1 + 0.14 * Math.max(0, Math.sin(a))
-      * smoothstep(overlapU, 0.62, u),
+    profile: (u, a) => {
+      // Sweep vers +Z : dorsal = -sin(a), ventral = +sin(a).
+      const ventral = Math.max(0, Math.sin(a));
+      const dorsal = Math.max(0, -Math.sin(a));
+      // Babine sous le chanfrein, et chanfrein DROIT : un méplat dorsal, pas un
+      // bombé — « straight nasal bridge » est la moitié du profil de la race.
+      return 1 + 0.14 * ventral * smoothstep(overlapU, 0.62, u)
+        - 0.07 * dorsal ** 1.6;
+    },
     color: (u, up, out, p) => {
-      coatAt(up, out, -0.15);
+      coatAt(up, out, -0.15, furEdge(p, 0.04));
       out.lerp(COAT.cream, URAJIRO.head(p, u));
     },
   }), head, 'muzzle');
 
-  const nose = mesh(paintSolid(new THREE.SphereGeometry(0.055, 10, 8), COAT.dark), head, 'nose');
-  nose.position.set(0, -0.04, 0.28);
-  nose.scale.set(1.15, 0.85, 0.9);
+  /* La truffe. Elle était énorme : 0.055 de rayon étiré à 1.15 en largeur sur
+   * un museau qui n'en fait que 0.09 au bout. Réduite, et fendue d'un sillon
+   * médian — sans lui la bille noire uniforme est la première chose qu'on voit. */
+  const nose = mesh(paintBy(new THREE.SphereGeometry(0.042, 12, 9), (p, out) => {
+    out.copy(COAT.dark);
+    // Le philtrum : une raie plus claire sur l'axe, sous la truffe.
+    const groove = (1 - smoothstep(0.0, 0.012, Math.abs(p.x))) * smoothstep(0.006, -0.010, p.y);
+    out.lerp(COAT.tongue, groove * 0.22);
+  }), head, 'nose');
+  nose.position.set(0, -0.043, 0.272);
+  nose.scale.set(1.10, 0.86, 0.82);
 
   const lids = [];
   for (const side of [-1, 1]) {
@@ -394,19 +490,30 @@ export function buildBody(material) {
     lid.name = 'lid';
     lid.position.copy(eye.position);
     lid.rotation.x = -0.32;
+    /* Le standard dit « triangular, the outer corners slightly upturned ».
+     * L'ouverture était une calotte ronde, coins interne et externe au même
+     * niveau : ça donne un œil de peluche. Incliner la paupière autour de Z
+     * relève le coin externe et transforme l'ouverture en amande montante.
+     * `rotation.x` reste le canal du clignement (-0.32 → 0.58 dans shiba.js) :
+     * le biais vit sur un AUTRE axe, sinon il faudrait retoucher ces bornes. */
+    lid.rotation.z = -side * 0.30;
     head.add(lid);
-    const lidShell = mesh(paintSolid(new THREE.SphereGeometry(
-      0.040, 8, 5, 0, TAU, 0, Math.PI * 0.5
-    ), COAT.red), lid, 'eyelid');
+    const lidShell = mesh(paintBy(new THREE.SphereGeometry(
+      0.041, 10, 6, 0, TAU, 0, Math.PI * 0.5
+    ), (p, out) => {
+      // Liseré de paupière : le bord de l'ouverture est sombre et humide, pas
+      // roux jusqu'à l'arête.
+      out.copy(COAT.red).lerp(COAT.dark, smoothstep(0.014, 0.000, p.y) * 0.55);
+    }), lid, 'eyelid');
     // The pivot stays exactly on the eye for blinking; lifting only the shell
     // leaves roughly the upper third covered in the resting pose.
-    lidShell.position.y = 0.018;
-    lidShell.scale.set(0.74, 1.03, 0.64);
+    lidShell.position.y = 0.014;
+    lidShell.scale.set(0.76, 1.05, 0.66);
     lids.push(lid);
 
     // A pin of light: without it a dark eye on a dark mask reads as fur.
-    const glint = mesh(paintSolid(new THREE.SphereGeometry(0.010, 6, 5), new THREE.Color(0xf6f2ea)), head, 'eye-glint');
-    glint.position.set(side * (EYE_X + 0.007), EYE_Y + 0.012, EYE_Z + 0.014);
+    const glint = mesh(paintSolid(new THREE.SphereGeometry(0.009, 6, 5), new THREE.Color(0xf6f2ea)), head, 'eye-glint');
+    glint.position.set(side * (EYE_X + 0.008), EYE_Y + 0.008, EYE_Z + 0.016);
   }
 
   /* — mouth —
@@ -460,16 +567,40 @@ export function buildBody(material) {
   for (const side of [-1, 1]) {
     const pivot = new THREE.Object3D();
     pivot.position.set(side * 0.145, 0.155, -0.035);
-    pivot.rotation.set(-0.46, side * 0.34, side * 0.20);
+    // 0.34 de lacet tournait la plaque de champ : vue de face on voyait une
+    // lame. L'oreille d'un shiba se présente large, à peine ouverte vers
+    // l'extérieur.
+    pivot.rotation.set(-0.44, side * 0.22, side * 0.18);
     head.add(pivot);
+    /* Le standard dit « relatively small, triangular ». L'oreille faisait 0.20
+     * de haut pour un crâne de 0.22 de rayon, en cône à `radial: 3` : trois
+     * facettes, une corne. Elle est raccourcie d'un quart, amincie en PLAQUE
+     * (0.30 au lieu de 0.45), sa pointe arrondie, et sa face avant CREUSÉE —
+     * une oreille est une coquille, et c'est ce creux qui capte l'ombre. */
     mesh(sweep(spine([
-      [0, 0.00, 0], [0, 0.10, 0.014], [0, 0.20, 0.024],
-    ], 6), {
-      radial: 3,
-      radius: (u) => { const r = 0.125 * (1 - u * 0.92); return [r, r * 0.45]; },
+      [0, 0.00, 0], [0, 0.080, 0.013], [0, 0.162, 0.021],
+    ], 7), {
+      radial: 7,
+      radius: (u) => {
+        // La largeur se referme plus vite que l'épaisseur : contour triangulaire.
+        const r = 0.132 * (1 - 0.80 * smoothstep(0.00, 0.94, u));
+        return [r, r * 0.40 * (1 - 0.18 * u)];
+      },
+      profile: (u, a) => {
+        // Sweep vers +Y : le repère de départ est semé sur +X, la face avant
+        // (+Z de l'oreille, vers l'avant du crâne) tombe donc sur -sin(a).
+        const front = Math.max(0, -Math.sin(a));
+        // Conque creuse, ouverte au milieu de la hauteur et refermée aux bords.
+        const conch = 0.30 * front ** 1.3
+          * smoothstep(0.06, 0.34, u) * (1 - smoothstep(0.62, 0.96, u));
+        // Pas de bombement au sommet : la pointe n'est déjà pas piquée (le
+        // rayon plancher à u=1 vaut 20 % de la base). Un multiplicateur en plus
+        // évasait le bout et donnait deux trompettes.
+        return 1 - conch;
+      },
       color: (u, up, out, p) => {
         out.copy(COAT.red).lerp(COAT.cream, URAJIRO.ear(p));
-        out.lerp(COAT.dark, smoothstep(0.62, 1.0, u) * 0.45);
+        out.lerp(COAT.dark, smoothstep(0.66, 1.0, u) * 0.42);
       },
     }), pivot, 'ear');
     ears.push(pivot);
@@ -487,7 +618,7 @@ export function buildBody(material) {
     [0.04, 0.36, 0.40], [-0.03, 0.28, 0.48], [-0.10, 0.18, 0.42],
     [-0.13, 0.12, 0.30],
   ], 20), {
-    radial: 10,
+    radial: 14,
     // Plumed: thin at the root, thickest through the curl, tapering at the tip.
     radius: (u) => {
       const r = 0.075 + 0.100 * Math.sin(Math.PI * Math.min(1, u * 1.15));
@@ -506,60 +637,208 @@ export function buildBody(material) {
    * down the inside of the leg and over the foot, which is why the feet catch
    * the eye when he trots. */
   const legs = [];
+
+  /* Une seule table de rayons pour les quatre membres — et surtout UN SEUL nom
+   * par interface. `joint` (avant) et `stifle` (arrière) sont le dernier rayon
+   * du segment haut ET le premier du segment bas : impossible de les
+   * désynchroniser. Deux littéraux voisins finissent toujours par diverger, et
+   * le symptôme est le manchon télescopique d'origine (le fémur finissait à
+   * 0.085, le tibia repartait à 0.092 dans un nœud posé pile au bout).
+   *
+   * PAYÉ CASH, et deux fois : il ne suffit PAS que le segment bas soit plus
+   * large au pivot. À +13 % il RESSORT du segment haut, et l'anneau
+   * d'interpénétration de deux tubes à 12 facettes tombe en plein sur la
+   * silhouette : on obtient un escalier, plus laid que la marche de départ.
+   * Les deux rayons doivent être ÉGAUX au pivot — l'émergence est alors
+   * tangente et invisible — et le renflement d'articulation doit se lever
+   * SOUS le pivot, jamais dessus. Le rapport rx/ry doit coïncider lui aussi,
+   * sans quoi l'égalité n'est vraie que sur deux points de l'anneau. */
+  const LEG_R = {
+    buried: 0.042, // anneau de bouchon, il ne doit JAMAIS sortir du flanc
+    upper: 0.086,  // masse du bras / de la cuisse
+    joint: 0.066,  // coude — interface PARTAGÉE avant
+    cannon: 0.050, // canon et métatarse
+    hock: 0.042,   // pincement du jarret
+  };
+  LEG_R.stifle = LEG_R.joint * 1.18; // grasset — interface PARTAGÉE arrière
+  const FLAT_F = 0.85; // rx/ry, avant — le même des deux côtés du coude
+  const FLAT_B = 0.82; // rx/ry, arrière
+  const JOINT_SWELL = 0.06;
+
   const legSpec = [
-    { key: 'FL', x: -0.150, z: 0.29, front: true },
-    { key: 'FR', x: 0.150, z: 0.29, front: true },
-    { key: 'BL', x: -0.155, z: -0.35, front: false },
-    { key: 'BR', x: 0.155, z: -0.35, front: false },
+    { key: 'FL', x: -0.104, z: 0.29, front: true },
+    { key: 'FR', x: 0.104, z: 0.29, front: true },
+    { key: 'BL', x: -0.114, z: -0.35, front: false },
+    { key: 'BR', x: 0.114, z: -0.35, front: false },
   ];
+
+  /* Le pied, balayé de l'ARRIÈRE vers l'AVANT et non de haut en bas. Sweeper
+   * un pied vers le bas mettrait la sole sur un capuchon d'extrémité, donc
+   * ronde et impossible à aplatir ; balayé selon +Z on retrouve le repère
+   * documenté pour le crâne (dorsal = -sin(a), ventral = +sin(a), latéral =
+   * cos(a)) et la sole comme les doigts deviennent de simples masques. */
+  const FOOT_HALF = 0.038; // demi-hauteur : c'est elle qui pose la sole au sol
+  const footSpine = (splay) => [
+    [splay * 0.2, 0.010, -0.050],
+    [splay * 0.5, -0.002, -0.012],
+    [splay * 0.85, -0.004, 0.028],
+    [splay, 0.004, 0.066],
+  ];
+  const footProfile = (u, a) => {
+    const ventral = Math.max(0, Math.sin(a));
+    const dorsal = Math.max(0, -Math.sin(a));
+    // Sole plate : un chien pose à plat, il ne roule pas sur une ellipse.
+    const sole = 0.13 * ventral ** 1.4;
+    // Quatre doigts arqués sur le dessus du tiers distal. La fréquence 8 place
+    // les bosses à ±π/8 et ±3π/8 de l'axe dorsal, soit quatre lobes sur la
+    // moitié supérieure une fois le masque `dorsal` appliqué. C'est cette
+    // fréquence qui impose `radial: 28` : en dessous les lobes sont
+    // sous-échantillonnés et le pied devient une étoile.
+    const toes = 0.115 * Math.max(0, -Math.cos(8 * a)) * dorsal ** 0.55
+      * smoothstep(0.46, 0.70, u);
+    return 1 - sole + toes;
+  };
 
   for (const s of legSpec) {
     // The inner face reverses between left and right legs. Capture that side
     // here; sweep's callback contract stays identical for every other piece.
-    const legUrajiro = (p) => URAJIRO.leg(p, Math.sign(s.x));
+    const side = Math.sign(s.x);
+    const legUrajiro = (p) => URAJIRO.leg(p, side);
+    const coatLeg = (up, out, p, distal = 0) => {
+      coatAt(up, out, -0.15 + distal, furEdge(p, 0.07));
+      out.lerp(COAT.cream, legUrajiro(p));
+    };
     const hip = new THREE.Object3D();
     hip.position.set(s.x, s.front ? -SHIBA_BUILD.hipDrop : -0.06, s.z);
     body.add(hip);
 
-    const upperLen = s.front ? SHIBA_BUILD.thigh : 0.28;
+    /* — bras / cuisse —
+     * La spine démarre AU-DESSUS du pivot : son premier anneau est enfoui dans
+     * le flanc, exactement comme le cou recouvre l'épaule et le museau démarre
+     * derrière le stop. On ne fait jamais se rencontrer deux anneaux
+     * échantillonnés, on les recouvre.
+     * Le rayon de ce premier anneau doit rester PETIT : un gros disque
+     * horizontal enfoui ressort latéralement et fait une tablette, pire que le
+     * défaut d'origine. D'où `LEG_R.buried`, et d'où les pivots ramenés vers
+     * l'axe (±0.150 → ±0.104) — à l'ancienne largeur, l'épaule tombait en
+     * dehors du flanc et rien ne pouvait s'y cacher. */
+    const upperLen = s.front ? SHIBA_BUILD.thigh : 0.20;
+    const rise = upperLen * 0.62;
+    const uTop = rise / (rise + upperLen);
+    const vUpper = (u) => (u - uTop) / (1 - uTop); // 0 au pivot, 1 à l'articulation
     mesh(sweep(spine(
       s.front
-        ? [[0, 0, 0], [0, -upperLen * 0.5, 0.01], [0, -upperLen, 0.0]]
-        : [[0, 0, 0], [0, -upperLen * 0.5, -0.055], [0, -upperLen, -0.07]],
-      7), {
-      radial: 8,
-      radius: (u) => { const r = 0.130 - 0.045 * u; return [r * 0.85, r]; },
-      color: (u, up, out, p) => {
-        coatAt(up, out, -0.15);
-        out.lerp(COAT.cream, legUrajiro(p));
+        ? [[0, rise, -0.008], [0, 0, 0.006], [0, -upperLen * 0.55, 0.006], [0, -upperLen, 0.006]]
+        : [[0, rise, -0.020], [0, 0, 0.004], [0, -upperLen * 0.55, 0.030], [0, -upperLen, 0.050]],
+      9), {
+      radial: 12,
+      radius: (u) => {
+        const v = vUpper(u);
+        // Au-dessus du pivot le membre se referme en pointe dans le flanc.
+        const emerge = smoothstep(-0.62, -0.04, v);
+        const bulk = s.front
+          ? mix(LEG_R.upper, LEG_R.joint, smoothstep(0.02, 1.00, v))
+          : mix(LEG_R.upper * 1.30, LEG_R.stifle, smoothstep(0.06, 1.00, v));
+        const r = mix(LEG_R.buried, bulk, emerge);
+        return [r, r * (s.front ? FLAT_F : FLAT_B)];
       },
+      color: (u, up, out, p) => coatLeg(up, out, p),
     }), hip, 'thigh');
 
+    /* Le fémur descend vers l'AVANT : le grasset d'un chien est sous le ventre,
+     * pas derrière la fesse. L'ancien nœud partait à -0.07, ce qui repliait la
+     * patte arrière à l'envers de l'anatomie. */
     const knee = new THREE.Object3D();
-    knee.position.set(0, -upperLen, s.front ? 0 : -0.07);
+    knee.position.set(0, -upperLen, s.front ? 0.004 : 0.050);
     hip.add(knee);
 
-    const lowerLen = s.front ? SHIBA_BUILD.shin : 0.25;
+    // Chaîne arrière : 0.06 (hanche) + 0.20 (fémur) + 0.330 + 0.07 (pad) =
+    // 0.66 = standHeight, la même sole que devant. L'invariant 12 prend la
+    // patte la PLUS BASSE des quatre : désaligner les deux chaînes le fait
+    // échouer même si chacune est cohérente prise seule.
+    const lowerLen = s.front ? SHIBA_BUILD.shin : 0.330;
+    const overlap = 0.055;
+    const uOv = overlap / (overlap + lowerLen);
+    const vLower = (u) => (u - uOv) / (1 - uOv); // 0 à l'articulation, 1 à la cheville
+    const splay = side * (s.front ? 0.016 : 0.012);
     mesh(sweep(spine(
       s.front
-        ? [[0, 0, 0], [0, -lowerLen, 0.0]]
-        : [[0, 0, 0], [0, -lowerLen * 0.55, 0.045], [0, -lowerLen, 0.055]],
-      6), {
-      radial: 7,
-      // Starts a hair WIDER than the thigh ends (0.085), so the knee reads as a
-      // joint rather than as a step down onto a thinner pipe.
-      radius: (u) => { const r = 0.092 - 0.032 * u; return [r * 0.85, r]; },
+        ? [[0, overlap, 0.006], [0, -lowerLen * 0.30, 0.006], [0, -lowerLen * 0.68, 0.004],
+          [splay, -lowerLen, -0.006]]
+        // Jambe → JARRET → métatarse. Le coude arrière se fait dans UNE seule
+        // sweep : le rig ne pilote que `hip` et `knee`, on ne l'agrandit pas.
+        : [[0, overlap, -0.010], [0, -0.068, -0.048], [0, -0.137, -0.082],
+          [0, -0.188, -0.098], [0, -0.246, -0.092], [splay, -lowerLen, -0.080]],
+      s.front ? 8 : 12), {
+      radial: 12,
+      radius: (u) => {
+        const v = vLower(u);
+        // Le renflement d'articulation. Il vaut EXACTEMENT 1 au pivot et
+        // au-dessus (`v <= 0`), sinon le segment bas ressort du segment haut
+        // et l'anneau d'interpénétration fait un escalier sur la silhouette.
+        // Il se lève sous le pivot, culmine dans l'articulation, et retombe.
+        const swell = 1 + JOINT_SWELL * Math.sin(Math.PI * smoothstep(0, 0.36, v));
+        if (s.front) {
+          // Paturon : léger pincement juste au-dessus du pied.
+          const pastern = 1 - 0.18 * smoothstep(0.72, 0.96, v);
+          const r = mix(LEG_R.joint, LEG_R.cannon, smoothstep(0, 0.62, v)) * swell * pastern;
+          return [r, r * FLAT_F];
+        }
+        // Le jarret est de l'os et du tendon : le rayon y PINCE. C'est ce
+        // pincement, encore plus que le coude, qui fait lire une patte arrière.
+        const gaskin = mix(LEG_R.stifle, LEG_R.hock, smoothstep(0.02, 0.56, v));
+        const meta = mix(LEG_R.hock, LEG_R.cannon * 0.94, smoothstep(0.58, 1.00, v));
+        const r = (v < 0.57 ? gaskin : meta) * swell;
+        return [r, r * FLAT_B];
+      },
       // Urajiro follows only the inner cannon; a full cream stocking reads as
       // a beagle rather than a shiba.
-      color: (u, up, out, p) => {
-        coatAt(up, out, -0.15);
-        out.lerp(COAT.cream, legUrajiro(p));
-      },
+      color: (u, up, out, p) => coatLeg(up, out, p, 0.10 * smoothstep(0.4, 1.0, vLower(u))),
     }), knee, 'shin');
 
-    const paw = mesh(paintSolid(new THREE.SphereGeometry(0.082, 8, 6), COAT.cream), knee, 'paw');
-    paw.position.set(0, -lowerLen - 0.005, s.front ? 0.02 : 0.06);
-    paw.scale.set(0.95, 0.66, 1.20);
+    /* La rotule. Deux tubes de MÊME rayon au pivot ne suffisent pas dès que
+     * leurs TANGENTES diffèrent — et c'est le propre d'une articulation
+     * d'angler : au grasset le fémur descend vers l'avant et la jambe repart
+     * vers l'arrière. Sans volume dans le coin, l'angle se voit comme un
+     * décrochement. Une sphère du même rayon, centrée sur le pivot, est
+     * tangente aux deux tubes : l'union se lit comme un coude, pas comme un
+     * raccord. C'est aussi pour ça que le rayon du joint est une constante
+     * partagée et pas un littéral. */
+    const jointR = s.front ? LEG_R.joint : LEG_R.stifle;
+    // 1.07 et pas 1.0 : à rayon exactement égal, le capuchon plat du segment
+    // haut affleure l'équateur de la sphère et les deux se disputent le
+    // z-buffer — un éclat clair apparaît pile sur l'articulation. La sphère
+    // doit contenir STRICTEMENT les deux bords, ce qui donne au passage le
+    // léger renflement qu'a un vrai coude.
+    const cap = mesh(paintBy(new THREE.SphereGeometry(jointR * 1.07, 12, 8), (p, out) => {
+      // `upness` FIXÉ à 0, pas la valeur sphérique : un membre est un tube
+      // vertical, son `_off.y` vaut zéro partout et `coatAt` y rend une teinte
+      // constante. Peindre la rotule avec son vrai gradient haut-bas lui
+      // donnait un dégradé que les deux tubes n'ont pas — un bracelet clair
+      // pile sur l'articulation, exactement l'anneau qu'on cherchait à effacer.
+      coatLeg(0, out, p);
+    }), knee, 'joint');
+    cap.scale.set(s.front ? FLAT_F : FLAT_B, 1.04, 1.0);
+
+    /* Le pied. Il reste un mesh nommé exactement 'paw' enfant de `knee` :
+     * l'invariant 12 mesure sa garde au sol par ce nom, et `shiba.js` prend sa
+     * position monde pour les empreintes et la poussière. */
+    const paw = mesh(sweep(spine(footSpine(splay * 0.6), 7), {
+      radial: 28,
+      // Large et bas : un pied de chat. Il s'élargit vite depuis le talon puis
+      // se referme à peine aux doigts — s'il se refermait en pointe, les lobes
+      // n'auraient plus de largeur où exister.
+      radius: (u) => [
+        0.028 + 0.034 * smoothstep(0.00, 0.42, u) - 0.012 * smoothstep(0.80, 1.00, u),
+        FOOT_HALF * (0.86 + 0.16 * smoothstep(0.00, 0.40, u) - 0.22 * smoothstep(0.72, 1.00, u)),
+      ],
+      profile: footProfile,
+      // Le pied n'est pas une chaussette blanche vernie : le dessus reste
+      // roussi, le crème remonte par l'intérieur et par le bas comme partout
+      // ailleurs sur ce chien.
+      color: (u, up, out, p) => coatLeg(up, out, p, 0.22),
+    }), knee, 'paw');
+    paw.position.set(0, -lowerLen - (SHIBA_BUILD.pad - FOOT_HALF), 0);
 
     legs.push({ key: s.key, front: s.front, hip, knee, paw });
   }

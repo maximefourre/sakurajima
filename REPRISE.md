@@ -1738,3 +1738,106 @@ espèces, et le rapport inter-espèces est juste.
 Sources : AHDB et Butterflies and Moths of North America (*P. rapae* : envergure,
 pointes noires, un point chez le mâle et deux chez la femelle), Kiddle et Bugs of
 Japan (*P. xuthus* : 7–11 cm, jaune et noir).
+
+## Le shiba refait — silhouette et tête (03/08/2026)
+
+Demande : « on dirait un assemblage ». C'était exact, et pour deux raisons
+distinctes qui se renforçaient.
+
+### 1. Les marches de silhouette
+
+Chaque pièce était une `sweep` autonome, et là où deux se rencontraient le rayon
+sautait. Le pire était le genou : le fémur finissait à 0.085, le tibia repartait
+à 0.092 dans un nœud posé PILE au bout — on voyait l'anneau de bouchon du
+premier et le bord du second, un manchon télescopique.
+
+**Trois choses ont dû être vraies en même temps** pour que le raccord disparaisse,
+et je les ai découvertes dans cet ordre, chacune en cassant la précédente :
+
+1. **Rayons égaux au pivot, pas « le bas plus large ».** À +13 % le segment bas
+   RESSORT du haut, et l'anneau d'interpénétration de deux tubes à 12 facettes
+   tombe sur la silhouette : on obtient un escalier, plus laid que la marche de
+   départ. Le renflement d'articulation doit donc se lever SOUS le pivot
+   (`sin(π·smoothstep(0, 0.36, v))`, nul en 0), jamais dessus.
+2. **Même rapport rx/ry des deux côtés**, sinon l'égalité n'est vraie que sur
+   deux points de l'anneau. D'où `FLAT_F` / `FLAT_B`.
+3. **Une rotule au pivot.** Même à rayon et aplatissement égaux, deux tubes dont
+   les TANGENTES diffèrent font un décrochement — et angler est précisément le
+   rôle d'une articulation. Une sphère de même rayon (× 1.07, pour contenir
+   STRICTEMENT les capuchons plats : à 1.00 ils se disputent le z-buffer et un
+   éclat clair apparaît pile sur l'articulation) est tangente aux deux tubes.
+
+Un piège de peinture s'y ajoute : la rotule doit être peinte avec `upness = 0`,
+pas avec son vrai gradient sphérique. Un membre est un tube vertical, son
+`_off.y` vaut zéro partout et `coatAt` y rend une teinte constante ; la rotule
+peinte « correctement » portait un dégradé que les tubes n'ont pas — un bracelet
+clair exactement à l'endroit qu'on voulait effacer.
+
+Les rayons vivent maintenant dans un `LEG_R` unique, avec **un seul nom par
+interface** (`joint`, `stifle`), sur le modèle de `SHIBA_BUILD`.
+
+### 2. La robe peinte au lieu d'être poilue
+
+`URAJIRO.leg` coupait le membre en deux dans sa longueur sur un seuil de 0.06 u :
+moitié rousse, moitié crème, arête au rasoir. Ce n'est pas une marque de race qui
+se lit, ce sont deux plastiques emboîtés. Bande élargie, décentrée vers
+l'intérieur, et surtout **cassée par un bruit** (`furEdge`, nouveau) échantillonné
+sur la POSITION — indexé sur `u` ou sur l'anneau il tournerait avec lui et
+donnerait des rayures régulières au lieu de mèches. Même traitement sur
+`URAJIRO.torso` et sur le seuil de `coatAt`, qui prend un 4ᵉ paramètre `jitter`.
+
+### 3. Anatomie — ce qui manquait vraiment
+
+- **Le coude était 0.24 u sous le sternum**, le bras pendait à nu. `thigh`/`shin`
+  passent de 0.26/0.23 à **0.17/0.32** : la somme est inchangée, donc
+  `standHeight` et la garde au sol aussi, seul l'étage du coude remonte.
+- **Arrière-main** : la patte était deux tubes droits, et le fémur partait vers
+  l'ARRIÈRE. Le grasset est passé devant, et le bas est devenu une seule sweep
+  coudée jambe → **jarret pincé** → métatarse (sans nouveau nœud de rig : le rig
+  ne pilote que `hip` et `knee`).
+- **Pieds** : les sphères crème sont devenues des sweeps balayées de l'arrière
+  vers l'avant — balayer vers le bas mettrait la sole sur un capuchon, donc ronde
+  et impossible à aplatir. Sole plate, **quatre doigts arqués** en `max(0, −cos 8a)`
+  masqué sur la moitié dorsale. C'est cette fréquence 8 qui impose `radial: 28`.
+- **Épaule, hanche, poitrail, tuck-up** posés sur le `profile` du torse. L'ancien
+  creux de taille était un gaussien appliqué aux DEUX rayons : il pinçait aussi
+  le dos, alors qu'un flanc ne remonte que par en dessous.
+- **Pivots ramenés vers l'axe** (±0.150 → ±0.104) : à l'ancienne largeur l'épaule
+  tombait EN DEHORS du flanc, et un anneau enfoui qui dépasse latéralement fait
+  une tablette — pire que le défaut d'origine.
+
+### 4. La tête
+
+Le museau démarrait à 0.132 quand le crâne finissait à 0.163 (la tablette au
+stop) et ne s'affinait que de 12 % : un pavé. Il repart quasiment au rayon du
+crâne, perd 42 %, en section de coin, chanfrein plat. Le stop est désormais porté
+par une **arcade sourcilière** — un stop est une ombre, pas une marche. Joue
+déplacée en arrière (l'arcade zygomatique est derrière l'œil) et étoffée.
+
+Étalon FCI 257 / AKC, trois écarts objectifs corrigés : oreilles « relatively
+small » (elles faisaient presque la hauteur du crâne, en cône à `radial: 3` →
+plaque triangulaire creuse, `radial: 7`, ¼ plus courtes) ; œil « triangular,
+outer corners slightly upturned » (bille ronde → amande, coin externe relevé par
+`lid.rotation.z`, en gardant `rotation.x` libre pour le clignement que pilote
+`shiba.js`) ; truffe réduite et fendue d'un philtrum.
+
+### Vérification
+
+`node --check`, puis `INVARIANTS: 21 pass, 0 fail` en **low ET en ultra**, dont
+la garde au sol à −0.013 u pour un plafond de 0.090. Contrôle visuel en
+navigateur : profil, trois quarts avant, face, détail des membres.
+
+### Ce qui reste
+
+- Les pattes avant gardent un très léger anneau au paturon.
+- Le poitrail est un peu pâle de face — beaucoup d'urajiro d'un coup.
+- Rien n'a été mesuré côté fps : le chien pèse quelques milliers de triangles
+  dans une scène à 4 M, mais ça n'a pas été chiffré.
+
+### Note de méthode — l'implémentation a dû être reprise en direct
+
+Grok n'était plus authentifié, et **Codex a calé deux fois** (37 min puis 15 min,
+zéro octet écrit) : laissé libre, il re-délègue à un sous-agent et attend
+indéfiniment. `AGENTS.md` a été mis à jour — Grok retiré sur demande, Codex
+devient l'implémenteur, et le brief doit lui interdire explicitement de
+sous-traiter. Le chantier a finalement été écrit par la session principale.
