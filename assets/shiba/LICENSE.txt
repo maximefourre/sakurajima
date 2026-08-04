@@ -1,0 +1,31 @@
+Modele 3D « Shiba »
+
+Auteur   : zixisun02 — https://sketchfab.com/zixisun51
+Source   : https://sketchfab.com/3d-models/shiba-faef9fe5ace445e7b2989d1c1ece361c
+Licence  : CC-BY-4.0 — http://creativecommons.org/licenses/by/4.0/
+Recupere : 2026-08-03
+
+C'est le seul asset tiers du projet. Tout le reste de la scene est procedural
+(cf. AGENTS.md) ; cette derogation a ete demandee explicitement et ne vaut que
+pour le shiba.
+
+Modifications apportees par ce projet
+-------------------------------------
+  - texture baseColor reduite de 2048x2048 a 1024x1024 ;
+  - glTF + .bin + PNG empaquetes en un .glb autonome, par
+    tools/pack-shiba-glb.py — les materiaux et les noeuds ne sont pas touches,
+    KHR_materials_unlit et doubleSided sont preserves tels quels ;
+  - a l'execution seulement (src/shiba-gltf.js, la geometrie du fichier n'est
+    pas modifiee) : mise a l'echelle x0.823, recentrage sur le milieu des
+    appuis, et ajout d'un squelette de 22 os avec des poids de skinning
+    calcules par distance aux segments d'os.
+
+sha256 des trois fichiers d'origine
+-----------------------------------
+  958ebe1bfb278e4790cf1f3e9526ba38938f6f4c809cc15d91c215be688bf2e2  scene.gltf
+  810d0b2cad55b3c9f82d0388b8383b5875d8b7bc1a0179f743a296b06c0eada5  scene.bin
+  c6ab1ca4ead4ef999d0e416cf6a66f26db52bf9e75eef65ef536f97a835a676e  textures/default_baseColor.png
+
+Ils permettent de reconstruire shiba.glb a l'identique ; la procedure est
+detaillee dans docs/superpowers/plans/2026-08-05-chantier-G-shiba-gltf.md,
+tache 1.
