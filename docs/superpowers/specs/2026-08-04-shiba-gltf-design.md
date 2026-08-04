@@ -5,6 +5,38 @@
 > 36 confirmés — voir « Ce que la critique a changé » en fin de document).
 > Implémentation : Codex sol, effort high, sur brief. Review adversariale après.
 
+## En bref
+
+> Ce document est long parce que c'est un **brief d'implémentation** : chaque
+> nombre y est mesuré et justifié, pour que Codex n'ait rien à inventer. Voici
+> ce qu'il faut savoir pour décider.
+
+**Ce qu'on fait.** On remplace la géométrie du shiba par le modèle du tuto
+Codédex, et on lui fabrique en code le squelette qu'il n'a pas (22 os, poids
+calculés par distance) pour rebrancher le cycle d'animation existant. Le chien
+procédural reste en repli si l'asset ne charge pas.
+
+**Ce que ça coûte.** Un binaire de 890 Ko versionné et un `fetch` au boot — les
+deux premiers du dépôt, contre la doctrine « tout procédural ». Dérogation
+assumée, bornée au shiba.
+
+**Ce qu'on gagne.** Une bien meilleure silhouette, et 7304 triangles en 33 draw
+calls qui deviennent 4316 en 1.
+
+**Ce qu'on perd.** La mâchoire (peinte dans la texture). Le clignement est
+récupéré par une astuce à valider en gros plan.
+
+**Les trois risques.** (1) Le chien est une peluche chibi : 53 % plus large que
+l'actuel, pattes 3.2 fois plus courtes — la marche se lira surtout par le corps.
+(2) La texture est *baked*, elle peut aplatir le couchant. (3) Quatre nombres
+(amplitude des pattes, affaissement d'assise, rebond, flottaison) sont des
+hypothèses de départ à régler à l'écran.
+
+**Ce qui reste à décider : rien.** Les questions de cadrage ont été tranchées le
+04/08 (tableau ci-dessous).
+
+---
+
 ## Le problème
 
 L'utilisateur a pointé un tutoriel — [Codédex, *Build an Interactive 3D Model with
