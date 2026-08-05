@@ -632,9 +632,12 @@ Les amplitudes de `GAITS` ont été réglées pour la première colonne : hanche
 visuel, et à consigner dans `shiba-gltf.js` avec les mesures qui les ont produits :
 
 ```js
+// Saturation douce, PAS un facteur : le pas doit se lire, et le galop ne doit
+// pas déchirer la peau. Le gain agit sur les petits angles, tanh écrase les
+// grands vers la limite sûre sans plateau.
 poseLeg(leg, hip, knee, { sit }) {
-  leg.hip.rotation.x  = hip  * mix(0.90, 0.55, sit);
-  leg.knee.rotation.x = knee * mix(0.40, 0.18, sit);
+  leg.hip.rotation.x  = mix(satur(hip,  1.8, 0.85), hip  * 0.55, sit);
+  leg.knee.rotation.x = mix(satur(knee, 0.9, 0.60), knee * 0.18, sit);
 },
 poseBody(y, pitch, roll, { sit }) {
   // 1.6 sur le rebond : le pas se lit par le corps. Mais l'assise est un
@@ -644,6 +647,25 @@ poseBody(y, pitch, roll, { sit }) {
   rig.body.rotation.z = roll;
 }
 ```
+
+**Retour utilisateur du 05/08, tâche 7 : « trop rigide, on le voit presque pas
+bouger les pattes, et son derrière est à ras du sol, on dirait qu'il marche
+assis ».** Les deux reproches se mesurent, et ils ont des causes distinctes :
+
+- **La course du pied au pas valait 0.075 u de monde**, contre 0.417 pour le
+  chien procédural — 18 %. Un facteur plat ne pouvait pas la rattraper, puisque
+  le galop plafonne à 0.85 rad avant déchirure. D'où la **saturation douce** :
+  gain 1.8 sur les petits angles, `tanh` vers 0.85. Marche 27°, trot 42°, galop
+  47° ; la course passe à 0.289 / 0.400 / 0.425, soit 69 % du procédural au pas.
+- **La garde au sol sous le tronc valait 0.069 u** pour une ligne de dos à
+  0.930 : le corps était posé par terre. On lui **rallonge les pattes** de
+  `LIFT = 0.08` (tilt monte, genou et pied descendent de la moitié chacun, les
+  semelles ne bougent pas), ce qui porte la garde à 0.130 et la chaîne de 0.161
+  à 0.241 — le même angle déplace donc le pied 1.5 fois plus loin.
+  L'étirement est appliqué **après le bind**, sinon les os de patte
+  flotteraient dans le ventre et les poids emporteraient le tronc.
+  Effet de bord mesuré : il décentre les appuis de 0.018 pour un plafond
+  d'invariant de 0.020. Rallonger davantage demande de recentrer.
 
 Ces nombres ont été **validés à l'écran pendant l'implémentation** (chantier G,
 tâche 3), et deux d'entre eux ont bougé pour une raison mesurable :

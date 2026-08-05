@@ -437,6 +437,33 @@ function faireSole(mesh, geometry, legs, bones) {
  *  de 59 % de sa hauteur de dos. Le precedent ne s'applique pas ici. */
 const SWIM_FLOAT = 0.56;
 
+/** Le chibi a le tronc POSÉ PAR TERRE : garde au sol mesurée à 0.069 u de monde
+ *  entre les deux trains, pour une ligne de dos à 0.930. Il marchait « assis ».
+ *  On lui rallonge donc les pattes de LIFT, en montant `tilt` et en descendant
+ *  le genou et le pied de la moitié chacun — les semelles ne bougent pas, seul
+ *  le tronc se lève. C'est un ÉTIREMENT, pas une correction d'anatomie : le
+ *  modèle n'a pas ces pattes-là.
+ *
+ *  Appliqué APRÈS le bind, délibérément. La pose de bind doit rester celle de
+ *  la géométrie, sinon les os de patte flotteraient dans le ventre et les poids
+ *  emporteraient le tronc avec les pattes. Le squelette capture l'anatomie ;
+ *  l'étirement vient par-dessus.
+ *
+ *  Effet secondaire recherché : la chaîne passe de 0.161 à 0.241, donc le même
+ *  angle de hanche déplace le pied 1.5 fois plus loin. */
+const LIFT = 0.08;
+
+/** Le pas ne se lisait pas : 0.075 u de course au pas, contre 0.208 pour le
+ *  chien procédural. Un simple facteur ne suffit pas — au galop il déchire la
+ *  peau (mesuré au chantier G, tâche 3 : propre jusqu'à 0.85 rad, déchiré
+ *  au-delà). D'où une saturation douce plutôt qu'un facteur : GAIN_HANCHE
+ *  multiplie les petits angles, et tanh les écrase vers LIM_HANCHE sans jamais
+ *  la dépasser ni créer de plateau. Marche 0.30 -> 0.48 rad au lieu de 0.27 ;
+ *  galop 0.95 -> 0.82 rad, sous le plafond sûr. */
+const GAIN_HANCHE = 1.8, LIM_HANCHE = 0.85;
+const GAIN_GENOU = 0.9, LIM_GENOU = 0.60;
+const satur = (x, gain, lim) => lim * Math.tanh((x * gain) / lim);
+
 /** Charge le shiba glTF, le normalise et lui fabrique un squelette au contrat
  *  de buildBody(). Rend null si l'asset est indisponible : le chien procedural
  *  de shiba-geom.js reprend alors la main, et l'echec doit rester silencieux
@@ -449,6 +476,14 @@ export async function loadShibaBody({ url = URL_DEFAUT } = {}) {
     const { bones, par } = construireSquelette();
     calculerPoids(geometry, bones, ranges);
     const rig = assembler(geometry, material, bones, par);
+    // L'étirement des pattes, APRÈS le bind (cf. LIFT). Les semelles restent où
+    // elles sont : ce qu'on monte de tilt, on le redescend en deux fois sur le
+    // genou et le pied.
+    rig.tilt.position.y += LIFT;
+    for (const l of rig.legs) {
+      l.knee.position.y -= LIFT / 2;
+      l.paw.position.y -= LIFT / 2;
+    }
     rig.ranges = ranges;
     rig.sole = faireSole(rig.mesh, geometry, rig.legs, bones);
     rig.swimFloat = SWIM_FLOAT;
@@ -458,15 +493,13 @@ export async function loadShibaBody({ url = URL_DEFAUT } = {}) {
     // la hanche pour que le pas se lise, on ferme le genou (os de 0.081, il se
     // replierait dans la cuisse), et l'assise est un cas a part : 1.95 rad de
     // genou est geometriquement impossible sur un moignon.
-    // 0.90 est un PLAFOND MESURE, pas un gout : au galop (0.95 rad), balayage
-    // a 1.30 / 1.10 / 0.90 / 0.70 / 0.50, la peau se dechire visiblement entre
-    // l'epaule et la patte jusqu'a 1.10 et devient propre a 0.90 (49 deg).
-    // Le baisser est libre ; le REMONTER demande de refaire le gros plan au
-    // galop — la derive numerique, elle, valait deja 0.290 pour un plafond de
-    // 0.35 a 1.30, donc l'invariant seul ne l'aurait pas attrapee.
+    // Saturation douce, pas un facteur (cf. GAIN_HANCHE / LIM_HANCHE) : le pas
+    // doit se lire, et le galop ne doit pas déchirer la peau. L'assise reste un
+    // cas à part — 1.95 rad de genou est géométriquement impossible sur un
+    // moignon, on l'écrase franchement.
     rig.poseLeg = (leg, hip, knee, { sit = 0 } = {}) => {
-      leg.hip.rotation.x = hip * mix(0.90, 0.55, sit);
-      leg.knee.rotation.x = knee * mix(0.40, 0.18, sit);
+      leg.hip.rotation.x = mix(satur(hip, GAIN_HANCHE, LIM_HANCHE), hip * 0.55, sit);
+      leg.knee.rotation.x = mix(satur(knee, GAIN_GENOU, LIM_GENOU), knee * 0.18, sit);
     };
     // 1.6 sur le rebond : sur ce chien, le pas se lit par le corps. Mais
     // l'affaissement d'assise est ABSOLU, et -0.20 sur un ventre a 0.069 du sol
