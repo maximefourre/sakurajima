@@ -587,15 +587,30 @@ export function createShiba({
     const fullScan = Math.sin(t * 0.42) * 0.30 * (1 - speedN);
     let headYaw = mix(fullScan * 0.4, 0, swim);
     headYaw = mix(headYaw, fullScan, sit);
-    rig.head.rotation.y = mix(headYaw, 0, shake);
     let headPitch = mix(-0.06 * speedN - lookUp * 0.62, -0.24, swim);
     headPitch = mix(headPitch, -0.05 - lookUp * 0.62, sit);
-    rig.head.rotation.x = mix(headPitch, 0, shake);
     let neckPitch = mix(0, -0.12, swim);
     neckPitch = mix(neckPitch, -0.28, sit);
-    rig.neck.rotation.x = mix(neckPitch, 0, shake);
-    rig.neck.rotation.z = mix(0, shakeWave * 0.55, shake);
-    rig.head.rotation.z = mix(0, -shakeWave * 0.38, shake);
+    // Même contrat que poseLeg et poseBody : les cinq valeurs sont FINALES,
+    // secouage compris. Un rig dont la tête est démesurée par rapport au cou
+    // les réinterprète — lookUp lève le museau de 0.62 rad, ce qui lit comme un
+    // à-coup sur un crâne de chibi.
+    const pose = {
+      headYaw: mix(headYaw, 0, shake),
+      headPitch: mix(headPitch, 0, shake),
+      headRoll: mix(0, -shakeWave * 0.38, shake),
+      neckPitch: mix(neckPitch, 0, shake),
+      neckRoll: mix(0, shakeWave * 0.55, shake),
+    };
+    if (rig.poseHead) {
+      rig.poseHead(pose);
+    } else {
+      rig.head.rotation.y = pose.headYaw;
+      rig.head.rotation.x = pose.headPitch;
+      rig.head.rotation.z = pose.headRoll;
+      rig.neck.rotation.x = pose.neckPitch;
+      rig.neck.rotation.z = pose.neckRoll;
+    }
 
     // Tail. Wag rate tracks excitement, which spikes after a run and decays, so
     // he arrives somewhere still buzzing and settles down a few seconds later.
@@ -609,11 +624,21 @@ export function createShiba({
     // Rotate the curled plume onto the surface and sweep it gently as a rudder.
     let tailY = mix(locomotionTailY, Math.sin(state.swimGait * 0.5) * 0.13, swim);
     tailY = mix(tailY, locomotionTailY, sit);
-    rig.tailBase.rotation.y = mix(tailY, 0, shake);
     let tailX = mix(locomotionTailX, 0.68, swim);
     tailX = mix(tailX, 0.26, sit);
-    rig.tailBase.rotation.x = mix(tailX, 0, shake);
-    rig.tailBase.rotation.z = mix(0, shakeTailWave * 0.5, shake);
+    // Valeurs FINALES, comme les autres hooks. L'amplitude de battement (0.10
+    // rad au repos) a été réglée pour un plumet long et fin ; sur un macaron
+    // compact elle ne se voit pas.
+    const tailXF = mix(tailX, 0, shake);
+    const tailYF = mix(tailY, 0, shake);
+    const tailZF = mix(0, shakeTailWave * 0.5, shake);
+    if (rig.poseTail) {
+      rig.poseTail(tailXF, tailYF, tailZF);
+    } else {
+      rig.tailBase.rotation.x = tailXF;
+      rig.tailBase.rotation.y = tailYF;
+      rig.tailBase.rotation.z = tailZF;
+    }
 
     // Ears: laid back at speed, pricked at rest, and flicked by the gusts. The
     // wind is shared with the grass and the petals, so an ear twitch lands on the

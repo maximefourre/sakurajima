@@ -977,8 +977,12 @@ function milieuAppuisGltf(r) {
     const poser = (p) => {
       for (const leg of r.legs) r.poseLeg(leg, p.hip, p.knee, { swim: 0, sit: p.sit, shake: 0, speedN: 0 });
       r.poseBody(0, 0, p.roll || 0, { swim: 0, sit: p.sit, shake: 0, speedN: 0 });
-      r.head.rotation.y = p.head || 0;
-      r.tailBase.rotation.y = p.tail || 0;
+      // Par les HOOKS, pas par des écritures directes : c'est le chemin que
+      // animate() emprunte, saturations comprises. Écrire les rotations à la
+      // main testerait un rig que personne ne pilote.
+      r.poseHead({ headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
+        neckPitch: 0, neckRoll: 0 });
+      r.poseTail(0, p.tail || 0, 0);
       for (const l of r.lids) l.rotation.x = p.blink ? 0.58 : -0.32;
       for (const e of r.ears) e.rotation.x = p.ear ?? -0.30;
       r.root.updateMatrixWorld(true);

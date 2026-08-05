@@ -266,6 +266,15 @@ const RACHIS = [
   new THREE.Vector3(0, 0.583, +0.124),
   new THREE.Vector3(0, 0.453, -0.507),
 ];
+/** Le plumet, mesuré : il court de la base de queue au centroïde de son bout.
+ *  Sans ce proxy, l'os de queue héritait du segment corps -> tailBase, qui se
+ *  SUPERPOSE au rachis ci-dessus — et `body`, dont la porte vaut 1 partout,
+ *  gagnait 152 des 229 vertices du plumet. Les deux tiers de la queue étaient
+ *  collés au corps et ne remuaient pas. */
+const AXE_QUEUE = [
+  new THREE.Vector3(0, 0.453, -0.507),
+  new THREE.Vector3(0, 0.461, -0.788),
+];
 
 const _ab = new THREE.Vector3();
 const _ap = new THREE.Vector3();
@@ -291,6 +300,7 @@ function calculerPoids(geometry, bones, ranges) {
   const seg = bones.map((b) => {
     if (b.name === 'tilt') return null;                   // structurel
     if (b.name === 'body') return RACHIS;
+    if (b.name === 'tailBase') return AXE_QUEUE;
     return [
       new THREE.Vector3().setFromMatrixPosition(b.parent.matrixWorld),
       new THREE.Vector3().setFromMatrixPosition(b.matrixWorld),
@@ -462,6 +472,22 @@ const LIFT = 0.08;
  *  galop 0.95 -> 0.82 rad, sous le plafond sûr. */
 const GAIN_HANCHE = 1.8, LIM_HANCHE = 0.85;
 const GAIN_GENOU = 0.9, LIM_GENOU = 0.60;
+
+/** La queue ne remuait pas : 0.10 rad au repos sur un macaron dont la masse est
+ *  à 0.22 du pivot, soit 0.024 u de monde — invisible. Le plumet long et fin du
+ *  chien procédural rendait le même angle lisible ; pas ce ballon-ci. */
+const GAIN_QUEUE = 2.5, LIM_QUEUE = 0.55;
+
+/** L'inverse pour la tête. `lookUp` lève le museau de 0.62 rad toutes les 6 à
+ *  15 s — une intention (il regarde les pétales tomber), mais sur une tête
+ *  énorme montée sur un cou court elle déplace le crâne de 0.36 u D'UN COUP, et
+ *  ça lit comme un à-coup en arrière. On sature à 0.28 : les petits angles
+ *  (trim de course, nage, assise) passent presque intacts, la pointe est
+ *  écrêtée. Le à-coup vient aussi de l'attaque instantanée de lookUp, qui est
+ *  dans animate() et vaut pour les deux corps — on ne peut qu'en réduire
+ *  l'amplitude ici. */
+const LIM_TETE = 0.28;
+
 const satur = (x, gain, lim) => lim * Math.tanh((x * gain) / lim);
 
 /** Charge le shiba glTF, le normalise et lui fabrique un squelette au contrat
@@ -504,6 +530,18 @@ export async function loadShibaBody({ url = URL_DEFAUT } = {}) {
     // 1.6 sur le rebond : sur ce chien, le pas se lit par le corps. Mais
     // l'affaissement d'assise est ABSOLU, et -0.20 sur un ventre a 0.069 du sol
     // enterre le chien — d'ou un remplacement, et pas un facteur.
+    rig.poseTail = (x, y, z) => {
+      rig.tailBase.rotation.x = x;
+      rig.tailBase.rotation.y = satur(y, GAIN_QUEUE, LIM_QUEUE);
+      rig.tailBase.rotation.z = z;
+    };
+    rig.poseHead = (p) => {
+      rig.head.rotation.y = p.headYaw;
+      rig.head.rotation.x = satur(p.headPitch, 1, LIM_TETE);
+      rig.head.rotation.z = p.headRoll;
+      rig.neck.rotation.x = p.neckPitch;
+      rig.neck.rotation.z = p.neckRoll;
+    };
     rig.poseBody = (y, pitch, roll, { sit = 0 } = {}) => {
       rig.body.position.y = mix(y * 1.6, -0.045, sit);
       rig.body.rotation.x = mix(pitch, -0.12, sit);
