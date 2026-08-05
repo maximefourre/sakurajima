@@ -476,7 +476,7 @@ const GAIN_GENOU = 0.9, LIM_GENOU = 0.60;
 /** La queue ne remuait pas : 0.10 rad au repos sur un macaron dont la masse est
  *  à 0.22 du pivot, soit 0.024 u de monde — invisible. Le plumet long et fin du
  *  chien procédural rendait le même angle lisible ; pas ce ballon-ci. */
-const GAIN_QUEUE = 2.5, LIM_QUEUE = 0.55;
+const GAIN_QUEUE = 4.5, LIM_QUEUE = 0.75;
 
 /** L'inverse pour la tête. `lookUp` lève le museau de 0.62 rad toutes les 6 à
  *  15 s — une intention (il regarde les pétales tomber), mais sur une tête
@@ -487,6 +487,12 @@ const GAIN_QUEUE = 2.5, LIM_QUEUE = 0.55;
  *  dans animate() et vaut pour les deux corps — on ne peut qu'en réduire
  *  l'amplitude ici. */
 const LIM_TETE = 0.28;
+
+/** Le cou aussi, et c'est lui qu'on avait oublié : en s'asseyant, animate() lui
+ *  demande -0.28 rad, qui S'AJOUTENT au bascule du crâne. D'où le « coup sec
+ *  vers l'arrière avant de s'asseoir » — deux articulations qui partent
+ *  ensemble sur une tête démesurée. */
+const LIM_COU = 0.15;
 
 const satur = (x, gain, lim) => lim * Math.tanh((x * gain) / lim);
 
@@ -535,11 +541,22 @@ export async function loadShibaBody({ url = URL_DEFAUT } = {}) {
       rig.tailBase.rotation.y = satur(y, GAIN_QUEUE, LIM_QUEUE);
       rig.tailBase.rotation.z = z;
     };
+    // Le « coup sec » n'était pas une affaire d'amplitude mais d'ATTAQUE :
+    // `lookUp` saute de 0 à 1 en une frame dans animate(), et le crâne partait
+    // d'un bloc. Rapetisser le geste aurait tué l'intention (il regarde les
+    // pétales tomber) sans supprimer la saccade. On lisse donc la montée sur
+    // TAU_TETE, ce qui garde l'amplitude et supprime le claquement. La descente
+    // était déjà douce (lookUp décroît en ~1.8 s).
+    const TAU_TETE = 0.30;
+    let lissTete = 0, lissCou = 0;
     rig.poseHead = (p) => {
+      const k = p.dt > 0 ? 1 - Math.exp(-p.dt / TAU_TETE) : 1;
+      lissTete += (satur(p.headPitch, 1, LIM_TETE) - lissTete) * k;
+      lissCou += (satur(p.neckPitch, 1, LIM_COU) - lissCou) * k;
       rig.head.rotation.y = p.headYaw;
-      rig.head.rotation.x = satur(p.headPitch, 1, LIM_TETE);
+      rig.head.rotation.x = lissTete;
       rig.head.rotation.z = p.headRoll;
-      rig.neck.rotation.x = p.neckPitch;
+      rig.neck.rotation.x = lissCou;
       rig.neck.rotation.z = p.neckRoll;
     };
     rig.poseBody = (y, pitch, roll, { sit = 0 } = {}) => {

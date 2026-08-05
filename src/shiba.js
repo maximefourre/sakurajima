@@ -596,6 +596,7 @@ export function createShiba({
     // les réinterprète — lookUp lève le museau de 0.62 rad, ce qui lit comme un
     // à-coup sur un crâne de chibi.
     const pose = {
+      dt,
       headYaw: mix(headYaw, 0, shake),
       headPitch: mix(headPitch, 0, shake),
       headRoll: mix(0, -shakeWave * 0.38, shake),
