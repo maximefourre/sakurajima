@@ -582,7 +582,7 @@ function porte(nom, x, y, z) {
   if (m) {
     const zHanche = m[2] === 'F' ? +0.193 : -0.193;
     const lat = m[3] === 'L' ? ss(0, -0.10, x) : ss(0, +0.10, x);
-    return lat * ss(0.42, 0.26, Math.abs(z - zHanche)) * ss(0.34, 0.20, y);
+    return lat * ss(0.22, 0.10, Math.abs(z - zHanche)) * ss(0.34, 0.20, y);
   }
   return 0;
 }
@@ -773,7 +773,7 @@ const mix = (a, b, t) => a + (b - a) * t;
 // dans la cuisse), et l'assise est un cas a part : 1.95 rad de genou est
 // geometriquement impossible sur un moignon.
 rig.poseLeg = (leg, hip, knee, { sit }) => {
-  leg.hip.rotation.x = hip * mix(1.30, 0.55, sit);
+  leg.hip.rotation.x = hip * mix(0.90, 0.55, sit);
   leg.knee.rotation.x = knee * mix(0.40, 0.18, sit);
 };
 // 1.6 sur le rebond : sur ce chien, le pas se lit par le corps. Mais

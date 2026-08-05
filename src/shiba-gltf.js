@@ -152,6 +152,291 @@ function construireMateriau(materiauxSource) {
   return material;
 }
 
+/* ── Le squelette ─────────────────────────────────────────────── */
+
+/** Ancrages MESURES sur la geometrie normalisee (cf. spec, « Reperes finaux »).
+ *  L'ORDRE de ce tableau definit la semantique de skinIndex : ne jamais le
+ *  reordonner sans reconstruire les poids.
+ *
+ *  La colonne de bind n'est PAS decorative. animate() ecrit sur certains os une
+ *  valeur non nulle AU REPOS — les paupieres mix(-0.32, 0.58, blink) donc -0.32
+ *  (shiba.js:621), les oreilles landEarX = -0.30 + 0.34*speedN et
+ *  landEarZ = side*(0.20 + 0.10*gust) donc -0.30 et side*0.20 (shiba.js:596-600).
+ *  Un os binde a l'identite transformerait ces valeurs en deformation
+ *  PERMANENTE. Ne pas recopier la pose d'auteur de shiba-geom.js:568-573
+ *  (-0.44, side*0.22, side*0.18) : elle est ecrasee en vol par animate() et n'a
+ *  jamais ete la pose de repos reelle. */
+const OS = [
+  // nom,      parent,    position locale,            pose de bind
+  ['tilt',     null,      [0, 0.360, 0],              null],
+  ['body',     'tilt',    [0, 0, 0],                  null],
+  ['neck',     'body',    [0, +0.223, +0.124],        null],
+  ['head',     'neck',    [0, +0.117, +0.096],        null],
+  ['jaw',      'head',    [0, -0.140, +0.210],        null],
+  ['lidL',     'head',    [-0.097, +0.171, +0.219],   { x: -0.32 }],
+  ['lidR',     'head',    [+0.097, +0.171, +0.219],   { x: -0.32 }],
+  ['earL',     'head',    [-0.165, +0.337, -0.043],   { x: -0.30, z: -0.20 }],
+  ['earR',     'head',    [+0.165, +0.337, -0.043],   { x: -0.30, z: +0.20 }],
+  ['tailBase', 'body',    [0, +0.093, -0.507],        null],
+  ['hipFL',    'body',    [-0.184, -0.179, +0.193],   null],
+  ['kneeFL',   'hipFL',   [0, -0.081, 0],             null],
+  ['pawFL',    'kneeFL',  [0, -0.080, +0.010],        null],
+  ['hipFR',    'body',    [+0.184, -0.179, +0.193],   null],
+  ['kneeFR',   'hipFR',   [0, -0.081, 0],             null],
+  ['pawFR',    'kneeFR',  [0, -0.080, +0.010],        null],
+  ['hipBL',    'body',    [-0.243, -0.179, -0.193],   null],
+  ['kneeBL',   'hipBL',   [0, -0.081, 0],             null],
+  ['pawBL',    'kneeBL',  [0, -0.080, +0.010],        null],
+  ['hipBR',    'body',    [+0.243, -0.179, -0.193],   null],
+  ['kneeBR',   'hipBR',   [0, -0.081, 0],             null],
+  ['pawBR',    'kneeBR',  [0, -0.080, +0.010],        null],
+];
+
+function construireSquelette() {
+  const par = new Map();
+  const bones = [];
+  for (const [nom, parent, [x, y, z], bind] of OS) {
+    const b = new THREE.Bone();
+    b.name = nom;
+    b.position.set(x, y, z);
+    if (bind) {
+      if (bind.x !== undefined) b.rotation.x = bind.x;
+      if (bind.z !== undefined) b.rotation.z = bind.z;
+    }
+    if (parent) par.get(parent).add(b);
+    par.set(nom, b);
+    bones.push(b);
+  }
+  // Les matrixWorld doivent etre a jour AVANT le Skeleton : c'est la qu'il
+  // calcule les boneInverses. Sans ca, les poses de bind ci-dessus sont perdues.
+  bones[0].updateMatrixWorld(true);
+  return { bones, par };
+}
+
+/* ── Les poids ────────────────────────────────────────────────── */
+
+/** smoothstep, qui tolere a > b (porte inversee). */
+const ss = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+const mix = (a, b, t) => a + (b - a) * t;
+
+/** Une porte par os. Sans elles, une patte gauche aspire la droite (0.37 u
+ *  d'ecart pour un os de 0.16), et surtout les os les plus animes capturent le
+ *  crane. Ce sont des smoothstep et pas des coupures : une coupure franche
+ *  laisse une couture visible sur un mesh lisse.
+ *
+ *  jaw et lids ont une porte NULLE, et c'est deliberé : la gueule et les yeux
+ *  sont PEINTS dans la texture. Les paupieres ne recoivent que l'affectation
+ *  dure des billes d'yeux — leur laisser la porte du museau ferait froisser le
+ *  visage a chaque clignement, qui bascule de 0.90 rad plusieurs fois par 10 s. */
+function porte(nom, x, y, z) {
+  if (nom === 'jaw' || nom === 'lidL' || nom === 'lidR') return 0;
+  if (nom === 'body') return 1;                   // receptacle par defaut
+  if (nom === 'head') return ss(0.00, 0.18, z);
+  // Le terme vertical du cou n'est pas ornemental : les appuis avant sont a
+  // z = +0.193, en plein dans sa bande longitudinale. Sans lui, le cou tirerait
+  // les pattes avant.
+  if (nom === 'neck') return ss(-0.15, 0.05, z) * ss(0.36, 0.16, z) * ss(0.22, 0.40, y);
+  if (nom === 'tailBase') return ss(-0.30, -0.50, z);
+  if (nom === 'earL') return ss(0, -0.06, x) * ss(0.90, 1.05, y);
+  if (nom === 'earR') return ss(0, +0.06, x) * ss(0.90, 1.05, y);
+  const m = /^(hip|knee|paw)([FB])([LR])$/.exec(nom);
+  if (m) {
+    const zHanche = m[2] === 'F' ? +0.193 : -0.193;
+    const lat = m[3] === 'L' ? ss(0, -0.10, x) : ss(0, +0.10, x);
+    // La bande longitudinale se deduit de l'ECARTEMENT DES HANCHES (0.386 entre
+    // les deux trains), pas du gout. Une premiere version portait 0.26 pleine /
+    // 0.42 nulle : au milieu du ventre, |z - 0.193| = 0.193 < 0.26, donc LES
+    // QUATRE pattes avaient leur porte grande ouverte au meme endroit. Au galop,
+    // ou l'avant et l'arriere tournent en sens opposes, le ventre se dechirait —
+    // une nappe etiree entre l'epaule et la patte, visible en gros plan et
+    // attrapee par l'invariant de derive (0.390 pour un plafond de 0.35).
+    return lat * ss(0.22, 0.10, Math.abs(z - zHanche)) * ss(0.34, 0.20, y);
+  }
+  return 0;
+}
+
+const EPS = 0.023;     // 2 % de la hauteur du chien
+const P = 4;           // exposant du falloff
+/** body n'a pas de segment (il est a (0,0,0) dans tilt, et un point attire de
+ *  facon isotrope) : il prend pour proxy l'axe cou -> queue. */
+const RACHIS = [
+  new THREE.Vector3(0, 0.583, +0.124),
+  new THREE.Vector3(0, 0.453, -0.507),
+];
+
+const _ab = new THREE.Vector3();
+const _ap = new THREE.Vector3();
+const _proj = new THREE.Vector3();
+function distanceAuSegment(p, a, b) {
+  _ab.subVectors(b, a);
+  _ap.subVectors(p, a);
+  const l2 = _ab.lengthSq();
+  const t = l2 > 1e-12 ? Math.min(1, Math.max(0, _ap.dot(_ab) / l2)) : 0;
+  _proj.copy(a).addScaledVector(_ab, t);
+  return p.distanceTo(_proj);
+}
+
+function calculerPoids(geometry, bones, ranges) {
+  const pos = geometry.attributes.position;
+  const n = pos.count;
+  const si = new Uint16Array(n * 4);
+  const sw = new Float32Array(n * 4);
+
+  // Segments de chaque os dans la pose de bind. root est a l'identite a ce
+  // stade, donc matrixWorld donne directement des coordonnees de construction,
+  // le meme repere que la geometrie normalisee.
+  const seg = bones.map((b) => {
+    if (b.name === 'tilt') return null;                   // structurel
+    if (b.name === 'body') return RACHIS;
+    return [
+      new THREE.Vector3().setFromMatrixPosition(b.parent.matrixWorld),
+      new THREE.Vector3().setFromMatrixPosition(b.matrixWorld),
+    ];
+  });
+  const idx = (nom) => bones.findIndex((b) => b.name === nom);
+  const idxNeck = idx('neck'), idxLidL = idx('lidL'), idxLidR = idx('lidR');
+
+  const p = new THREE.Vector3();
+  const cand = [];
+  for (let v = 0; v < n; v++) {
+    p.fromBufferAttribute(pos, v);
+    // Affectations DURES : le collier suit le cou comme un objet rigide, les
+    // billes d'yeux suivent leur paupiere. Elles court-circuitent le calcul.
+    if (v >= ranges.collar[0] && v < ranges.collar[1]) {
+      si[v * 4] = idxNeck; sw[v * 4] = 1; continue;
+    }
+    if (v >= ranges.eyes[0] && v < ranges.eyes[1]) {
+      si[v * 4] = p.x < 0 ? idxLidL : idxLidR; sw[v * 4] = 1; continue;
+    }
+    cand.length = 0;
+    for (let b = 0; b < bones.length; b++) {
+      if (!seg[b]) continue;
+      const g = porte(bones[b].name, p.x, p.y, p.z);
+      if (g <= 0) continue;
+      const d = distanceAuSegment(p, seg[b][0], seg[b][1]);
+      cand.push([g / Math.pow(d + EPS, P), b]);
+    }
+    // Les 4 plus gros ; a egalite le plus petit indice d'os gagne, pour que le
+    // resultat soit deterministe.
+    cand.sort((a, b) => (b[0] - a[0]) || (a[1] - b[1]));
+    let somme = 0;
+    const k = Math.min(4, cand.length);
+    for (let i = 0; i < k; i++) somme += cand[i][0];
+    for (let i = 0; i < k; i++) {
+      si[v * 4 + i] = cand[i][1];
+      sw[v * 4 + i] = cand[i][0] / somme;
+    }
+    // Les influences inutilisees restent (indice 0, poids 0) : JAMAIS un indice
+    // invalide « puisque le poids est nul ». Les 4 termes sont toujours evalues
+    // par le shader, et 0.0 * NaN = NaN detruit le vertex.
+  }
+  // normalized: false. Avec true, un Uint16 est divise par 65535, tous les
+  // indices tombent a ~0, et LE CHIEN ENTIER se colle a l'os 0 sans une seule
+  // erreur.
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+}
+
+/* ── L'assemblage ─────────────────────────────────────────────── */
+
+function assembler(geometry, material, bones, par) {
+  const mesh = new THREE.SkinnedMesh(geometry, material);
+  mesh.name = 'shiba-body';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  // La bounding sphere d'un SkinnedMesh est calculee UNE fois et jamais
+  // invalidee : elle refleterait la pose de la premiere frame, et le chien — ou
+  // seulement son ombre — clignoterait des qu'il s'anime hors d'elle.
+  mesh.frustumCulled = false;
+  mesh.normalizeSkinWeights();
+
+  const skeleton = new THREE.Skeleton(bones);
+  // bindMatrix identite EXPLICITE : sans second argument, bind() appelle
+  // calculateInverses() et ECRASE les inverses qu'on vient de calculer.
+  mesh.bind(skeleton, new THREE.Matrix4());
+
+  const root = new THREE.Group();
+  root.name = 'shiba';
+  // Le mesh ET la racine d'os sous le MEME parent : en AttachedBindMode,
+  // mesh.position/rotation/scale n'a AUCUN effet visuel, la transform du mesh
+  // etant annulee par bindMatrixInverse. C'est root que shiba.js deplace, et
+  // c'est le seul montage qui marche.
+  root.add(mesh);
+  root.add(par.get('tilt'));
+
+  // L'ordre FL, FR, BL, BR est OBLIGATOIRE : GAITS.trot.ph = [0, pi, pi, 0]
+  // apparie legs[0] avec legs[3] et legs[1] avec legs[2] — ce sont les
+  // diagonales. Un ordre FL, BL, FR, BR ferait trotter le chien a l'amble.
+  const legs = [['FL', true], ['FR', true], ['BL', false], ['BR', false]]
+    .map(([key, front]) => ({
+      key, front,
+      hip: par.get('hip' + key), knee: par.get('knee' + key), paw: par.get('paw' + key),
+    }));
+
+  // Le contrat de buildBody(), nom pour nom. lids et ears sont [gauche, droite]
+  // — shiba.js:595 associe ears[0] au cote side = -1, donc x < 0.
+  return {
+    root, mesh, skeleton, legs,
+    tilt: par.get('tilt'),
+    body: par.get('body'),
+    neck: par.get('neck'),
+    head: par.get('head'),
+    jaw: par.get('jaw'),
+    lids: [par.get('lidL'), par.get('lidR')],
+    ears: [par.get('earL'), par.get('earR')],
+    tailBase: par.get('tailBase'),
+    parts: [geometry],          // un seul BufferGeometry a liberer
+    material,
+  };
+}
+
+/** Semelle de la patte, en coordonnees MONDE. getVertexPosition() applique bien
+ *  la transform d'os, mais rend un point dans l'espace LOCAL du mesh : sans
+ *  localToWorld, l'invariant 12 PASSE sans rien mesurer, ce qui est pire qu'un
+ *  echec. L'appelant doit avoir mis les matrices monde a jour.
+ *  Les indices sont pre-calcules une fois : les vertices dont l'os dominant est
+ *  le paw de cette patte. */
+function faireSole(mesh, geometry, legs, bones) {
+  const si = geometry.attributes.skinIndex;
+  const sw = geometry.attributes.skinWeight;
+  const parPatte = new Map(legs.map((l) => [l.key, []]));
+  const nomVersPatte = new Map(legs.map((l) => [l.paw.name, l.key]));
+  const comp = ['X', 'Y', 'Z', 'W'];
+  for (let v = 0; v < si.count; v++) {
+    let best = -1, bi = 0;
+    for (const c of comp) {
+      const w = sw['get' + c](v);
+      if (w > best) { best = w; bi = si['get' + c](v); }
+    }
+    const key = nomVersPatte.get(bones[bi].name);
+    if (key) parPatte.get(key).push(v);
+  }
+  const tmp = new THREE.Vector3();
+  return (leg) => {
+    const out = new THREE.Vector3(0, Infinity, 0);
+    for (const v of parPatte.get(leg.key)) {
+      mesh.getVertexPosition(v, tmp);
+      mesh.localToWorld(tmp);
+      if (tmp.y < out.y) out.copy(tmp);
+    }
+    return out;
+  };
+}
+
+/* ── Les hooks de reglage ─────────────────────────────────────── */
+
+/** Le dos du chibi est a 0.650 * 1.35 = 0.878 au-dessus des pattes, contre
+ *  1.336 pour le chien procedural. Avec SHIBA.swimFloat = 0.85 il ne sortirait
+ *  de l'eau que de 0.028 : il nagerait submerge. 0.56 lui rend 36 % de dos hors
+ *  de l'eau, exactement la proportion qu'a le chien procedural a 0.85.
+ *  Le commentaire shiba.js:81-83 dit « At swimFloat 0.55 he looked as if he
+ *  walked on water » : c'est vrai POUR LE CHIEN PROCEDURAL, qui a 0.55 sortait
+ *  de 59 % de sa hauteur de dos. Le precedent ne s'applique pas ici. */
+const SWIM_FLOAT = 0.56;
+
 /** Charge le shiba glTF, le normalise et lui fabrique un squelette au contrat
  *  de buildBody(). Rend null si l'asset est indisponible : le chien procedural
  *  de shiba-geom.js reprend alors la main, et l'echec doit rester silencieux
@@ -161,7 +446,37 @@ export async function loadShibaBody({ url = URL_DEFAUT } = {}) {
     const { geometry, materiauxSource, ranges } = await chargerGeometrie(url);
     normaliser(geometry);
     const material = construireMateriau(materiauxSource);
-    return { geometry, material, ranges };   // rig complet en tache 3
+    const { bones, par } = construireSquelette();
+    calculerPoids(geometry, bones, ranges);
+    const rig = assembler(geometry, material, bones, par);
+    rig.ranges = ranges;
+    rig.sole = faireSole(rig.mesh, geometry, rig.legs, bones);
+    rig.swimFloat = SWIM_FLOAT;
+
+    // La chaine de patte du chibi fait 0.161 contre 0.522 : 3.2 fois plus
+    // courte. Les amplitudes de GAITS ont ete reglees pour la seconde. On ouvre
+    // la hanche pour que le pas se lise, on ferme le genou (os de 0.081, il se
+    // replierait dans la cuisse), et l'assise est un cas a part : 1.95 rad de
+    // genou est geometriquement impossible sur un moignon.
+    // 0.90 est un PLAFOND MESURE, pas un gout : au galop (0.95 rad), balayage
+    // a 1.30 / 1.10 / 0.90 / 0.70 / 0.50, la peau se dechire visiblement entre
+    // l'epaule et la patte jusqu'a 1.10 et devient propre a 0.90 (49 deg).
+    // Le baisser est libre ; le REMONTER demande de refaire le gros plan au
+    // galop — la derive numerique, elle, valait deja 0.290 pour un plafond de
+    // 0.35 a 1.30, donc l'invariant seul ne l'aurait pas attrapee.
+    rig.poseLeg = (leg, hip, knee, { sit = 0 } = {}) => {
+      leg.hip.rotation.x = hip * mix(0.90, 0.55, sit);
+      leg.knee.rotation.x = knee * mix(0.40, 0.18, sit);
+    };
+    // 1.6 sur le rebond : sur ce chien, le pas se lit par le corps. Mais
+    // l'affaissement d'assise est ABSOLU, et -0.20 sur un ventre a 0.069 du sol
+    // enterre le chien — d'ou un remplacement, et pas un facteur.
+    rig.poseBody = (y, pitch, roll, { sit = 0 } = {}) => {
+      rig.body.position.y = mix(y * 1.6, -0.045, sit);
+      rig.body.rotation.x = mix(pitch, -0.12, sit);
+      rig.body.rotation.z = roll;
+    };
+    return rig;
   } catch (err) {
     console.warn('[shiba-gltf] chargement impossible, repli procedural :', err);
     return null;

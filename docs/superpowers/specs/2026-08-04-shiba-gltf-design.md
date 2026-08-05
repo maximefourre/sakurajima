@@ -511,7 +511,7 @@ binaires** — une coupure franche laisse une couture visible sur un mesh lisse.
 
 | os | porte |
 |---|---|
-| `hip`, `knee`, `paw` | `smoothstep(0, 0.10, ±x)` selon le côté × `smoothstep(0.42, 0.26, \|z − z_hanche\|)` × `smoothstep(0.34, 0.20, y)` |
+| `hip`, `knee`, `paw` | `smoothstep(0, 0.10, ±x)` selon le côté × `smoothstep(0.22, 0.10, \|z − z_hanche\|)` × `smoothstep(0.34, 0.20, y)` |
 | `head` | `smoothstep(0.00, 0.18, z)` |
 | `neck` | `smoothstep(−0.15, +0.05, z)` × `smoothstep(0.36, 0.16, z)` × `smoothstep(0.22, 0.40, y)` |
 | `ear` ×2 | `smoothstep(0, 0.06, ±x)` selon le côté × `smoothstep(0.90, 1.05, y)` |
@@ -624,7 +624,7 @@ visuel, et à consigner dans `shiba-gltf.js` avec les mesures qui les ont produi
 
 ```js
 poseLeg(leg, hip, knee, { sit }) {
-  leg.hip.rotation.x  = hip  * mix(1.30, 0.55, sit);
+  leg.hip.rotation.x  = hip  * mix(0.90, 0.55, sit);
   leg.knee.rotation.x = knee * mix(0.40, 0.18, sit);
 },
 poseBody(y, pitch, roll, { sit }) {
@@ -636,8 +636,23 @@ poseBody(y, pitch, roll, { sit }) {
 }
 ```
 
-Ces nombres sont des **hypothèses de départ mesurées**, pas des constantes
-d'art — ils se valident à l'écran, en marche, en course, en nage et en assise.
+Ces nombres ont été **validés à l'écran pendant l'implémentation** (chantier G,
+tâche 3), et deux d'entre eux ont bougé pour une raison mesurable :
+
+- **La bande longitudinale des pattes passe de `(0.42, 0.26)` à `(0.22, 0.10)`.**
+  Les deux trains ne sont éloignés que de 0.386 (`z = ±0.193`) : avec l'ancienne
+  bande, `|z − 0.193| = 0.193 < 0.26` au milieu du ventre, donc **les quatre
+  pattes avaient leur porte grande ouverte au même endroit**. Au galop, où
+  l'avant et l'arrière tournent en sens opposés, le ventre se déchirait.
+- **Le multiplicateur de hanche passe de 1.30 à 0.90**, plafond mesuré par
+  balayage au galop (1.30 / 1.10 / 0.90 / 0.70 / 0.50) : la peau se déchire
+  visiblement jusqu'à 1.10 et devient propre à 0.90, soit 49°.
+
+Le second point vaut d'être retenu comme méthode : après le correctif de porte,
+la dérive numérique au galop était retombée à **0.290 pour un plafond de 0.35**,
+donc l'invariant 26 seul aurait déclaré la chose saine alors que la déchirure
+était encore là. **L'invariant attrape les explosions, pas les défauts de peau
+— le gros plan reste obligatoire.**
 
 Ce qui **ne** change **pas** : les phases, les portes de transition entre
 allures, la courbe de contact qui pilote empreintes et gerbes, la nage en trot
