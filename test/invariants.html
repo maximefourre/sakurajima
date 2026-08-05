@@ -257,6 +257,25 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
  * un second attach ici, il serait sans effet utile.
  */
 
+/* ── le rig glTF, chargé une fois pour les invariants 12 et 22 à 26 ───────
+ * Le harnais gagne ici son PREMIER await, et c'est le seul montage correct :
+ * le module est un module ES, donc le top-level await est disponible, alors
+ * qu'un check fait dans un .then s'ajouterait APRÈS la ligne « INVARIANTS: »
+ * sans être compté, et qu'un rejet ne serait vu que par le unhandledrejection
+ * de la l.34 — qui n'incrémente PAS `fail`.
+ *
+ * L'URL est relative à test/. Un asset absent doit FAIRE ÉCHOUER les
+ * invariants qui en dépendent, pas les sauter : sinon la page imprime
+ * « 21 pass, 0 fail » en vert alors que rien du chantier n'a été testé.
+ */
+let gltfRig = null, gltfCause = '';
+try {
+  gltfRig = await loadShibaBody({ url: '../assets/shiba/shiba.glb' });
+  if (!gltfRig) gltfCause = 'loadShibaBody a rendu null — voir le warn ci-dessus';
+} catch (e) {
+  gltfCause = String(e && e.message ? e.message : e);
+}
+
 /* ── 11. il nage, il n'est pas un sous-marin ─────────────────────────────── */
 {
   const centre = SHIBA_BUILD.standHeight * SHIBA_BUILD.scale;
@@ -266,10 +285,21 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     + `(dos émergé ${(centre - SHIBA.swimFloat).toFixed(3)})`);
 }
 
-/* ── 12. le plan des pattes est bien à position.y ─────────────────────────
- * Le seul invariant qui empêche MÉCANIQUEMENT de raccourcir un tibia sans
- * corriger standHeight : les deux vivent dans SHIBA_BUILD, et si on les
- * désynchronise le chien s'enfonce dans le sol ou flotte au-dessus.
+/* ── 12. le plan des pattes est bien à position.y, SUR LES DEUX CORPS ──────
+ * Côté procédural, c'est le seul invariant qui empêche MÉCANIQUEMENT de
+ * raccourcir un tibia sans corriger standHeight : les deux vivent dans
+ * SHIBA_BUILD, et si on les désynchronise le chien s'enfonce ou flotte.
+ *
+ * Il passe désormais par `shiba.soles()` et non plus par un `traverse` qui
+ * cherchait un mesh nommé 'paw' : le rig glTF n'a qu'un SkinnedMesh, ce nom
+ * n'y existe pas, et le test aurait échoué avec lowest = Infinity — pour une
+ * mauvaise raison. Chaque rig sait mesurer SES pieds ; le banc n'a pas à
+ * savoir lequel il tient.
+ *
+ * Le seuil de 0.09 ne bouge pas côté glTF. Ne PAS le serrer sous prétexte que
+ * la normalisation pose les semelles à y = 0 : ce qu'on mesure est la semelle
+ * SKINNÉE, pas la géométrie de repos, et le chien est posé sur un terrain
+ * interpolé.
  */
 {
   const water = {
@@ -280,19 +310,25 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     },
     impact: () => {}, setSwimmer: () => {},
   };
-  const shiba = createShiba({ seed: SEED, heightAt: island.heightAt, water });
-  shiba.update(0, 0.016, null);
-  shiba.group.updateMatrixWorld(true);
-
-  const box = new THREE.Box3();
-  let lowest = Infinity;
-  shiba.group.traverse((o) => {
-    if (o.isMesh && o.name === 'paw') lowest = Math.min(lowest, box.setFromObject(o).min.y);
-  });
-  const gap = lowest - shiba.position.y;
-  check('les pattes touchent le sol logique', Math.abs(gap) < 0.09,
-    `patte la plus basse ${gap >= 0 ? '+' : ''}${gap.toFixed(3)} sous position.y, plafond 0.090`);
-  shiba.dispose();
+  const garde = (corps) => {
+    const shiba = createShiba({ seed: SEED, heightAt: island.heightAt, water, body: corps });
+    shiba.update(0, 0.016, null);
+    shiba.group.updateMatrixWorld(true);
+    const bas = Math.min(...shiba.soles().map((p) => p.y));
+    const gap = bas - shiba.position.y;
+    shiba.dispose();
+    return gap;
+  };
+  const gapProc = garde(null);
+  // Un SECOND rig glTF, exprès : dispose() libère la géométrie du corps qu'on
+  // lui passe, et les invariants 22 à 26 travaillent encore sur le premier.
+  const corpsGltf = gltfRig ? await loadShibaBody({ url: '../assets/shiba/shiba.glb' }) : null;
+  const gapGltf = corpsGltf ? garde(corpsGltf) : NaN;
+  const fmt = (g) => (Number.isNaN(g) ? 'absent' : `${g >= 0 ? '+' : ''}${g.toFixed(3)}`);
+  check('les pattes touchent le sol logique (procédural ET glTF)',
+    Math.abs(gapProc) < 0.09 && corpsGltf !== null && Math.abs(gapGltf) < 0.09,
+    `procédural ${fmt(gapProc)}, glTF ${fmt(gapGltf)} sous position.y, plafond 0.090`
+    + (corpsGltf ? '' : ` — ${gltfCause}`));
 }
 
 /* ── 13. pondWaterYAt cohérent, et sans contamination d'isInPond ──────────
@@ -731,13 +767,6 @@ check('bancs d’ondes disjoints',
  * root.scale = SHIBA_BUILD.scale : les seuils qui se comparent à une constante
  * de monde (la flottaison) multiplient explicitement par ce facteur.
  */
-let gltfRig = null, gltfCause = '';
-try {
-  gltfRig = await loadShibaBody({ url: '../assets/shiba/shiba.glb' });
-  if (!gltfRig) gltfCause = 'loadShibaBody a rendu null — voir le warn ci-dessus';
-} catch (e) {
-  gltfCause = String(e && e.message ? e.message : e);
-}
 
 /** L'os dominant d'un vertex : celui de ses 4 influences au plus gros poids. */
 function osDominant(r, v) {

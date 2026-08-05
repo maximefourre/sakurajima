@@ -26,6 +26,7 @@ import { createButterflies } from './butterflies.js';
 import { createClouds } from './clouds.js';
 import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
+import { loadShibaBody } from './shiba-gltf.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
@@ -488,7 +489,19 @@ async function boot() {
   };
   world.particles = createParticles({ quality: q, seed: SEED, season: world.season });
   scene.add(world.particles.group);
+  // Le chien glTF est le chien normal ; le procédural est le repli. Un asset
+  // absent ou cassé doit dégrader EN SILENCE pour l'utilisateur et bruyamment
+  // en console — pas faire disparaître le chien. C'est le dernier système
+  // construit, rien avant lui ne lit world.shiba, et le voile ne tombe qu'à la
+  // ligne 509 : cet await se déroule sous l'écran de chargement.
+  let dogBody = null;
+  try {
+    dogBody = await loadShibaBody();
+  } catch (err) {
+    console.warn('[main] shiba glTF indisponible, repli procédural :', err);
+  }
   world.shiba = createShiba({
+    body: dogBody,
     seed: SEED,
     // groundAt, pas heightAt : le chien marche SUR la terre battue des sentes
     // (le commentaire de groundAt le promettait, le câblage passait le terrain

@@ -918,6 +918,12 @@ export function createShiba({
     },
     /** Suspend the controls without unmounting him — used by the free camera. */
     setEnabled(v) { enabled = !!v; if (!v) held.clear(); },
+    /** Les quatre semelles, en coordonnées MONDE, dans l'ordre FL FR BL BR.
+     *  Ouvert pour l'invariant 12, qui doit mesurer la garde au sol sur les
+     *  DEUX corps possibles : le procédural la tire de son mesh nommé 'paw', le
+     *  glTF de sa géométrie skinnée, et le banc n'a pas à savoir lequel il a.
+     *  Appeler group.updateMatrixWorld(true) avant. */
+    soles: () => rig.legs.map((leg) => rig.sole(leg)),
     get heading() { return state.heading; },
     get speed() { return state.speed; },
     get speedN() { return Math.min(1, Math.max(0, state.speed / SHIBA.runSpeed)); },
