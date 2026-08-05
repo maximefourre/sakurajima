@@ -149,7 +149,7 @@ invariant qui prétend la revérifier mesure autre chose.
 | appuis avant | centroïde des vertices `y < 0.02`, `z > −0.40` (n = 44) | `x = ∓0.223`, `z = −0.130` |
 | appuis arrière | idem, `z ≤ −0.40` (n = 68) | `x = ∓0.296`, `z = −0.600` |
 | **milieu des appuis** | moyenne des deux | **`z = −0.365`** |
-| ligne de dos | max `y`, `|x| < 0.10`, `z ∈ [−0.90, −0.45]` (derrière le crâne) | `y ≈ 0.790` |
+| ligne de dos | max `y`, `|x| < 0.10`, `z ∈ [−0.90, −0.20]` (derrière le crâne, **sur l'axe médian**) | `y = 0.837` |
 | sommet du crâne | max `y` global | `y = 1.381` |
 | ventre entre les trains | min `y`, `|x| < 0.08`, `z ∈ [−0.60, −0.20]` | `y = 0.084` |
 | point bas du dessous | min `y`, `|x| < 0.08`, tout `z` (c'est la **croupe**, `z = −0.80`) | `y = 0.062` |
@@ -187,6 +187,15 @@ ceinture pelvienne, pas celle du dos visible. Le dos du chien procédural est à
 **0.990**, soit 1.50 × standHeight. La coïncidence à 1 % entre les deux nombres
 n'en était pas une : elle comparait deux grandeurs différentes.
 
+**Correction du 05/08, mesurée pendant la tâche 4.** La ligne de dos donnée plus
+haut a été reprise : la première mesure passait par des tranches **pleine
+largeur** et donnait 0.790, alors que le point haut du tronc est **sur l'axe
+médian** — c'est précisément ce qu'on appelle la ligne de dos. Sur l'axe, elle
+vaut **0.837** (`z ≈ −0.85` avant normalisation), soit 0.689 après échelle. La
+fenêtre en `z` est bornée par mesure elle aussi : le profil médian saute de
+0.676 à `z = −0.20` à 0.905 à `z = −0.10`, donc le crâne commence vers −0.15 et
+toute fenêtre qui va au-delà mesure la base du crâne, pas le dos.
+
 Conséquences à k = 0.823 :
 
 | | procédural | glTF ×0.823 |
@@ -194,7 +203,7 @@ Conséquences à k = 0.823 :
 | longueur hors-tout | 1.461 | 1.461 *(par construction)* |
 | hauteur hors-tout | 1.307 | 1.137 |
 | **largeur** | 0.496 | **0.757** |
-| ligne de dos | 0.990 | **0.650** |
+| ligne de dos | 0.990 | **0.689** |
 | ventre entre les trains | 0.474 | **0.069** |
 | longueur de chaîne `hip→paw` | 0.522 av. / 0.562 arr. | **0.161** |
 | empattement (appuis av. ↔ arr.) | 0.594 | 0.386 |
@@ -232,7 +241,7 @@ Repères finaux, en unités de construction, dans l'espace de `root` :
 | repère | position |
 |---|---|
 | semelles | `y = 0` |
-| ligne de dos | `y = 0.650` |
+| ligne de dos | `y = 0.689` |
 | sommet du crâne | `y = 1.137` |
 | museau | `z = +0.600` |
 | bout de queue | `z = −0.861` |
@@ -408,7 +417,7 @@ lui aussi proche de 0 au boot), ce qui est pire qu'un échec.
 **(5) `rig.swimFloat`.** `SHIBA.swimFloat = 0.85` est la profondeur des pattes
 sous la surface en nage. Le dos du chien procédural est à `0.990 × 1.35 = 1.336`
 au-dessus des pattes : il sort de **0.486**, soit 36 % de sa hauteur de dos. Le
-dos du chibi est à `0.650 × 1.35 = 0.878` : il ne sortirait que de **0.028** — le
+dos du chibi est à `0.689 × 1.35 = 0.930` : il ne sortirait que de **0.080** — le
 chien nagerait à ras, presque submergé. Le rig porte donc sa propre valeur
 (défaut `SHIBA.swimFloat`), et le glTF prend **≈ 0.56**, qui lui rend la même
 proportion de dos hors de l'eau. À valider en nage.
@@ -426,7 +435,7 @@ transform du mesh est annulée par `bindMatrixInverse`. Déplacer le chien passe
 donc obligatoirement par le parent commun, ce que `shiba.js` fait déjà sur `root`.
 
 `tilt.position.y = 0.360` — le **centre du tronc**, à mi-hauteur entre le ventre
-(0.069) et la ligne de dos (0.650). Ce n'est pas `SHIBA_BUILD.standHeight` : ce
+(0.069) et la ligne de dos (0.689). Ce n'est pas `SHIBA_BUILD.standHeight` : ce
 nombre appartient au rig procédural (somme de sa chaîne de patte) et n'a aucun
 sens ici. Deux raisons de choisir le centre du tronc : les rotations de `body`
 pivotent autour d'un axe naturel, et `body.getWorldPosition().y` — l'altitude
@@ -865,7 +874,7 @@ réfutation. Les six qui ont changé le design, et pas seulement un chiffre :
    suivre le cycle jour/nuit.
 2. **`k = 0.83` avait une fausse seconde justification** : `standHeight` est la
    somme de la chaîne de patte, pas la ligne de dos. `k = 0.823`, une contrainte.
-3. **Le chibi nagerait submergé** — dos à 0.028 hors de l'eau contre 0.486 pour
+3. **Le chibi nagerait submergé** — dos à 0.080 hors de l'eau contre 0.486 pour
    le chien procédural. D'où `rig.swimFloat`, cinquième hook.
 4. **La table des portes contredisait le texte** : `jaw` et `lids` recevaient la
    porte du museau une ligne après qu'on ait écrit qu'ils n'auraient aucun
