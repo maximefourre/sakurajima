@@ -205,6 +205,9 @@ export function createShiba({
   water = null,
   wind = null,
   particles = null,
+  /** Corps préconstruit, au contrat de buildBody() — le rig glTF de
+   *  shiba-gltf.js. `null` construit le chien procédural, qui est le repli. */
+  body = null,
 } = {}) {
   if (typeof heightAt !== 'function') {
     throw new Error('[shiba] createShiba requires heightAt(x, z) -> y');
@@ -232,14 +235,17 @@ export function createShiba({
   const shakeRng = streamFor(seed, 'shiba:shake-droplets');
   const blinkRng = streamFor(seed, 'shiba:blink');
 
-  const material = new THREE.MeshStandardMaterial({
+  // Le corps peut être fourni tout fait (`body`) : c'est le rig glTF de
+  // shiba-gltf.js. Sinon on construit le chien procédural, qui reste le repli.
+  // Le matériau n'est créé QUE dans cette branche-là : le rig glTF apporte le
+  // sien, et lui imposer `vertexColors: true` sans attribut `color` rendrait le
+  // chien NOIR, silencieusement — piège n°2 d'AGENTS.md.
+  const rig = body ?? buildBody(new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.86,
     metalness: 0.0,
     flatShading: false,
-  });
-
-  const rig = buildBody(material);
+  }));
   const group = new THREE.Group();
   group.name = 'shiba-rig';
   group.add(rig.root);
@@ -461,8 +467,18 @@ export function createShiba({
       let knee = mix(locomotionKnee, swimKnee, swim);
       hip = mix(hip, sitHip, sit);
       knee = mix(knee, sitKnee, sit);
-      leg.hip.rotation.x = mix(hip, 0, shake);
-      leg.knee.rotation.x = mix(knee, 0, shake);
+      // Le mélange de secouage est appliqué ICI, en amont du hook : si chaque
+      // rig devait y penser, l'oubli ferait régresser le chien procédural. Le
+      // hook reçoit donc les angles FINAUX ; les poids ne sont passés qu'à
+      // titre indicatif, pour qu'un rig puisse traiter l'assise à part.
+      const hipF = mix(hip, 0, shake);
+      const kneeF = mix(knee, 0, shake);
+      if (rig.poseLeg) {
+        rig.poseLeg(leg, hipF, kneeF, { swim, sit, shake, speedN });
+      } else {
+        leg.hip.rotation.x = hipF;
+        leg.knee.rotation.x = kneeF;
+      }
 
       // Every ground-reaction consumer keys off one coherent contact curve: the
       // phase of the gait with the largest visual weight for this frame.
@@ -515,14 +531,26 @@ export function createShiba({
 
     let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
     bodyY = mix(bodyY, -0.20, sit);
-    rig.body.position.y = mix(bodyY, 0, shake);
     let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
     bodyRoll = mix(bodyRoll, 0, sit);
-    rig.body.rotation.z = mix(bodyRoll, shakeWave * 0.42, shake);
     // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
     let bodyPitch = mix(locomotionPitch, -0.18, swim);
     bodyPitch = mix(bodyPitch, -0.30, sit);
-    rig.body.rotation.x = mix(bodyPitch, 0, shake);
+    // Même contrat que poseLeg : les trois valeurs sont FINALES. Un rig dont
+    // l'anatomie diffère les réinterprète — l'affaissement d'assise vaut -0.20
+    // pour une chaîne de patte de 0.52, il enterrerait un chien à moignons.
+    // Surtout, ce n'est PAS un facteur multiplicatif : bodyY a déjà absorbé
+    // l'assise ci-dessus, un facteur l'amplifierait avec le rebond.
+    const bodyYF = mix(bodyY, 0, shake);
+    const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
+    const bodyPitchF = mix(bodyPitch, 0, shake);
+    if (rig.poseBody) {
+      rig.poseBody(bodyYF, bodyPitchF, bodyRollF, { swim, sit, shake, speedN });
+    } else {
+      rig.body.position.y = bodyYF;
+      rig.body.rotation.z = bodyRollF;
+      rig.body.rotation.x = bodyPitchF;
+    }
 
     // Emit six airborne droplets at every internal zero-crossing. Particle
     // grains already fan radially; a seeded drift rotates each successive fan.
@@ -789,7 +817,12 @@ export function createShiba({
       }
     }
 
-    const targetY = state.swimming ? s - SHIBA.swimFloat : ground;
+    // La flottaison appartient au rig, parce qu'elle dépend de la hauteur de
+    // son dos : 0.85 laisse le chien procédural émerger de 0.486, et le chibi
+    // glTF de 0.080 seulement — il nagerait quasi submergé. La garde de la
+    // l.84, elle, reste sur les constantes : elle protège le rig procédural et
+    // s'évalue avant qu'aucun rig n'existe.
+    const targetY = state.swimming ? s - (rig.swimFloat ?? SHIBA.swimFloat) : ground;
     let landed = false;
     if (state.airborne) {
       // Ballistic: gravity only, land when the arc meets the current support.
@@ -860,7 +893,12 @@ export function createShiba({
     removeEventListener('keyup', onKeyUp);
     removeEventListener('blur', onBlur);
     for (const g of rig.parts) g.dispose();
-    material.dispose();
+    // Le rig POSSÈDE son matériau, quelle que soit sa provenance. La texture du
+    // rig glTF est partagée avec le MeshBasicMaterial que le loader avait rendu
+    // et que shiba-gltf.js a déjà libéré : dispose() d'un matériau ne touche
+    // pas à sa map, donc c'est bien ici qu'elle se libère, une seule fois.
+    rig.material.map?.dispose();
+    rig.material.dispose();
     prints.geo.dispose();
     prints.material.dispose();
     prints.mesh.dispose();

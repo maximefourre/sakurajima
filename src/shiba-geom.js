@@ -821,8 +821,10 @@ export function buildBody(material) {
     cap.scale.set(s.front ? FLAT_F : FLAT_B, 1.04, 1.0);
 
     /* Le pied. Il reste un mesh nommé exactement 'paw' enfant de `knee` :
-     * l'invariant 12 mesure sa garde au sol par ce nom, et `shiba.js` prend sa
-     * position monde pour les empreintes et la poussière. */
+     * c'est `rig.sole()` (plus bas) qui le retrouve par ce nom, et c'est lui
+     * que l'invariant 12 consomme désormais — le rig glTF n'a pas de mesh
+     * 'paw', il n'a qu'un SkinnedMesh. `shiba.js` prend par ailleurs la
+     * position monde du nœud `paw` pour les empreintes et la poussière. */
     const paw = mesh(sweep(spine(footSpine(splay * 0.6), 7), {
       radial: 28,
       // Large et bas : un pied de chat. Il s'élargit vite depuis le talon puis
@@ -843,5 +845,23 @@ export function buildBody(material) {
     legs.push({ key: s.key, front: s.front, hip, knee, paw });
   }
 
-  return { root, tilt, body, neck, head, jaw, lids, ears, tailBase, legs, parts };
+  /* Semelle de la patte, en coordonnées MONDE — la bbox du mesh nommé 'paw',
+   * dont seul le point BAS compte. C'est la mécanique que l'invariant 12
+   * portait lui-même jusqu'au chantier G ; elle vit désormais dans le rig, qui
+   * est le seul à savoir comment ses pieds sont faits. Le rig glTF en donne sa
+   * propre version, sur la géométrie skinnée.
+   * L'appelant doit avoir mis les matrices monde à jour. */
+  const _boxSole = new THREE.Box3();
+  const sole = (leg) => {
+    let pawMesh = null;
+    leg.knee.traverse((o) => { if (o.isMesh && o.name === 'paw') pawMesh = o; });
+    if (!pawMesh) return new THREE.Vector3(0, Infinity, 0);
+    const b = _boxSole.setFromObject(pawMesh);
+    return new THREE.Vector3((b.min.x + b.max.x) / 2, b.min.y, (b.min.z + b.max.z) / 2);
+  };
+
+  // `material` est celui qu'on a reçu : le rig le RANGE, il ne le crée pas.
+  // shiba.js le libère par rig.material, sans savoir lequel des deux corps
+  // (procédural ou glTF) il a en main.
+  return { root, tilt, body, neck, head, jaw, lids, ears, tailBase, legs, parts, material, sole };
 }
