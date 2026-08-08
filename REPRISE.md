@@ -1916,3 +1916,58 @@ le disque sans passer par un commit.
   que la page est publique.
 - **`AGENTS.md` annonce `INVARIANTS: 16 pass`**, la suite en compte 26 (elle
   est passée par 21 à la session shiba). Le chiffre est périmé dans la doc.
+
+---
+
+## Session « les trois points ouverts » du 08/08 (suite)
+
+Les trois points laissés par la mise en ligne, traités sur décision utilisateur.
+
+### 1. three vendorisé — plus aucune dépendance unpkg
+
+`vendor/three/` : `build/three.module.js` + `build/three.core.js` (importé en
+relatif par le premier), **15 addons** sous `examples/jsm/` (les 8 utilisés +
+leur fermeture transitive : Pass, MaskPass, ShaderPass, 3 shaders,
+SkeletonUtils — calculée par script sur les vrais `import`, pas devinée), et
+`LICENSE` (MIT). Provenance : tarball npm officiel `three-0.185.1.tgz` ;
+sha256 identiques à unpkg sur échantillon. ~2.3 Mo.
+
+Les importmaps des **5 pages** (index + 4 tests) pointent vers
+`/vendor/three/...` en chemins **absolus** — les pages de test vivent sous
+`/test/`, un `./vendor/...` y résoudrait vers `/test/vendor/...`. Piège évité :
+les fichiers vendorisés contiennent des spécificateurs `three/addons/...` dans
+des annotations JSDoc `@three_import` — des commentaires ; un audit naïf des
+imports les prend pour des imports nus cassés.
+
+### 2. Tier par défaut : ultra desktop, high mobile
+
+Décision utilisateur (« ultra desktop, medium mobile » — medium interprété
+comme `high`, le tier du milieu). `DEFAULT_QUALITY_MOBILE = 'high'` dans
+config.js ; le repli final d'`initialTier` (main.js) choisit selon
+`matchMedia('(pointer: coarse)')`. `?q=` et le choix persisté gardent la
+priorité — contrat AGENTS inchangé.
+
+Au passage, trouvaille de la review adversariale (préexistante mais sur ce
+chemin) : la garde `QUALITY[requested]` remontait la chaîne de prototypes —
+`?q=constructor` passait, budgets `undefined`, `setPixelRatio(NaN)`, scène
+morte. Corrigé par `Object.hasOwn` aux deux sites, vérifié en navigateur :
+`?q=constructor` retombe proprement sur le repli.
+
+### 3. Docs
+
+`AGENTS.md` : en-tête (vendorisé, importmap local), défaut mobile dans le
+contrat qualité, `INVARIANTS: 16` → `26` avec disclaimer (le compte grandit,
+seul le `0 fail` est immuable). `PLAN.md:10` disait aussi « via importmap
+unpkg » — attrapé par la review, corrigé.
+
+### Vérification
+
+- `node --check` main.js/config.js ; fermeture des imports vendorisés rejouée
+  par script : tout résout.
+- Invariants **low ET ultra** en local : `26 pass, 0 fail` × 2, **zéro requête
+  unpkg** sur un chargement entièrement tracé (le vendor est bien servi).
+- Boot complet en local, aria-pressed sur le tier réel, console sans erreur.
+- Review adversariale par Workflow (8 agents, 5 axes + réfutation) : 2
+  trouvailles confirmées — les deux corrigées ci-dessus — 1 réfutée.
+  Le skill `codex:adversarial-review` d'AGENTS.md n'existait pas dans cette
+  session ; remplacé par le fan-out Workflow.

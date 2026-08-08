@@ -7,7 +7,7 @@ lanternés avec torii, shiba jouable. Deux saisons : `?season=spring|autumn`,
 choix persistant, tout est recolorié à la construction.
 
 **Machine cible :** Apple M4 Max, 32 cœurs GPU → budgets calibrés généreusement.
-**three.js 0.185.1** via importmap unpkg, aucun build step.
+**three.js 0.185.1** vendorisé dans `vendor/three/` (importmap local), aucun build step.
 
 ---
 

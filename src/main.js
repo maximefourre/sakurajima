@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DAY_LENGTH, START_TIME, WIND, LAND_SCALE } from './config.js';
+import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DEFAULT_QUALITY_MOBILE, DAY_LENGTH, START_TIME, WIND, LAND_SCALE } from './config.js';
 import { SEASON_QUERY_PARAM, SEASON_STORAGE_KEY, isSeason, resolveSeason } from './season.js';
 import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
@@ -108,13 +108,19 @@ controls.update();
  * hot-rebuild left the scene half-ultra and lied about being low.
  */
 const initialTier = (() => {
+  // Object.hasOwn, pas un lookup nu : `?q=constructor` remonterait la chaine
+  // de prototypes, passerait la garde, et tous les budgets vaudraient
+  // undefined — scene morte au lieu du repli sur le defaut.
   const requested = new URLSearchParams(location.search).get('q');
-  if (requested && QUALITY[requested]) return requested;
+  if (requested && Object.hasOwn(QUALITY, requested)) return requested;
   try {
     const stored = localStorage.getItem('sakurajima.quality');
-    if (stored && QUALITY[stored]) return stored;
+    if (stored && Object.hasOwn(QUALITY, stored)) return stored;
   } catch { /* private mode — fall through */ }
-  return DEFAULT_QUALITY;
+  // Dernier repli seulement : un écran tactile n'a rien demandé, il ne doit
+  // pas payer le bake ultra calibré pour la machine de développement.
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  return coarse ? DEFAULT_QUALITY_MOBILE : DEFAULT_QUALITY;
 })();
 
 /**

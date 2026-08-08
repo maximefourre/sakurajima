@@ -1,6 +1,7 @@
 # Sakurajima — doc projet pour agents
 
-Scène Three.js (0.185.1 via importmap unpkg, **aucun build**) : île japonaise
+Scène Three.js (0.185.1 vendorisé dans `vendor/three/`, importmap local,
+**aucun build**) : île japonaise
 procédurale, cerisiers en fleur, réseau de chemins lanternés, cycle jour/nuit, shiba
 jouable. Direction artistique longue dans `PLAN.md` ; journal des sessions et
 pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
@@ -81,8 +82,9 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   est `D_SUN − R_ISLAND − 80` et devient négatif (ombres mortes, zéro erreur)
   si on remet une constante.
 - **Changement de qualité = reload** : le tier est résolu AVANT le boot
-  (`?q=` → localStorage `sakurajima.quality` → défaut) ; le bouton persiste et
-  recharge. Il n'existe PLUS de rebuild à chaud ni de câblage dupliqué —
+  (`?q=` → localStorage `sakurajima.quality` → défaut : `ultra`, ou `high` si
+  le pointeur est grossier — un téléphone ne survit pas au bake ultra) ; le
+  bouton persiste et recharge. Il n'existe PLUS de rebuild à chaud ni de câblage dupliqué —
   chaque système se dimensionne à la construction, un point c'est tout.
 - **Réseau de chemins = `PATHS`** (`config.js`) : 3 routes depuis un carrefour
   en lisière de prairie — 'torii' (grimpe à la terrasse de la falaise ouest,
@@ -145,7 +147,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
 ## Vérification type
 
 1. **`test/invariants.html`** (via serve.py) : la console doit finir par
-   `INVARIANTS: 16 pass, 0 fail` — chemin sur terre ferme, far plane, nuages,
+   `INVARIANTS: 26 pass, 0 fail` (26 au 08/08 — le compte grandit avec les
+   chantiers, seul le `0 fail` est immuable) — chemin sur terre ferme, far plane, nuages,
    étangs carvés, routes hors étangs, la route des torii grimpe à la falaise,
    aucune lanterne orpheline, les trois de la terre battue (dégagée du
    terrain, collée à ≤ 0.55 u, hauteur logique fidèle à la surface visible),

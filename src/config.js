@@ -190,6 +190,15 @@ export const QUALITY = {
 
 export const DEFAULT_QUALITY = 'ultra';
 
+/**
+ * Défaut des écrans tactiles (pointeur grossier) : le tier du milieu. L'ultra
+ * est calibré pour la machine de développement — ~20 s de bake et ~2.6 M de
+ * brins d'herbe tueraient un téléphone avant la première image. Décision
+ * utilisateur du 08/08 (« ultra desktop, medium mobile ») ; `?q=` et le choix
+ * persisté gardent la priorité.
+ */
+export const DEFAULT_QUALITY_MOBILE = 'high';
+
 /** Valid seasons and their UI labels. Quality budgets stay out of this table. */
 export const SEASONS = Object.freeze({ spring: 'printemps', autumn: 'automne' });
 export const DEFAULT_SEASON = 'spring';
