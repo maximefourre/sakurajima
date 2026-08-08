@@ -841,7 +841,12 @@ function updateClock() {
 // sans cette garde, un double-tap sur la tête peut pousser le panneau hors vue.
 document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
 
-$('panel-head').onclick = () => panel.classList.toggle('folded');
+$('panel-head').onclick = () => {
+  panel.classList.toggle('folded');
+  // Miroir de l'etat sur <html> : en layout tactile, reglages ouverts =
+  // commandes masquees (elles partagent le bord droit). Sans effet au clavier.
+  document.documentElement.classList.toggle('panel-open', !panel.classList.contains('folded'));
+};
 
 $('s-time').oninput = (e) => {
   world.dayTime = parseFloat(e.target.value);

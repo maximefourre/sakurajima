@@ -2013,3 +2013,22 @@ réintroduisait le piège rapporté par l'utilisateur ; le zoom système reste).
   `touch` posée, joystick + 4 boutons révélés, panneau relogé haut-droite.
 - **Non vérifié ici : un vrai téléphone.** Le diagnostic zoom-de-page et le
   ressenti du joystick attendent le retest utilisateur sur appareil réel.
+
+### Retour du premier retest téléphone (même session)
+
+Deux collisions au bord droit, rapportées par l'utilisateur et confirmées par
+la géométrie : la colonne de boutons (206 px de haut, z-index au-dessus du
+panneau) recouvrait le corps du panneau déplié — réglettes visibles mais taps
+volés — et, sur écran court, montait jusqu'à sa tête (saut contre la flèche).
+
+Correctif : boutons en **grille 2×2** (91 px de haut), et surtout **réglages
+ouverts = commandes masquées** (`:root.touch.panel-open #touch-ui`), l'état
+étant reflété sur `<html>` par le toggle de la tête. On ne promène pas le chien
+en réglant l'heure ; `lostpointercapture` remet stick et course à zéro au
+masquage. Vérifié en simulant le tactile au PointerEvent synthétique : ouvert →
+commandes masquées, refermé → revenues, grille 159×91.
+
+Piège 8, variante nouvelle payée deux fois cette session : fenêtre recouverte,
+les TRANSITIONS CSS gèlent aussi — le voile `.gone` garde `visibility: visible`
+calculée et reste hit-testable, ce qui fait mentir `elementFromPoint`. Toute
+sonde de hit-testing exige un onglet réellement visible.
