@@ -1887,7 +1887,13 @@ le disque sans passer par un commit.
 - `test/invariants.html` **contre le site déployé** : `INVARIANTS: 26 pass, 0 fail`.
 - Visuel : île, forêt en fleur, mer moutonnante, nuages, aube à 06:00.
 
-### Deux pièges retrouvés, aucun nouveau
+### Pièges
+
+- **`gh auth login` ne suffit pas à autoriser `git push`.** Il range le jeton
+  dans le trousseau, mais ne branche pas git dessus : le premier push meurt sur
+  `could not read Username for 'https://github.com': Device not configured`.
+  Ce qui trompe, c'est que `gh repo create --push` marche — parce que c'est
+  `gh` qui pousse, pas git. Le correctif est `gh auth setup-git`.
 
 - Le HUD perf affichait `— fps / — draw calls / — triangles` et
   `renderer.info.render.frame` valait 0 : **onglet en arrière-plan**, rAF
