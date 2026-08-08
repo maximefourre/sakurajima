@@ -1,0 +1,18 @@
+# Ce qui ne part PAS en production.
+#
+# Le depot est servi tel quel (aucun build), donc tout fichier non exclu
+# devient une URL publique : sans cette liste, REPRISE.md et les rapports de
+# review seraient lisibles par n'importe qui a la racine du site.
+#
+# assets/shiba/LICENSE.txt reste inclus : l'attribution CC-BY du modele est
+# une obligation, elle doit rester accessible.
+
+.claude
+.worktrees
+docs
+designs
+tools
+serve.py
+
+# Notes de travail, plan d'art direction, rapports d'agents.
+*.md

@@ -1841,3 +1841,68 @@ zéro octet écrit) : laissé libre, il re-délègue à un sous-agent et attend
 indéfiniment. `AGENTS.md` a été mis à jour — Grok retiré sur demande, Codex
 devient l'implémenteur, et le brief doit lui interdire explicitement de
 sous-traiter. Le chantier a finalement été écrit par la session principale.
+
+---
+
+## Session « mise en ligne Vercel » du 08/08
+
+La scène est publiée. Aucun code de la scène n'a été touché — seulement deux
+fichiers de configuration à la racine.
+
+### Ce qui a été ajouté
+
+| Fichier | Rôle |
+|---|---|
+| `.vercelignore` | Exclut `*.md`, `docs/`, `designs/`, `tools/`, `serve.py`, `.claude/`. **Le dépôt est servi tel quel** : sans cette liste, `REPRISE.md` et `ADVERSARIAL_REVIEW_CLAUDE.md` seraient lisibles publiquement à la racine du site. `assets/shiba/LICENSE.txt` reste inclus — l'attribution CC-BY est une obligation. |
+| `vercel.json` | `framework: null`, `buildCommand: null`, `outputDirectory: "."`. Rend explicite ce que Vercel devinerait de toute façon, mais le rend **déterministe** : aucune détection de framework ne peut décider d'inventer un build. |
+| `.gitignore` | `+ .vercel` (ajouté par la CLI ; contient `projectId`/`orgId`). |
+
+`serve.py` ne part pas en prod et n'a rien à y faire : il existe pour contourner
+le cache de `python -m http.server` et forcer les types MIME des modules ES.
+Vercel sert `.js` en `application/javascript; charset=utf-8` et `.glb` en
+`model/gltf-binary` nativement — vérifié, pas supposé.
+
+### URLs
+
+- Production : `https://sakurajima-blue.vercel.app`
+- Projet : `fourreto/sakurajima` (33 fichiers, ~2 Mo déployés)
+
+Redéployer : `npx vercel --prod` depuis la racine. Aucun dépôt Git n'est
+connecté — le déploiement est manuel, depuis le dossier local.
+
+### Vérification
+
+- HTTP : `/` 200, `/src/boot.js` 200 en `application/javascript`,
+  `/assets/shiba/shiba.glb` 200 en `model/gltf-binary`, et **404 sur
+  `REPRISE.md`, `AGENTS.md`, `PLAN.md`, `ADVERSARIAL_REVIEW_CLAUDE.md`,
+  `serve.py`, `vercel.json`** — l'exclusion tient.
+- Boot navigateur : voile levée, `__sk` présent, shiba chargé depuis le `.glb`
+  déployé, cycle du jour qui avance. Console propre — les trois seuls messages
+  sont des avertissements de dépréciation émis par three.js lui-même
+  (`THREE.Clock`, `PCFSoftShadowMap`).
+- `test/invariants.html` **contre le site déployé** : `INVARIANTS: 26 pass, 0 fail`.
+- Visuel : île, forêt en fleur, mer moutonnante, nuages, aube à 06:00.
+
+### Deux pièges retrouvés, aucun nouveau
+
+- Le HUD perf affichait `— fps / — draw calls / — triangles` et
+  `renderer.info.render.frame` valait 0 : **onglet en arrière-plan**, rAF
+  étranglé (piège 8). Rien à voir avec le déploiement — le rendu est correct
+  dès que l'onglet repasse au premier plan.
+- `vercel whoami` reste pendu indéfiniment quand la CLI n'est pas authentifiée,
+  au lieu de rendre la main sur une erreur. Pour tester l'authentification,
+  regarder plutôt l'existence de
+  `~/Library/Application Support/com.vercel.cli/`.
+
+### Ce qui reste ouvert
+
+- **Le site dépend d'unpkg en production.** L'importmap charge three 0.185.1
+  et 7 addons depuis `unpkg.com` : une panne d'unpkg = scène qui ne boote pas,
+  et chaque visiteur paie les allers-retours CDN. Vendoriser three en local
+  supprimerait cette dépendance, au prix du « aucun build » revendiqué par
+  `AGENTS.md` — décision d'architecture, pas encore prise.
+- **Les ~20 s de bake décident de la première impression** d'un visiteur qui
+  n'a rien demandé. Le tier par défaut mériterait d'être rediscuté maintenant
+  que la page est publique.
+- **`AGENTS.md` annonce `INVARIANTS: 16 pass`**, la suite en compte 26 (elle
+  est passée par 21 à la session shiba). Le chiffre est périmé dans la doc.
