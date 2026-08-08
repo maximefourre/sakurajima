@@ -557,3 +557,23 @@ Le dernier — le domaine de vol non borné — a été fermé avec un invariant
 harcèle la population pendant 60 s avec un répulseur mobile balayant le champ de
 fleurs, puis vérifie qu'aucun individu n'est au-dessus de la mer ni hors du
 domaine élargi. `INVARIANTS: 21 pass, 0 fail` en `low` et en `?q=ultra`.
+
+# Revue ADV-2026-08-08-TOUCH — chantier contrôles tactiles
+
+Review adversariale Codex (compagnon du plugin, session
+`019fe203-21ef-7cd0-a54f-d734cfac286f`) sur le diff non commité du chantier
+tactile (implémentation Codex, brief Claude). Verdict brut : `needs-attention`,
+trois findings medium.
+
+| # | Sévérité | Constat | Verdict Claude | Traitement |
+|---|---|---|---|---|
+| 1 | medium | `(pointer: coarse)` ne décrit que le pointeur PRIMAIRE : un laptop tactile à trackpad n'aurait jamais eu les commandes | **Accepté** | Activation à la volée au premier `pointerdown` de `pointerType 'touch'` (`mountTouchControls`, main.js) ; le flag runtime `touchActive` remplace `coarsePointer` dans tous les handlers du rig follow. Le TIER reste sur le pointeur primaire — un hybride puissant garde l'ultra, décision utilisateur du 08/08. |
+| 2 | medium | En PAYSAGE (>640px), le panneau restait bas-gauche sous la hitbox transparente du joystick (44vw × 42vh) | **Accepté** | Le layout tactile ne dépend plus de la largeur : classe `:root.touch` posée par main.js (au boot si coarse, sinon à l'activation), qui reloge le panneau haut-droite et masque `#perf`/`#hint`. |
+| 3 | medium | `user-scalable=no` + `touch-action: none` suppriment le zoom d'agrandissement pour tous | **Rejeté, motivé** | La recommandation (retirer le verrou, scoper au canvas) réintroduirait EXACTEMENT le bug utilisateur d'origine : le double-tap sur la tête du panneau — le geste ouvrir/fermer — est le déclencheur du zoom piégeux, et il vit sur le panneau, pas sur le canvas. Le zoom d'accessibilité SYSTÈME (triple-tap iOS/Android) reste disponible, lui, quel que soit le viewport. Arbitrage assumé : soigner le piège rapporté prime. |
+
+Vérification post-traitement : `node --check` ×3, `INVARIANTS: 26 pass, 0 fail`
+en low ET ultra, activation hybride rejouée en navigateur par PointerEvent
+synthétique (avant : desktop pur ; après un doigt : classe posée, UI révélée,
+panneau haut-droite, toggle intact), chaîne `setStick` → déplacement du chien
+vérifiée en pilotant la boucle par `__sk.frame()` (piège 8 : fenêtre recouverte,
+rAF gelé — un premier banc passif avait conclu à tort à un stick mort).

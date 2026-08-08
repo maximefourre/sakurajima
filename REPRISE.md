@@ -1976,3 +1976,40 @@ unpkg » — attrapé par la review, corrigé.
   `performance.getEntriesByType('resource')` ne liste **aucune ressource
   externe**, les 17 fichiers three (2 build + 15 addons) viennent de
   `/vendor/three/`. MIME corrects, notes internes toujours en 404.
+
+---
+
+## Session « contrôles tactiles » du 08/08
+
+- Zoom de page verrouillé (viewport, `touch-action`, garde `gesturestart`) et
+  panneau mobile déplacé en haut, avec tête fixe et corps défilable.
+- Nouveau `touch.js`, activé seulement pour `(pointer: coarse)` : joystick
+  analogique caméra-relatif, course maintenue, saut, caméra et pause. L'API
+  `shiba.setStick()` additionne cette intention au clavier avant normalisation.
+- Caméra suivie : pinch à deux pointeurs sur les mêmes bornes que la molette ;
+  l'orbite à un doigt est suspendue puis reprend sans saut après le pinch.
+- `node --check` passe sur `main.js`, `shiba.js` et `touch.js`. Le lancement de
+  `serve.py` n'a pas pu être testé dans le sandbox de la session (`bind` refusé).
+
+### Review et traitement (Claude)
+
+Implémentation par Codex sur brief (rôles AGENTS respectés, aucune
+sous-traitance cette fois). Review adversariale **ADV-2026-08-08-TOUCH** :
+3 findings medium — hybrides jamais servis par `(pointer: coarse)` (corrigé :
+activation à la volée + flag `touchActive`), collision panneau/joystick en
+paysage (corrigé : layout sur classe `:root.touch`, plus sur la largeur),
+suppression du zoom d'agrandissement (rejeté motivé : la recommandation
+réintroduisait le piège rapporté par l'utilisateur ; le zoom système reste).
+
+### Vérification
+
+- `INVARIANTS: 26 pass, 0 fail` en low ET ultra après le chantier.
+- Desktop intact : UI tactile cachée, panneau bas-gauche, toggle trois états.
+- Chaîne analogique : `setStick(1,0,true)` fait courir le chien, le relâcher
+  l'arrête net, NaN/Infinity rejetés. **Piège 8 rejoué** : le premier banc
+  passif concluait à un stick mort — c'était la fenêtre recouverte (0 frame en
+  1.5 s) ; mesure refaite en pilotant la boucle par `__sk.frame()`.
+- Activation hybride : PointerEvent synthétique `pointerType: 'touch'` → classe
+  `touch` posée, joystick + 4 boutons révélés, panneau relogé haut-droite.
+- **Non vérifié ici : un vrai téléphone.** Le diagnostic zoom-de-page et le
+  ressenti du joystick attendent le retest utilisateur sur appareil réel.

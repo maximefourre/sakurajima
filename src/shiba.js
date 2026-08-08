@@ -292,6 +292,9 @@ export function createShiba({
   ]);
   const held = new Set();
   let enabled = true;
+  let stickFwd = 0;
+  let stickSide = 0;
+  let stickRunning = false;
   const onKeyDown = (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     held.add(e.code);
@@ -723,8 +726,14 @@ export function createShiba({
       if (held.has('KeyS') || held.has('ArrowDown')) fwdIn -= 1;
       if (held.has('KeyA') || held.has('ArrowLeft')) sideIn -= 1;
       if (held.has('KeyD') || held.has('ArrowRight')) sideIn += 1;
+      // Le stick reste une intention brute : le repère caméra et la
+      // normalisation ci-dessous sont ainsi exactement les mêmes qu'au clavier.
+      fwdIn += stickFwd;
+      sideIn += stickSide;
     }
-    state.running = held.has('ShiftLeft') || held.has('ShiftRight');
+    state.running = enabled && (
+      held.has('ShiftLeft') || held.has('ShiftRight') || stickRunning
+    );
     const shaking = state.shake > 0;
 
     /* — desired direction, in the camera's frame — */
@@ -942,8 +951,26 @@ export function createShiba({
         state.airborne = true;
       }
     },
+    /** Entrée analogique caméra-relative, fournie par l'UI tactile. */
+    setStick(fwd, side, running) {
+      if (!enabled) {
+        stickFwd = stickSide = 0;
+        stickRunning = false;
+        return;
+      }
+      stickFwd = clamp(Number.isFinite(fwd) ? fwd : 0, -1, 1);
+      stickSide = clamp(Number.isFinite(side) ? side : 0, -1, 1);
+      stickRunning = !!running;
+    },
     /** Suspend the controls without unmounting him — used by the free camera. */
-    setEnabled(v) { enabled = !!v; if (!v) held.clear(); },
+    setEnabled(v) {
+      enabled = !!v;
+      if (!enabled) {
+        held.clear();
+        stickFwd = stickSide = 0;
+        stickRunning = false;
+      }
+    },
     /** Les quatre semelles, en coordonnées MONDE, dans l'ordre FL FR BL BR.
      *  Ouvert pour l'invariant 12, qui doit mesurer la garde au sol sur les
      *  DEUX corps possibles : le procédural la tire de son mesh nommé 'paw', le

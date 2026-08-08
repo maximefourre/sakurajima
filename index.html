@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>桜島 — Sakurajima</title>
 
 <script type="importmap">
@@ -38,6 +38,7 @@
   html, body {
     height: 100%;
     overflow: hidden;
+    touch-action: none;
     background: var(--ink);
     color: var(--paper);
     font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
@@ -125,6 +126,9 @@
     left: clamp(1rem, 2.4vw, 1.9rem);
     bottom: clamp(1rem, 2.4vw, 1.9rem);
     width: 250px; padding: 1rem 1.05rem 1.1rem;
+    max-height: 62vh;
+    max-height: 62dvh;
+    display: flex; flex-direction: column;
     border: 1px solid rgba(244,236,226,.10);
     border-radius: 3px;
     background: rgba(16,13,18,.42);
@@ -134,17 +138,26 @@
     transition: opacity 1s ease 1.15s, transform 1s ease 1.15s;
   }
   #panel.on { opacity: 1; transform: none; }
-  #panel.folded > *:not(.head) { display: none; }
+  #panel.folded .panel-body { display: none; }
 
   .head {
     display: flex; justify-content: space-between; align-items: center;
     font-size: .64rem; letter-spacing: .3em; text-transform: uppercase;
     opacity: .5; cursor: pointer; user-select: none;
+    flex: 0 0 auto; touch-action: manipulation;
     padding-bottom: .3rem;
   }
   .head:hover { opacity: .85; }
   .head .chev { transition: transform .3s ease; font-size: .8rem; }
   #panel.folded .head .chev { transform: rotate(-90deg); }
+
+  .panel-body {
+    min-height: 0; flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
 
   .row { margin-top: .85rem; }
   .row label {
@@ -160,7 +173,7 @@
   input[type=range] {
     -webkit-appearance: none; appearance: none;
     width: 100%; height: 1px; background: rgba(244,236,226,.18);
-    outline: none; cursor: pointer;
+    outline: none; cursor: pointer; touch-action: none;
   }
   input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
@@ -203,8 +216,14 @@
     padding: .05rem .3rem; border-radius: 2px;
   }
 
-  @media (max-width: 640px) {
-    #panel { width: calc(100% - 2rem); left: 1rem; right: 1rem; }
+  /* Le critère du layout tactile est la classe `touch` posée par main.js, pas
+     la largeur d'écran : un téléphone en PAYSAGE dépasse 640px et laisserait le
+     panneau bas-gauche, sous la hitbox du joystick (review ADV). La classe
+     couvre aussi les hybrides où le tactile s'active à la volée. */
+  :root.touch #panel {
+    top: calc(env(safe-area-inset-top, 0px) + 4.8rem);
+    right: 1rem; bottom: auto; left: auto;
+    width: min(250px, calc(100vw - 2rem));
   }
 
   /* ── opening hint ─────────────────────────────────────────────
@@ -234,6 +253,82 @@
     padding: .12rem .42rem; border-radius: 2px; margin-right: .3rem;
   }
   @media (max-width: 640px) { #hint { display: none; } }
+
+  /* ── commandes tactiles ──────────────────────────────────────
+     Le HTML existe pour rester accessible, mais seul le prédicat coarse de
+     main.js le révèle : une souris conserve ainsi exactement l'UI historique. */
+  #touch-ui[hidden] { display: none; }
+  #touch-ui {
+    position: fixed; inset: 0; z-index: 25;
+    pointer-events: none; user-select: none; -webkit-user-select: none;
+  }
+  #touch-stick {
+    position: absolute;
+    left: max(.65rem, env(safe-area-inset-left, 0px));
+    bottom: max(.65rem, env(safe-area-inset-bottom, 0px));
+    width: min(44vw, 230px); height: min(42vh, 240px);
+    pointer-events: auto; touch-action: none;
+  }
+  .stick-base, .stick-nub {
+    position: absolute; left: 0; top: 0;
+    border-radius: 50%; pointer-events: none;
+    opacity: 0; transform: translate(-50%, -50%);
+    transition: opacity .16s ease;
+  }
+  .stick-base {
+    width: 112px; height: 112px;
+    border: 1px solid rgba(244,236,226,.24);
+    background: rgba(16,13,18,.20);
+    box-shadow: inset 0 0 24px rgba(242,184,205,.07);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .stick-nub {
+    width: 42px; height: 42px;
+    border: 1px solid rgba(244,236,226,.34);
+    background: var(--accent-soft);
+    box-shadow: 0 0 18px var(--accent-ring);
+  }
+  #touch-stick.active .stick-base,
+  #touch-stick.active .stick-nub { opacity: .78; }
+
+  #touch-actions {
+    position: absolute;
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: .45rem;
+    width: 76px; pointer-events: auto;
+  }
+  .touch-button {
+    min-height: 42px; padding: .45rem .25rem;
+    font-family: inherit; font-size: .58rem; letter-spacing: .12em;
+    text-transform: uppercase;
+    color: rgba(244,236,226,.68);
+    background: rgba(16,13,18,.42);
+    border: 1px solid rgba(244,236,226,.14); border-radius: 3px;
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    touch-action: none;
+  }
+  .touch-button:active,
+  .touch-button[aria-pressed="true"] {
+    color: var(--ink); background: var(--accent); font-weight: 600;
+  }
+  #touch-hint {
+    position: absolute;
+    left: max(1rem, env(safe-area-inset-left, 0px));
+    bottom: calc(max(1rem, env(safe-area-inset-bottom, 0px)) + min(42vh, 240px));
+    padding: .5rem .7rem;
+    border: 1px solid rgba(244,236,226,.10); border-radius: 3px;
+    background: rgba(16,13,18,.42);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font-size: .58rem; letter-spacing: .1em; opacity: .62;
+    transition: opacity .45s ease;
+  }
+  #touch-hint.gone { opacity: 0; }
+
+  :root.touch #perf,
+  :root.touch #hint { display: none; }
 
   #fatal {
     position: fixed; inset: 0; z-index: 200; display: none;
@@ -268,43 +363,45 @@
 <div id="panel" class="folded">
   <div class="head" id="panel-head"><span>réglages</span><span class="chev">▾</span></div>
 
-  <div class="row">
-    <label>heure <b id="v-time">06:00</b></label>
-    <input type="range" id="s-time" min="0" max="1" step="0.001" value="0.25">
-  </div>
-
-  <div class="row">
-    <label>vitesse du jour <b id="v-speed">1.0×</b></label>
-    <input type="range" id="s-speed" min="0" max="12" step="0.1" value="1">
-  </div>
-
-  <div class="row">
-    <label>vent <b id="v-wind">1.0×</b></label>
-    <input type="range" id="s-wind" min="0" max="3" step="0.05" value="1">
-  </div>
-
-  <div class="row">
-    <label>saison</label>
-    <div class="seg" id="s-season">
-      <button data-season="spring">printemps</button>
-      <button data-season="autumn">automne</button>
+  <div class="panel-body">
+    <div class="row">
+      <label>heure <b id="v-time">06:00</b></label>
+      <input type="range" id="s-time" min="0" max="1" step="0.001" value="0.25">
     </div>
-  </div>
 
-  <div class="row">
-    <label>qualité</label>
-    <div class="seg" id="s-quality">
-      <button data-q="low">low</button>
-      <button data-q="high">high</button>
-      <button data-q="ultra">ultra</button>
+    <div class="row">
+      <label>vitesse du jour <b id="v-speed">1.0×</b></label>
+      <input type="range" id="s-speed" min="0" max="12" step="0.1" value="1">
     </div>
-  </div>
 
-  <div class="hint">
-    <kbd>Z Q S D</kbd> / <kbd>W A S D</kbd> promener le shiba · <kbd>Maj</kbd> courir · <kbd>Espace</kbd> sauter<br>
-    <kbd>C</kbd> caméra libre ↔ suivie · <kbd>glisser</kbd> orbiter · <kbd>molette</kbd> zoom<br>
-    <kbd>P</kbd> pause du temps · <kbd>H</kbd> masquer l'interface
-    <div class="credit">Modèle du shiba : « Shiba » par zixisun02 — CC-BY 4.0</div>
+    <div class="row">
+      <label>vent <b id="v-wind">1.0×</b></label>
+      <input type="range" id="s-wind" min="0" max="3" step="0.05" value="1">
+    </div>
+
+    <div class="row">
+      <label>saison</label>
+      <div class="seg" id="s-season">
+        <button data-season="spring">printemps</button>
+        <button data-season="autumn">automne</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>qualité</label>
+      <div class="seg" id="s-quality">
+        <button data-q="low">low</button>
+        <button data-q="high">high</button>
+        <button data-q="ultra">ultra</button>
+      </div>
+    </div>
+
+    <div class="hint">
+      <kbd>Z Q S D</kbd> / <kbd>W A S D</kbd> promener le shiba · <kbd>Maj</kbd> courir · <kbd>Espace</kbd> sauter<br>
+      <kbd>C</kbd> caméra libre ↔ suivie · <kbd>glisser</kbd> orbiter · <kbd>molette</kbd> zoom<br>
+      <kbd>P</kbd> pause du temps · <kbd>H</kbd> masquer l'interface
+      <div class="credit">Modèle du shiba : « Shiba » par zixisun02 — CC-BY 4.0</div>
+    </div>
   </div>
 </div>
 
@@ -313,6 +410,20 @@
   <span><kbd>Z Q S D</kbd>promener le shiba</span>
   <span><kbd>Maj</kbd>courir</span>
   <span><kbd>Espace</kbd>sauter</span>
+</div>
+
+<div id="touch-ui" hidden>
+  <div id="touch-stick" role="group" aria-label="Joystick pour promener le shiba">
+    <div class="stick-base"></div>
+    <div class="stick-nub"></div>
+  </div>
+  <div id="touch-actions" aria-label="Commandes du shiba">
+    <button class="touch-button" id="touch-jump" aria-label="Faire sauter le shiba">saut</button>
+    <button class="touch-button" id="touch-run" aria-label="Maintenir pour courir" aria-pressed="false">courir</button>
+    <button class="touch-button" id="touch-camera" aria-label="Changer de caméra" aria-pressed="false">caméra</button>
+    <button class="touch-button" id="touch-pause" aria-label="Mettre le temps en pause" aria-pressed="false">pause</button>
+  </div>
+  <div id="touch-hint">joystick : promener le shiba</div>
 </div>
 
 <div id="fatal"></div>

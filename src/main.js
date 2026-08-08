@@ -27,6 +27,7 @@ import { createClouds } from './clouds.js';
 import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
 import { loadShibaBody } from './shiba-gltf.js';
+import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
@@ -38,6 +39,19 @@ const veil = $('veil'), bar = $('bar').firstElementChild, status = $('status');
 const hud = $('hud'), panel = $('panel');
 const clockT = $('clock-t'), clockP = $('clock-p');
 const perfFps = $('perf-fps'), perfDraw = $('perf-draw'), perfTri = $('perf-tri');
+const coarsePointer = typeof matchMedia === 'function'
+  && matchMedia('(pointer: coarse)').matches;
+/**
+ * `coarsePointer` ne décrit que le pointeur PRIMAIRE : un laptop tactile à
+ * trackpad répond false et n'aurait jamais eu les commandes (review ADV). Le
+ * tier de qualité reste sur le pointeur primaire — un hybride puissant garde
+ * l'ultra — mais l'UI tactile, elle, s'active aussi à la volée au premier
+ * doigt posé. La classe `touch` sur <html> pilote tout le layout (panneau
+ * relogé, perf/hint masqués), y compris en paysage où les media queries en
+ * largeur mentaient.
+ */
+let touchActive = coarsePointer;
+if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
 const LOAD_STEPS = 11;
@@ -119,8 +133,7 @@ const initialTier = (() => {
   } catch { /* private mode — fall through */ }
   // Dernier repli seulement : un écran tactile n'a rien demandé, il ne doit
   // pas payer le bake ultra calibré pour la machine de développement.
-  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  return coarse ? DEFAULT_QUALITY_MOBILE : DEFAULT_QUALITY;
+  return coarsePointer ? DEFAULT_QUALITY_MOBILE : DEFAULT_QUALITY;
 })();
 
 /**
@@ -197,9 +210,14 @@ const follow = {
   yawOffset: 0,  // how far the player has dragged the view off centre
   pitchOffset: 0,
   dragging: false,
+  pinching: false,
+  dragPointer: null,
   lastX: 0,
   lastY: 0,
 };
+const followPointers = new Map();
+let pinchStartGap = 0;
+let pinchStartDistance = follow.distance;
 const _camWant = new THREE.Vector3();
 const _lookAt = new THREE.Vector3();
 
@@ -215,7 +233,7 @@ function updateFollowCamera(dt) {
   while (d < -Math.PI) d += Math.PI * 2;
   follow.yaw += d * Math.min(1, dt * (s.speed > 0.1 ? 2.4 : 0.35));
 
-  if (!follow.dragging && s.speed > 0.4) {
+  if (!follow.dragging && !follow.pinching && s.speed > 0.4) {
     const decay = Math.max(0, 1 - dt * 0.8);
     follow.yawOffset *= decay;
     follow.pitchOffset *= decay;
@@ -246,6 +264,12 @@ function setCamMode(mode) {
   world.camMode = mode;
   controls.enabled = mode === 'orbit';
   if (mode === 'orbit' && world.shiba) {
+    if (touchActive) {
+      followPointers.clear();
+      follow.dragging = false;
+      follow.pinching = false;
+      follow.dragPointer = null;
+    }
     // Hand the pivot over where the eye already is, so the switch back is a
     // change of control rather than a cut.
     controls.target.copy(world.shiba.position);
@@ -259,28 +283,96 @@ function setCamMode(mode) {
   }
 }
 
+const clampFollowDistance = (distance) => Math.min(
+  follow.maxDistance,
+  Math.max(follow.minDistance, distance)
+);
+
+function pointerGap() {
+  const points = [...followPointers.values()];
+  if (points.length < 2) return 0;
+  return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+}
+
+function beginPinch() {
+  pinchStartGap = pointerGap();
+  pinchStartDistance = follow.distance;
+  follow.dragging = false;
+  follow.pinching = true;
+  follow.dragPointer = null;
+}
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   if (world.camMode !== 'follow') return;
+  if (touchActive) {
+    followPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    renderer.domElement.setPointerCapture(e.pointerId);
+    if (followPointers.size === 1) {
+      follow.dragging = true;
+      follow.pinching = false;
+      follow.dragPointer = e.pointerId;
+      follow.lastX = e.clientX;
+      follow.lastY = e.clientY;
+    } else {
+      beginPinch();
+    }
+    return;
+  }
   follow.dragging = true;
   follow.lastX = e.clientX;
   follow.lastY = e.clientY;
   renderer.domElement.setPointerCapture(e.pointerId);
 });
 renderer.domElement.addEventListener('pointermove', (e) => {
+  if (touchActive) {
+    if (world.camMode !== 'follow' || !followPointers.has(e.pointerId)) return;
+    followPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (followPointers.size >= 2) {
+      const gap = pointerGap();
+      if (pinchStartGap > 0 && gap > 0) {
+        follow.distance = clampFollowDistance(
+          pinchStartDistance * pinchStartGap / gap
+        );
+      }
+      return;
+    }
+    if (e.pointerId !== follow.dragPointer) return;
+  }
   if (!follow.dragging) return;
   follow.yawOffset -= (e.clientX - follow.lastX) * 0.006;
   follow.pitchOffset += (e.clientY - follow.lastY) * 0.004;
   follow.lastX = e.clientX;
   follow.lastY = e.clientY;
 });
-const endDrag = () => { follow.dragging = false; };
+const endDrag = (e) => {
+  if (!touchActive) {
+    follow.dragging = false;
+    return;
+  }
+  if (!followPointers.delete(e.pointerId)) return;
+  if (followPointers.size >= 2) {
+    beginPinch();
+  } else if (followPointers.size === 1) {
+    const [pointerId, point] = followPointers.entries().next().value;
+    follow.pinching = false;
+    follow.dragging = true;
+    follow.dragPointer = pointerId;
+    follow.lastX = point.x;
+    follow.lastY = point.y;
+  } else {
+    follow.dragging = false;
+    follow.pinching = false;
+    follow.dragPointer = null;
+  }
+};
 renderer.domElement.addEventListener('pointerup', endDrag);
 renderer.domElement.addEventListener('pointercancel', endDrag);
 renderer.domElement.addEventListener('wheel', (e) => {
   if (world.camMode !== 'follow') return;
   e.preventDefault();
-  follow.distance = Math.min(follow.maxDistance,
-    Math.max(follow.minDistance, follow.distance * (1 + Math.sign(e.deltaY) * 0.12)));
+  follow.distance = clampFollowDistance(
+    follow.distance * (1 + Math.sign(e.deltaY) * 0.12)
+  );
 }, { passive: false });
 
 /* ── build ───────────────────────────────────────────────────── */
@@ -538,6 +630,41 @@ async function boot() {
   setTimeout(dismissHint, 13000);
   addEventListener('keydown', dismissHint, { once: true });
 
+  let touchMounted = false;
+  const mountTouchControls = () => {
+    if (touchMounted) return;
+    touchMounted = true;
+    touchActive = true;
+    document.documentElement.classList.add('touch');
+    createTouchControls({
+      shiba: world.shiba,
+      onJump: () => world.shiba?.jump?.(),
+      onCamera: () => {
+        setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
+        return world.camMode === 'follow';
+      },
+      onPause: () => {
+        world.paused = !world.paused;
+        return world.paused;
+      },
+    });
+    // Le mini-hint tactile et le bandeau clavier partagent le même geste de
+    // sortie : dès que le joueur essaie le joystick, l'explication a servi.
+    $('touch-stick').addEventListener('pointerdown', dismissHint, { once: true });
+  };
+  if (touchActive) {
+    mountTouchControls();
+  } else {
+    // Hybride : le pointeur primaire est une souris, mais un doigt peut se
+    // poser quand même — l'UI tactile se monte alors à la volée (review ADV).
+    const onFirstTouch = (e) => {
+      if (e.pointerType !== 'touch') return;
+      removeEventListener('pointerdown', onFirstTouch);
+      mountTouchControls();
+    };
+    addEventListener('pointerdown', onFirstTouch);
+  }
+
   // Handy for debugging from the console: window.__sk.world, etc.
   globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock };
 
@@ -710,6 +837,10 @@ function updateClock() {
 }
 
 /* ── UI ──────────────────────────────────────────────────────── */
+// iOS expose encore son geste propriétaire même avec un viewport verrouillé ;
+// sans cette garde, un double-tap sur la tête peut pousser le panneau hors vue.
+document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+
 $('panel-head').onclick = () => panel.classList.toggle('folded');
 
 $('s-time').oninput = (e) => {
