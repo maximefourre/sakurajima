@@ -1865,10 +1865,14 @@ Vercel sert `.js` en `application/javascript; charset=utf-8` et `.glb` en
 ### URLs
 
 - Production : `https://sakurajima-blue.vercel.app`
-- Projet : `fourreto/sakurajima` (33 fichiers, ~2 Mo déployés)
+- Projet Vercel : `fourreto/sakurajima` (33 fichiers, ~2 Mo déployés)
+- Dépôt : `github.com/maximefourre/sakurajima` — **privé**, les journaux de
+  session et les rapports de review ne sont pas publics.
 
-Redéployer : `npx vercel --prod` depuis la racine. Aucun dépôt Git n'est
-connecté — le déploiement est manuel, depuis le dossier local.
+**Redéployer : `git push`.** Le dépôt est connecté au projet Vercel, chaque
+push sur `main` redéploie la production, chaque autre branche obtient une URL
+de prévisualisation. `npx vercel --prod` reste disponible pour publier depuis
+le disque sans passer par un commit.
 
 ### Vérification
 
