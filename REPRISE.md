@@ -1971,3 +1971,8 @@ unpkg » — attrapé par la review, corrigé.
   trouvailles confirmées — les deux corrigées ci-dessus — 1 réfutée.
   Le skill `codex:adversarial-review` d'AGENTS.md n'existait pas dans cette
   session ; remplacé par le fan-out Workflow.
+- Prod après auto-deploy : `26 pass, 0 fail` contre le site déployé, et la
+  preuve décisive depuis la page elle-même —
+  `performance.getEntriesByType('resource')` ne liste **aucune ressource
+  externe**, les 17 fichiers three (2 build + 15 addons) viennent de
+  `/vendor/three/`. MIME corrects, notes internes toujours en 404.
