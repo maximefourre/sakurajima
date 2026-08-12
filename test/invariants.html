@@ -62,7 +62,7 @@ import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
-import { createPetals, isPetalSand } from '../src/petals.js';
+import { createPetals, isPetalSand, forEachCarpetLeaf } from '../src/petals.js';
 import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
@@ -554,14 +554,9 @@ try {
   });
   let sandHits = 0;
   const n = probe.carpetCount | 0;
-  const im = probe.carpet?.instanceMatrix;
-  if (im && n > 0) {
-    const e = im.array;
-    for (let i = 0; i < n; i++) {
-      const x = e[i * 16 + 12], z = e[i * 16 + 14];
-      if (isPetalSand(island.heightAt(x, z))) sandHits++;
-    }
-  }
+  forEachCarpetLeaf(probe.carpet, (x, _y, z) => {
+    if (isPetalSand(island.heightAt(x, z))) sandHits++;
+  });
   probe.dispose();
   check('tapis d’automne hors du sable',
     n > 0 && sandHits === 0,
@@ -584,17 +579,12 @@ try {
   });
   let surface = 0, sunk = 0;
   const pn = onPond.carpetCount | 0;
-  const pim = onPond.carpet?.instanceMatrix;
-  if (pim && pn > 0) {
-    const e = pim.array;
-    for (let i = 0; i < pn; i++) {
-      const x = e[i * 16 + 12], y = e[i * 16 + 13], z = e[i * 16 + 14];
-      const wy = ponds.pondWaterYAt(x, z);
-      if (wy === null) continue;
-      if (Math.abs(y - wy) <= 0.12) surface++;
-      else sunk++;
-    }
-  }
+  forEachCarpetLeaf(onPond.carpet, (x, y, z) => {
+    const wy = ponds.pondWaterYAt(x, z);
+    if (wy === null) return;
+    if (Math.abs(y - wy) <= 0.12) surface++;
+    else sunk++;
+  });
   onPond.dispose();
   check('tapis : feuilles à la surface de l’étang',
     surface >= 3 && sunk === 0,

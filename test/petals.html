@@ -79,12 +79,12 @@ function failAll(reason) {
   finishSummary();
 }
 
-let THREE, seedNoise, createWind, createPetals, isPetalSand, AUTUMN_PALETTES, isAutumnDominant, dominantForIndex;
+let THREE, seedNoise, createWind, createPetals, isPetalSand, forEachCarpetLeaf, AUTUMN_PALETTES, isAutumnDominant, dominantForIndex;
 try {
   THREE = await import('three').then(m => m.default ?? m);
   ({ seedNoise } = await import('../src/noise.js'));
   ({ createWind } = await import('../src/wind.js'));
-  ({ createPetals, isPetalSand } = await import('../src/petals.js'));
+  ({ createPetals, isPetalSand, forEachCarpetLeaf } = await import('../src/petals.js'));
   ({ AUTUMN_PALETTES, isAutumnDominant, dominantForIndex } = await import('../src/seasonal-foliage.js'));
 } catch (err) {
   failAll('import failed: ' + (err?.message || err));
@@ -209,7 +209,10 @@ function readAttr(geo, name) {
 function validateAttributes() {
   if (!petals) return { ok: false, detail: 'petals null' };
   const airGeo = petals.mesh?.geometry;
-  const carpetGeo = petals.carpet?.geometry;
+  const carpetMesh = petals.carpet?.isInstancedMesh
+    ? petals.carpet
+    : petals.carpet?.children?.find((c) => c.isInstancedMesh);
+  const carpetGeo = carpetMesh?.geometry;
   const aShapeAir = readAttr(airGeo, 'aShape');
   const aColorAir = readAttr(airGeo, 'aColor');
   const aShapeCarpet = readAttr(carpetGeo, 'aShape');
@@ -322,16 +325,13 @@ function finish() {
         wind,
         heightAt: (x) => (x > 0 ? 0.5 : 4.0),
       });
-      const im = probe.carpet?.instanceMatrix;
       const n = probe.carpetCount | 0;
-      if (im && n > 0) {
+      if (n > 0) {
         probed = true;
-        const e = im.array;
-        for (let i = 0; i < n; i++) {
-          const x = e[i * 16 + 12];
+        forEachCarpetLeaf(probe.carpet, (x) => {
           if (x > 0) sandHits++;
           else meadowHits++;
-        }
+        });
       }
       probe.dispose();
     } catch (err) {

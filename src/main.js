@@ -770,7 +770,7 @@ function frame() {
   world.grass.update(t, camera);
   world.grass.setSun?.(phase.keyDir, phase.keyColor, shaderPhase.keyIntensity);
 
-  world.petals.update(t, shaderPhase);
+  world.petals.update(t, shaderPhase, camera);
   world.clouds.update(t, dt, phase);
   world.birds.update(t, dt, phase);
   world.details.update(t, phase);

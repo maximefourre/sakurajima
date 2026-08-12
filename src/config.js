@@ -138,8 +138,8 @@ export const QUALITY = {
     label: 'low',
     grassBlades: Math.round(45000 * AREA_SOFT),
     grassRadius: Math.round(70 * LAND_SCALE),
-    petals: Math.round(3000 * AREA_SOFT),
-    fallenPetals: Math.round(4200 * AREA_SOFT),
+    petals: Math.round(4800 * AREA_SOFT),
+    fallenPetals: Math.round(7000 * AREA_SOFT),
     trees: Math.round(56 * AREA_SOFT),
     uniqueTrees: 10,
     rocks: Math.round(35 * AREA_SOFT),
@@ -154,8 +154,8 @@ export const QUALITY = {
     label: 'high',
     grassBlades: Math.round(200000 * AREA_SOFT),
     grassRadius: Math.round(105 * LAND_SCALE),
-    petals: Math.round(9300 * AREA_SOFT),
-    fallenPetals: Math.round(12500 * AREA_SOFT),
+    petals: Math.round(15000 * AREA_SOFT),
+    fallenPetals: Math.round(21000 * AREA_SOFT),
     trees: Math.round(190 * AREA_SOFT),
     uniqueTrees: 18,
     rocks: Math.round(74 * AREA_SOFT),
@@ -170,12 +170,11 @@ export const QUALITY = {
     label: 'ultra',
     grassBlades: Math.round(560000 * AREA_SOFT),
     grassRadius: Math.round(130 * LAND_SCALE),
-    petals: Math.round(19000 * AREA_SOFT),
-    // ~192k au sol en ultra : sous un hanami, le sol est JONCHÉ — 53k étalés
-    // sur 1900 arbres lisaient comme rien du tout (consigne joueur). Montés
-    // encore de +30 % le 29/07 quand les pétales ont rapetissé (« il en faut
-    // plus mais moins grosses »).
-    fallenPetals: Math.round(34000 * AREA_SOFT),
+    petals: Math.round(30000 * AREA_SOFT),
+    // ~311k au sol, ~778k en automne (×2.5). Le tapis est en chunks : loin
+    // de la caméra on ne soumet qu'un préfixe, donc le coût reste celui du
+    // voisinage (piège 10 : le poste est géométrique). Les arbres ne bougent pas.
+    fallenPetals: Math.round(55000 * AREA_SOFT),
     trees: Math.round(330 * AREA_SOFT),
     uniqueTrees: 28,
     rocks: Math.round(110 * AREA_SOFT),

@@ -83,6 +83,21 @@ export function isPetalSand(h) {
   return h > WORLD.seaLevel && h < SAND_CEILING;
 }
 
+/** Parcourt toutes les feuilles du tapis (chunks ou mesh unique), pose bakée. */
+export function forEachCarpetLeaf(carpet, fn) {
+  if (!carpet) return;
+  const list = carpet.isInstancedMesh ? [carpet] : (carpet.children || []);
+  for (let m = 0; m < list.length; m++) {
+    const mesh = list[m];
+    if (!mesh.isInstancedMesh) continue;
+    const e = mesh.instanceMatrix.array;
+    const n = mesh.userData.fullCount ?? mesh.count;
+    for (let i = 0; i < n; i++) {
+      fn(e[i * 16 + 12], e[i * 16 + 13], e[i * 16 + 14]);
+    }
+  }
+}
+
 /** One petal: a small quad, bent along its length so it is never perfectly flat. */
 function makePetalGeometry() {
   const W = 0.5, H = 0.72, SEG = 3;
@@ -487,6 +502,7 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
    * never enter the transparent sort against the airborne pass.
    */
   let carpet = null, carpetGeo = null, carpetMat = null;
+  let carpetPlaced = 0;
   const baseCarpetCount = (quality.fallenPetals | 0) || 0;
   const CARPET_COUNT = autumn
     ? Math.round(baseCarpetCount * AUTUMN_CARPET_MULTIPLIER)
@@ -714,8 +730,17 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
       return true;
     };
 
+    const CARPET_DIV = 10;
+    const cellSize = WORLD.size / CARPET_DIV;
+    const cellOf = new Int16Array(CARPET_COUNT);
+    const carpetCell = (x, z) => {
+      const ix = Math.max(0, Math.min(CARPET_DIV - 1, Math.floor((x + half) / cellSize)));
+      const iz = Math.max(0, Math.min(CARPET_DIV - 1, Math.floor((z + half) / cellSize)));
+      return iz * CARPET_DIV + ix;
+    };
+
     const cMesh = new THREE.InstancedMesh(carpetGeo, carpetMat, CARPET_COUNT);
-    cMesh.name = 'petal-carpet';
+    cMesh.name = 'petal-carpet-bake';
     cMesh.castShadow = false;
     cMesh.receiveShadow = false;   // ShaderMaterial: no shadow chunks, same as airborne
     cMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -809,12 +834,81 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
         aColorC[placed * 3 + 2] = 1;
       }
       if (dispersed) dispersedLeft--;
+      cellOf[placed] = carpetCell(x, z);
       placed++;
     }
     cMesh.count = placed;
     cMesh.instanceMatrix.needsUpdate = true;
-    cMesh.computeBoundingSphere();   // InstancedMesh version unions instances
-    carpet = cMesh;
+
+    // Découpe spatiale : un InstancedMesh par cellule. Loin de la caméra on
+    // ne soumet qu'un préfixe mélangé (même idée que FOLIAGE_SHUFFLE_BLOCK).
+    const nCells = CARPET_DIV * CARPET_DIV;
+    const lists = Array.from({ length: nCells }, () => []);
+    for (let i = 0; i < placed; i++) lists[cellOf[i]].push(i);
+    const lodRng = streamFor(seed, 'petals.carpet.lod');
+    const srcM = cMesh.instanceMatrix.array;
+    const carpetGroup = new THREE.Group();
+    carpetGroup.name = 'petal-carpet';
+    const carpetChunks = [];
+    const _bsMin = new THREE.Vector3();
+    const _bsMax = new THREE.Vector3();
+
+    for (let c = 0; c < nCells; c++) {
+      const ids = lists[c];
+      if (ids.length === 0) continue;
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.min(i, (lodRng() * (i + 1)) | 0);
+        const tmp = ids[i]; ids[i] = ids[j]; ids[j] = tmp;
+      }
+      const n = ids.length;
+      const tint = new Float32Array(n * 3);
+      const shape = new Float32Array(n);
+      const col = new Float32Array(n * 3);
+      const g = makePetalGeometry();
+      g.rotateX(-Math.PI / 2);
+      g.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(tint, 3));
+      g.setAttribute('aShape', new THREE.InstancedBufferAttribute(shape, 1));
+      g.setAttribute('aColor', new THREE.InstancedBufferAttribute(col, 3));
+      const chunk = new THREE.InstancedMesh(g, carpetMat, n);
+      chunk.name = `petal-carpet-${c}`;
+      chunk.castShadow = false;
+      chunk.receiveShadow = false;
+      chunk.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      _bsMin.set(Infinity, Infinity, Infinity);
+      _bsMax.set(-Infinity, -Infinity, -Infinity);
+      for (let k = 0; k < n; k++) {
+        const i = ids[k];
+        const o = k * 16, s = i * 16;
+        for (let e = 0; e < 16; e++) chunk.instanceMatrix.array[o + e] = srcM[s + e];
+        tint[k * 3] = aTintAge[i * 3];
+        tint[k * 3 + 1] = aTintAge[i * 3 + 1];
+        tint[k * 3 + 2] = aTintAge[i * 3 + 2];
+        shape[k] = aShapeC[i];
+        col[k * 3] = aColorC[i * 3];
+        col[k * 3 + 1] = aColorC[i * 3 + 1];
+        col[k * 3 + 2] = aColorC[i * 3 + 2];
+        const lx = srcM[s + 12], ly = srcM[s + 13], lz = srcM[s + 14];
+        if (lx < _bsMin.x) _bsMin.x = lx; if (lx > _bsMax.x) _bsMax.x = lx;
+        if (ly < _bsMin.y) _bsMin.y = ly; if (ly > _bsMax.y) _bsMax.y = ly;
+        if (lz < _bsMin.z) _bsMin.z = lz; if (lz > _bsMax.z) _bsMax.z = lz;
+      }
+      chunk.instanceMatrix.needsUpdate = true;
+      const cx = (_bsMin.x + _bsMax.x) * 0.5;
+      const cy = (_bsMin.y + _bsMax.y) * 0.5;
+      const cz = (_bsMin.z + _bsMax.z) * 0.5;
+      const radius = 0.5 * _bsMin.distanceTo(_bsMax) + 1.2;
+      chunk.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), radius);
+      chunk.frustumCulled = true;
+      chunk.userData.fullCount = n;
+      carpetGroup.add(chunk);
+      carpetChunks.push({ mesh: chunk, geo: g, full: n, cx, cy, cz, radius });
+    }
+    cMesh.dispose();
+    carpetGeo.dispose();
+    carpetGeo = null;
+    carpet = carpetGroup;
+    carpet._chunks = carpetChunks;
+    carpetPlaced = placed;
   }
 
   const _sun = new THREE.Vector3();
@@ -823,8 +917,34 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     if (carpetMat) carpetMat.uniforms.uPlayer.value.set(x, z, speedN);
   }
 
-  function update(t, phase) {
+  const _camPos = new THREE.Vector3();
+  const CARPET_LOD_NEAR = 110;
+  const CARPET_LOD_FAR = 280;
+  const CARPET_LOD_KEEP = 0.20;
+
+  function update(t, phase, camera) {
     if (carpetMat) carpetMat.uniforms.uTime.value = t;
+    const chunks = carpet && carpet._chunks;
+    if (chunks && camera) {
+      camera.getWorldPosition(_camPos);
+      for (let i = 0; i < chunks.length; i++) {
+        const ch = chunks[i];
+        const dx = ch.cx - _camPos.x, dy = ch.cy - _camPos.y, dz = ch.cz - _camPos.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - ch.radius;
+        if (d > CARPET_LOD_FAR) {
+          ch.mesh.visible = false;
+          ch.mesh.count = 0;
+          continue;
+        }
+        ch.mesh.visible = true;
+        if (d <= CARPET_LOD_NEAR) {
+          ch.mesh.count = ch.full;
+        } else {
+          const u = (d - CARPET_LOD_NEAR) / (CARPET_LOD_FAR - CARPET_LOD_NEAR);
+          ch.mesh.count = Math.max(1, Math.floor(ch.full * (1 - u * (1 - CARPET_LOD_KEEP))));
+        }
+      }
+    }
     // Wind uniforms are shared by reference and already updated by wind.update().
     if (!phase) return;
     // keyDir/keyColor resolve to sun by day and moon by night, so petals stay
@@ -850,15 +970,23 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     geo.dispose();
     material.dispose();
     mesh.dispose();
+    const chunks = carpet && carpet._chunks;
+    if (chunks) {
+      for (let i = 0; i < chunks.length; i++) {
+        chunks[i].geo.dispose();
+        chunks[i].mesh.dispose();
+      }
+    } else {
+      carpet?.dispose();
+    }
     carpetGeo?.dispose();
     carpetMat?.dispose();
-    carpet?.dispose();
   }
 
   return {
     mesh, carpet, update, setPlayer, dispose,
     count: COUNT,
-    carpetCount: carpet ? carpet.count : 0,
+    carpetCount: carpetPlaced,
     season: mode,
     kind: autumn ? 'maple' : 'sakura',
   };
