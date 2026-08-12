@@ -54,7 +54,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 11;
+const LOAD_STEPS = 13;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -98,6 +98,16 @@ const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(CAMERA.fov, innerWidth / innerHeight, CAMERA.near, CAMERA.far);
 camera.position.set(CAMERA.start.x, CAMERA.start.y, CAMERA.start.z);
+
+// Premier doigt hybride : monter l'UI AVANT qu'OrbitControls ne capture.
+// En bubble, OC (créé juste après) mangeait le geste (ADV D2).
+let mountTouchControls = () => {};
+const onFirstTouchCapture = (e) => {
+  if (e.pointerType !== 'touch' || touchActive) return;
+  e.stopImmediatePropagation();
+  mountTouchControls();
+};
+renderer.domElement.addEventListener('pointerdown', onFirstTouchCapture, { capture: true });
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(CAMERA.target.x, CAMERA.target.y, CAMERA.target.z);
@@ -249,9 +259,17 @@ function updateFollowCamera(dt) {
     s.position.z - Math.cos(yaw) * horiz
   );
 
-  // Keep the lens out of the ground. Without this the camera spends every
-  // downhill run buried in the terrain looking at the inside of the island.
-  const floor = (world.groundAt || world.heightAt)(_camWant.x, _camWant.z) + 1.2;
+  // Plancher = max(sol, eau plate). La houle ne doit pas pomper la caméra.
+  // Même prédicat que water.isPond : pondWaterYAt, sinon mer à seaLevel.
+  const gx = _camWant.x, gz = _camWant.z;
+  const ground = (world.groundAt || world.heightAt)(gx, gz);
+  const pondY = world.ponds ? world.ponds.pondWaterYAt(gx, gz) : null;
+  const stillSea = world.heightAt && world.island
+    && world.heightAt(gx, gz) < world.island.seaLevel
+    ? world.island.seaLevel
+    : null;
+  const waterY = pondY !== null ? pondY : stillSea;
+  const floor = Math.max(ground, waterY ?? -Infinity) + 1.2;
   if (_camWant.y < floor) _camWant.y = floor;
 
   camera.position.lerp(_camWant, Math.min(1, dt * 4.5));
@@ -349,7 +367,10 @@ const endDrag = (e) => {
     follow.dragging = false;
     return;
   }
-  if (!followPointers.delete(e.pointerId)) return;
+  if (!followPointers.delete(e.pointerId)) {
+    follow.dragging = false;
+    return;
+  }
   if (followPointers.size >= 2) {
     beginPinch();
   } else if (followPointers.size === 1) {
@@ -402,7 +423,11 @@ async function boot() {
 
   // Authored path network. Call before grass placement so exclusion evaluates
   // isOnPath against every route.
-  initPath();
+  initPath({
+    heightAt: world.heightAt,
+    heightGrid: world.island.heightGrid,
+    slopeAt: world.slopeAt,
+  });
 
   // groundAt is the mover surface (dog, follow camera): the terrain PLUS la
   // surface de terre battue de la sente — sans quoi les pattes du shiba
@@ -461,7 +486,7 @@ async function boot() {
     // units of the 460-unit world; spreading the blade budget across the full
     // tile wasted three quarters of it on open sea and quartered the density
     // where it actually shows.
-    bounds: { size: 230 * LAND_SCALE },
+    bounds: { radius: world.island.radius * 1.12 },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds are
@@ -470,6 +495,7 @@ async function boot() {
     // herbe rase et clairsemée entre les passages (consigne joueur).
     exclude: (x, z) => world.inWater(x, z),
     shortZone: (x, z) => isOnPath(x, z, 0.25),
+    pathLiftAt: (x, z) => pathSurfaceLiftAt(world.heightAt, x, z),
     wind: world.wind,
     season: world.season,
   });
@@ -505,7 +531,10 @@ async function boot() {
   if (world.petals.carpet) scene.add(world.petals.carpet);
 
   await step('ciel');
-  world.sky = createSky({ scene, renderer, camera, quality: q, season: world.season });
+  world.sky = createSky({
+    scene, renderer, camera, quality: q, season: world.season,
+    islandRadius: world.island.radius * 1.30 + 10,
+  });
 
   await step('nuages');
   world.clouds = createClouds({ seed: SEED, wind: world.wind, quality: q });
@@ -578,6 +607,7 @@ async function boot() {
         ? world.island.seaLevel + oceanSwellY(x, z, t)
         : null;
     },
+    isPond: (x, z) => world.ponds.pondWaterYAt(x, z) !== null,
     // uTime is the shared object read by the pond shader and was updated at the
     // start of this same frame, so an impact cannot be born a frame early/late.
     impact: (x, z, strength) => world.ponds.spawnDogRipple(
@@ -631,7 +661,7 @@ async function boot() {
   addEventListener('keydown', dismissHint, { once: true });
 
   let touchMounted = false;
-  const mountTouchControls = () => {
+  mountTouchControls = () => {
     if (touchMounted) return;
     touchMounted = true;
     touchActive = true;
@@ -866,7 +896,7 @@ $('s-quality').onclick = (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
   const q = btn.dataset.q;
-  if (q === world.quality) return;
+  if (!Object.hasOwn(QUALITY, q) || q === world.quality) return;
   // Persist and reload: every system sizes itself at construction, so the only
   // honest way to change tier is a cold start of that tier. The URL's ?q= is
   // rewritten too, so an explicit link doesn't override the click after reload.
@@ -896,6 +926,7 @@ for (const b of $('s-season').children) {
 }
 
 addEventListener('keydown', (e) => {
+  if (e.repeat) return;
   if (e.code === 'Space') { e.preventDefault(); world.shiba?.jump?.(); }
   if (e.code === 'KeyP') world.paused = !world.paused;
   if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');

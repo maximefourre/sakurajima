@@ -30,16 +30,36 @@
  */
 const log = document.getElementById('log');
 const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
-window.onerror = (m, _s, _l, _c, e) => { say('✗ ' + (e?.stack || m), 'bad'); console.error(m); };
-window.addEventListener('unhandledrejection', e => { say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); });
+let pass = 0, fail = 0;
+let finished = false;
+const finish = () => {
+  if (finished) return;
+  finished = true;
+  const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+};
+window.onerror = (m, _s, _l, _c, e) => {
+  fail++;
+  say('✗ ' + (e?.stack || m), 'bad');
+  console.error(m);
+  finish();
+};
+window.addEventListener('unhandledrejection', e => {
+  fail++;
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+  finish();
+});
 
 import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
-import { createDetails, flowerSpots, initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS } from '../src/details.js';
+import { createDetails, flowerSpots, initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
+import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { SHIBA_BUILD } from '../src/shiba-geom.js';
@@ -47,7 +67,6 @@ import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 
-let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
   else { fail++; say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad'); console.error(`FAIL — ${name} ${detail}`); }
@@ -65,6 +84,12 @@ const TIER = (() => {
   const q = new URLSearchParams(location.search).get('q');
   return q === 'ultra' || q === 'high' ? q : 'low';
 })();
+say(`TIER=${TIER}`, 'k');
+console.log(`TIER=${TIER}`);
+if (TIER !== 'ultra') {
+  say(`WARN: banc en ${TIER} — les rubans se jugent en ?q=ultra`, 'bad');
+  console.warn(`WARN: banc en ${TIER} — les rubans se jugent en ?q=ultra`);
+}
 
 const wind = createWind();
 const ponds = createPonds({ seed: SEED, wind, quality: QUALITY[TIER], heightAt: null });
@@ -79,7 +104,11 @@ ponds.attach({ heightAt: island.heightAt });
 
 /* ── 1. fin de la montée aux torii sur la terre ferme ────────────────────── */
 {
-  const end = initPath();
+  const end = initPath({
+    heightAt: island.heightAt,
+    heightGrid: island.heightGrid,
+    slopeAt: island.slopeAt,
+  });
   const h = island.heightAt(end.x, end.z);
   check('chemin sur la terre ferme', h > WORLD.seaLevel + 0.5,
     `end h=${h.toFixed(2)} (seuil ${WORLD.seaLevel + 0.5})`);
@@ -98,6 +127,13 @@ ponds.attach({ heightAt: island.heightAt });
 /* ── 3. champ de nuages au-delà de l'orbite maximale ─────────────────────── */
 check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDistance,
   `${CLOUD_FIELD_HALF} vs ${Math.round(CAMERA.maxDistance)}`);
+
+{
+  const env = shadowEnvelope(island.radius * 1.30 + 10);
+  check('near d’ombre positif, boîte ≥ 1.30·île',
+    env.R >= island.radius * 1.30 && env.D - env.R - 80 > 0,
+    `R=${env.R.toFixed(1)} D=${env.D} near=${(env.D - env.R - 80).toFixed(1)} île=${island.radius.toFixed(1)}`);
+}
 
 /* ── 4. étangs carvés : centre dans le bassin, fond plus bas que pourtour ─── */
 {
@@ -154,16 +190,11 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
 /* ── 7. aucune lanterne orpheline ────────────────────────────────────────── */
 {
   const spots = computeLanternSpots(island.heightAt, island.slopeAt);
-  // Marge 3.2 = half-width + offset latéral des lanternes ; si la paire de la
-  // terrasse échoue, monter à 5 pour TOUTES (noté en écart).
-  let margin = 3.2;
-  let orphans = spots.filter((s) => !isOnPath(s.x, s.z, margin));
-  if (orphans.length > 0) {
-    margin = 5;
-    orphans = spots.filter((s) => !isOnPath(s.x, s.z, margin));
-  }
+  // extra = offset latéral 1.3 + slack d'arc 0.3. isOnPath ajoute PATH_HALF.
+  const lanternExtra = 1.3 + 0.3;
+  const orphans = spots.filter((s) => !isOnPath(s.x, s.z, lanternExtra));
   check('aucune lanterne orpheline', orphans.length === 0,
-    `${spots.length} lanternes, marge ${margin}${orphans.length ? `, ${orphans.length} orphelines` : ''}`);
+    `${spots.length} lanternes, extra ${lanternExtra}${orphans.length ? `, ${orphans.length} orphelines` : ''}`);
 }
 
 /* ── 8-10. terre battue : dégagée, collée, hauteur logique fidèle ───────── */
@@ -245,6 +276,61 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   // le plafond 0.25 conserve 0.018 u de marge d'echantillonnage.
   check('hauteur logique des chemins fidèle à la surface visible', liftError <= 0.25,
     `écart max ${liftError.toFixed(3)} (${liftErrorAt}), plafond 0.250`);
+}
+
+/* ── terrasse dédiée (pas l'agrégat 8–10) ─────────────────────────────── */
+{
+  const terrace = computeOverlookTerrace(island.heightAt, island.heightGrid, island.slopeAt);
+  const { pos, idx, edge } = terrace;
+  let worst = Infinity, highest = -Infinity, liftError = -Infinity, covered = 0;
+  for (let t3 = 0; t3 < idx.length; t3 += 3) {
+    const iA = idx[t3], iB = idx[t3 + 1], iC = idx[t3 + 2];
+    const eA = edge[iA], eB = edge[iB], eC = edge[iC];
+    if (Math.max(eA, eB, eC) > 0.66) continue;
+    const ax = pos[iA * 3], ay = pos[iA * 3 + 1], az = pos[iA * 3 + 2];
+    const bx = pos[iB * 3], by = pos[iB * 3 + 1], bz = pos[iB * 3 + 2];
+    const cx = pos[iC * 3], cy = pos[iC * 3 + 1], cz = pos[iC * 3 + 2];
+    const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
+    const my = (ay + by + cy) / 3;
+    const logical = pathSurfaceLiftAt(island.heightAt, mx, mz);
+    const actual = my - island.heightAt(mx, mz);
+    liftError = Math.max(liftError, Math.abs(logical - actual));
+    const measure = measureRibbonTriangleExact(
+      island.heightAt, island.heightGrid, pos, iA, iB, iC);
+    if (!measure) continue;
+    covered++;
+    if (measure.min < worst) worst = measure.min;
+    if (measure.max > highest) highest = measure.max;
+  }
+  check('terrasse : dégagée, collée, lift logique',
+    covered > 0 && worst > 0.005 && highest <= 0.55 && liftError <= 0.25,
+    `${covered} tris, marge ${worst.toFixed(4)}, haut ${highest.toFixed(4)}, Δlift ${liftError.toFixed(3)}`);
+}
+
+/* ── largeur de ruban : plancher 0.78 après remap ─────────────────────── */
+{
+  const meshes = computeRibbonMeshes(island.heightAt, island.heightGrid);
+  const floor = 0.78 * PATHS.width * 0.5 - 1e-3;
+  let ok = true, detail = '';
+  for (const m of meshes) {
+    if (m.cols !== RIBBON_COLS) continue;
+    const rows = m.rows;
+    const step = Math.max(1, Math.floor((rows - 1) / 40));
+    for (let i = 0; i < rows; i += step) {
+      const iL = i * RIBBON_COLS;
+      const iR = i * RIBBON_COLS + RIBBON_COLS - 1;
+      const wL = Math.hypot(m.pos[iL * 3] - m.pos[(iL + 4) * 3], m.pos[iL * 3 + 2] - m.pos[(iL + 4) * 3 + 2]);
+      const wR = Math.hypot(m.pos[iR * 3] - m.pos[(iR - 4) * 3], m.pos[iR * 3 + 2] - m.pos[(iR - 4) * 3 + 2]);
+      // 4 colonnes du centre (col 4) au bord : approx demi-largeur.
+      if (wL < floor || wR < floor) {
+        ok = false;
+        detail = `${m.name} row ${i} wL=${wL.toFixed(2)} wR=${wR.toFixed(2)} floor=${floor.toFixed(2)}`;
+        break;
+      }
+    }
+    if (!ok) break;
+  }
+  check('largeur de ruban ≥ 0.78 nominale', ok, ok ? `${meshes.length} routes` : detail);
 }
 
 /* ── Eau et chien ─────────────────────────────────────────────────────────
@@ -415,6 +501,38 @@ try {
   check('chaque étang est nageable ET franchissable', ok,
     detail || `${ponds.PONDS.length} bassins, le moins creux ${plusFaible.toFixed(2)} u, `
       + `bande de gué la plus étroite ${pireGlobal.toFixed(2)} u`);
+}
+
+/* ── laisse de mer : la houle n'ouvre pas le large ───────────────────── */
+{
+  const seaLevel = WORLD.seaLevel;
+  const x = 0, z = island.radius * 1.35;
+  const h = island.heightAt(x, z);
+  const deep = h < seaLevel - SHIBA.swimReach - 0.5;
+  const water = {
+    surfaceAt: (_x, _z, t) => seaLevel + 1.15 * Math.sin(t),
+    isPond: () => false,
+  };
+  const dog = createShiba({ seed: SEED, heightAt: island.heightAt, water, body: null });
+  let crestOpens = false;
+  let maxS = -Infinity;
+  for (let t = 0; t <= Math.PI * 2; t += 0.1) {
+    const s = seaLevel + 1.15 * Math.sin(t);
+    if (s > maxS) maxS = s;
+    if (dog.passableAt(x, z, t)) crestOpens = true;
+  }
+  const deepPond = createShiba({
+    seed: SEED,
+    heightAt: () => seaLevel - 5,
+    water: { surfaceAt: () => 8, isPond: () => true },
+    body: null,
+  });
+  const pondOpen = deepPond.passableAt(0, 0, 0);
+  dog.dispose();
+  deepPond.dispose();
+  check('laisse de mer : houle n’ouvre pas le large, étang profond ouvert',
+    deep && maxS > seaLevel + 0.5 && !crestOpens && pondOpen,
+    `h=${h.toFixed(2)} maxS=${maxS.toFixed(2)} crestOpens=${crestOpens} pondOpen=${pondOpen}`);
 }
 
 /* ── 15. le budget d'ondes est partitionné ────────────────────────────────
@@ -1030,9 +1148,7 @@ function milieuAppuisGltf(r) {
   check('rig glTF : aucune explosion sur 12 poses, pattes non collées', ok, detail);
 }
 
-const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
-say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
-console.log(summary);
+finish();
 </script>
 </body>
 </html>

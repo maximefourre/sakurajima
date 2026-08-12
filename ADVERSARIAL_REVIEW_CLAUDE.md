@@ -1,5 +1,17 @@
 # Revue adversariale de l’implémentation Claude
 
+## ADV-2026-08-12-PLAN — plan de correctifs audit
+
+| Champ | Valeur |
+|---|---|
+| Identifiant | `ADV-2026-08-12-PLAN` |
+| Cible | `docs/superpowers/plans/2026-08-12-correctifs-audit.md` v1 |
+| Méthode | 3 subagents explore (eau / sentes / enveloppes), pas Codex |
+| Verdict v1 | **needs-attention** ×3 |
+| Statut | **Traité dans la v2 du plan, puis implémenté** (branche `fix/audit-2026-08-12`) |
+
+Objections retenues : pas de `seaPassable` parallèle ; mer synthétique dans le banc ; terrasse = anneaux clipés pas éventail ; `R = 1.30·île` pas `+80` ; fallback `SKY_TUNE` aligné ; premier doigt en capture avant OrbitControls.
+
 ## Suivi de traitement
 
 | Champ | Valeur |

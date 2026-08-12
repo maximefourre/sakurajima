@@ -29,6 +29,12 @@ import { WORLD, LAND_SCALE, AREA, PATHS } from './config.js';
 
 const TAU = Math.PI * 2;
 
+/** Demi-largeur max après remap fbm (0.78 + 0.50·unit). isOnPath / proximity. */
+export const PATH_HALF = PATHS.width * 0.5 * 1.28;
+
+/** Disque de terrasse pour pathSurfaceLiftAt (rempli par computeOverlookTerrace). */
+let _terrace = null;
+
 /* ────────────────────────────────────────────────────────────────
    Path network — curves + spatial index (all routes)
    ──────────────────────────────────────────────────────────────── */
@@ -155,8 +161,8 @@ function buildPathNetwork() {
     _pathEnd = { x: 0, z: 0 };
   }
 
-  // Pad for isOnPath(x,z,extra) with extra up to 6.
-  const P_PAD = PATHS.width * 0.5 + 6;
+  // Pad for isOnPath(x,z,extra) with extra up to 6 (arbres + 4).
+  const P_PAD = PATH_HALF + 6;
   _pMinX = Infinity; _pMaxX = -Infinity; _pMinZ = Infinity; _pMaxZ = -Infinity;
   for (const p of _samples) {
     if (p.x < _pMinX) _pMinX = p.x; if (p.x > _pMaxX) _pMaxX = p.x;
@@ -182,8 +188,11 @@ buildPathNetwork();
  * No arguments — the network is fully authored in PATHS.
  * @returns {{x: number, z: number}}
  */
-export function initPath() {
+export function initPath(opts = {}) {
   buildPathNetwork();
+  if (opts && typeof opts.heightAt === 'function') {
+    computeOverlookTerrace(opts.heightAt, opts.heightGrid, opts.slopeAt);
+  }
   return _pathEnd;
 }
 
@@ -198,7 +207,7 @@ export function isOnPath(x, z, extra = 0.25) {
   if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return false;
   const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((x - _pMinX) / P_CELL)));
   const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((z - _pMinZ) / P_CELL)));
-  const r2 = (PATHS.width * 0.5 + extra) ** 2;
+  const r2 = (PATH_HALF + extra) ** 2;
   for (let dz = -1; dz <= 1; dz++) {
     const rz = cz + dz;
     if (rz < 0 || rz >= P_NZ) continue;
@@ -246,7 +255,7 @@ export function pathProximity(x, z) {
     }
   }
   if (best2 === Infinity) return 0;
-  const halfW = PATHS.width * 0.5;
+  const halfW = PATH_HALF;
   return clamp(1 - (Math.sqrt(best2) - halfW * 0.5) / (halfW * 0.7), 0, 1);
 }
 
@@ -536,10 +545,25 @@ export function pathSurfaceLiftAt(heightAt, x, z) {
   if (d2 < padR * padR) {
     padProx = clamp(1 - (Math.sqrt(d2) - padR * 0.55) / (padR * 0.40), 0, 1);
   }
-  if (prox <= 0 && padProx <= 0) return 0;
+  let terraceLift = 0;
+  if (_terrace) {
+    const tdx = x - _terrace.x, tdz = z - _terrace.z;
+    const td = Math.hypot(tdx, tdz);
+    const ang = Math.atan2(tdz, tdx);
+    const segs = _terrace.segs;
+    const s = ((ang / TAU) % 1 + 1) % 1 * segs;
+    const i0 = Math.floor(s) % segs;
+    const i1 = (i0 + 1) % segs;
+    const ft = s - Math.floor(s);
+    const rAz = _terrace.radii[i0] * (1 - ft) + _terrace.radii[i1] * ft;
+    if (td < rAz && rAz > 1e-6) {
+      terraceLift = 0.22 - 0.08 * (td / rAz);
+    }
+  }
+  if (prox <= 0 && padProx <= 0 && terraceLift <= 0) return 0;
   const ribbon = prox > 0 ? prox * (0.04 + 0.08 * prox) : 0;
   const pad = padProx > 0 ? padProx * 0.04 : 0;
-  return Math.max(ribbon, pad);
+  return Math.max(ribbon, pad, terraceLift);
 }
 
 /** Columns across the ribbon. f runs +1 (left edge) -> -1 (right). */
@@ -615,11 +639,10 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
       // l'autre et du patin.
       const edgeK = route.closed ? 1 : smoothstep(0.015, 0.06, t);
       const wk = 0.02 + 0.98 * tap;
-      // INDEPENDENT widths per side — one symmetric width is what read as a
-      // ruled band with two straight edges. Plancher 0.78 : plus bas, le
-      // ruban s'amincissait a la moitie de sa largeur nominale.
-      const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 + 3.1, p.z * 0.11, 2));
-      const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * fbm2(p.x * 0.11 - 9.4, p.z * 0.11 + 5.2, 2));
+      // fbm2 est signé (≈ −0.7..0.7). Remap 0..1 puis plancher 0.78.
+      const unit = (ox, oz) => clamp(fbm2(p.x * 0.11 + ox, p.z * 0.11 + oz, 2) * 0.5 + 0.5, 0, 1);
+      const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * unit(3.1, 0));
+      const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * unit(-9.4, 5.2));
       for (let c = 0; c < RIBBON_COLS; c++) {
         const f = 1 - (2 * c) / (RIBBON_COLS - 1);
         const w = f >= 0 ? wL : wR;
@@ -703,6 +726,71 @@ export function computeJunctionPad(heightAt, heightGrid = null) {
   }
   const clearancePasses = clearRibbonTriangles(heightAt, heightGrid, pos, idx);
   return { name: 'carrefour', pos, edge, edgeRaw, idx, clearancePasses };
+}
+
+/**
+ * Terrasse du belvédère : patin à ANNEAUX (pas un éventail — le centre
+ * partagé soulèverait toute la dalle au dégagement). Clip par azimut
+ * avant clear : |h−h0|>0.25 ou slope>0.45 → on réduit r, on ne relève pas.
+ */
+export function computeOverlookTerrace(heightAt, heightGrid = null, slopeAt = null) {
+  const torii = PATHS.routes.find((r) => r.name === 'torii');
+  const [cx0, cz0] = torii
+    ? torii.points[torii.points.length - 1]
+    : PATHS.routes[0].points[0];
+  const h0 = heightAt(cx0, cz0);
+  const RINGS = 10, SEGS = 72, R_MIN = 0.4;
+  const radii = new Float32Array(SEGS);
+
+  const slopeOf = (x, z) => {
+    if (typeof slopeAt === 'function') return slopeAt(x, z);
+    if (heightGrid && heightGrid.step) {
+      const e = heightGrid.step;
+      const dx = (heightAt(x + e, z) - heightAt(x - e, z)) / (2 * e);
+      const dz = (heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
+      return 1 - 1 / Math.sqrt(dx * dx + dz * dz + 1);
+    }
+    return 0;
+  };
+  const usable = (x, z) => heightAt(x, z) >= h0 - 0.25 && slopeOf(x, z) <= 0.45;
+
+  for (let s = 0; s < SEGS; s++) {
+    const a = (s / SEGS) * TAU;
+    let rr = 3.6 * (0.80 + 0.35 * fbm2(Math.cos(a) * 2.1 + 5.0, Math.sin(a) * 2.1, 2));
+    rr = Math.max(R_MIN, rr);
+    for (let guard = 0; guard < 24 && rr > R_MIN; guard++) {
+      if (usable(cx0 + Math.cos(a) * rr, cz0 + Math.sin(a) * rr)) break;
+      rr *= 0.85;
+    }
+    radii[s] = Math.max(R_MIN, rr);
+  }
+
+  const liftAt = (k) => 0.22 - 0.08 * (k / RINGS);
+  const pos = [], edge = [], edgeRaw = [], idx = [];
+  pos.push(cx0, h0 + liftAt(0), cz0);
+  edge.push(0); edgeRaw.push(0);
+  for (let k = 1; k <= RINGS; k++) {
+    const u = k / RINGS;
+    for (let s = 0; s < SEGS; s++) {
+      const a = (s / SEGS) * TAU;
+      const r = radii[s] * u;
+      const px = cx0 + Math.cos(a) * r, pz = cz0 + Math.sin(a) * r;
+      pos.push(px, heightAt(px, pz) + liftAt(k), pz);
+      edge.push(u); edgeRaw.push(u);
+    }
+  }
+  const id = (k, s) => 1 + (k - 1) * SEGS + ((s % SEGS + SEGS) % SEGS);
+  for (let s = 0; s < SEGS; s++) idx.push(0, id(1, s + 1), id(1, s));
+  for (let k = 1; k < RINGS; k++) {
+    for (let s = 0; s < SEGS; s++) {
+      const i0 = id(k, s), i1 = id(k, s + 1);
+      const o0 = id(k + 1, s), o1 = id(k + 1, s + 1);
+      idx.push(i0, i1, o0, i1, o1, o0);
+    }
+  }
+  const clearancePasses = clearRibbonTriangles(heightAt, heightGrid, pos, idx);
+  _terrace = { x: cx0, z: cz0, radii, segs: SEGS };
+  return { name: 'overlook', pos, edge, edgeRaw, idx, clearancePasses };
 }
 
 /* ── art direction ───────────────────────────────────────────────
@@ -1576,6 +1664,7 @@ export function createDetails({
     // La geometrie testee est EXACTEMENT celle rendue.
     const surfaces = computeRibbonMeshes(heightAt, heightGrid);
     surfaces.push(computeJunctionPad(heightAt, heightGrid));
+    surfaces.push(computeOverlookTerrace(heightAt, heightGrid, slopeAt));
     for (const surf of surfaces) {
       const col = [];
       for (let vi = 0; vi < surf.edgeRaw.length; vi++) {
@@ -1596,49 +1685,6 @@ export function createDetails({
       path.name = `path-${surf.name}`;
       path.receiveShadow = true;
       group.add(path);
-    }
-
-    // — the overlook terrace at the cliff rim: the torii climb's destination —
-    {
-      const SEG2 = 28;
-      const tp = [], tc = [], ti = [];
-      // Terrace centres on the END of the torii route (west rim).
-      const toriiRoute = _routes.find((r) => r.name === 'torii');
-      const [cx0, cz0] = toriiRoute
-        ? [toriiRoute.points[toriiRoute.points.length - 1][0],
-           toriiRoute.points[toriiRoute.points.length - 1][1]]
-        : [-88 * LAND_SCALE, 0];
-      const cy0 = heightAt(cx0, cz0);
-      const te = [];
-      tp.push(cx0, cy0 + 0.22, cz0);
-      tc.push(base.r * 1.05, base.g * 1.05, base.b * 1.05);
-      te.push(0);
-      for (let s2 = 0; s2 <= SEG2; s2++) {
-        const a2 = (s2 / SEG2) * Math.PI * 2;
-        const rr = 3.6 * (0.80 + 0.35 * fbm2(Math.cos(a2) * 2.1 + 5.0, Math.sin(a2) * 2.1, 2));
-        const px2 = cx0 + Math.cos(a2) * rr, pz2 = cz0 + Math.sin(a2) * rr;
-        tp.push(px2, heightAt(px2, pz2) + 0.14, pz2);
-        const v2 = 0.86 * (0.92 + 0.16 * fbm2(px2 * 0.21, pz2 * 0.21, 2));
-        tc.push(base.r * v2, base.g * v2, base.b * v2);
-        // Le pourtour porte aPathEdge = 1 : le shader effiloche et verdit le
-        // rebord de la terrasse comme un bord de sente — un disque net posé
-        // dans l'herbe lisait comme une dalle (« le chemin s'arrête net »).
-        te.push(1);
-        // Winding matches the ocean disc's proven fan (centre, next, current):
-        // faces point UP. The winding trap has bitten this repo four times.
-        if (s2 < SEG2) ti.push(0, s2 + 2, s2 + 1);
-      }
-      const terrGeo = new THREE.BufferGeometry();
-      terrGeo.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
-      terrGeo.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3));
-      terrGeo.setAttribute('aPathEdge', new THREE.Float32BufferAttribute(te, 1));
-      terrGeo.setIndex(ti);
-      terrGeo.computeVertexNormals();
-      disposables.push(terrGeo);
-      const terrace = new THREE.Mesh(terrGeo, pathMat);
-      terrace.name = 'overlook-terrace';
-      terrace.receiveShadow = true;
-      group.add(terrace);
     }
 
     // — a canine deity's hokora at the cliff side of the terrace —

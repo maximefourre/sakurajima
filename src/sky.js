@@ -71,8 +71,10 @@ export const SKY_TUNE = {
   // MUST stay comfortably larger than islandRadius: the shadow camera's near
   // plane is D_SUN - R_ISLAND - 80, and a fixed distance goes NEGATIVE (killing
   // every shadow) as soon as the island outgrows it. Hence derived, not fixed.
-  sunDistance: Math.round(125 * LAND_SCALE + 220),
-  islandRadius: 125 * LAND_SCALE, // must cover the land. Drives the ortho shadow camera.
+  // Fallback = même formule que shadowEnvelope() sans arg. Un oubli
+  // d'islandRadius ne doit plus produire un near négatif.
+  sunDistance: Math.round(1.30 * 125 * LAND_SCALE + 10 + 220),
+  islandRadius: 1.30 * 125 * LAND_SCALE + 10,
   // Note: at this footprint 4096 texels over 2×islandRadius ≈ 0.19 units/texel.
   shadowMapSize: 2048,   // overridden by quality.shadowMap
   shadowBias: -0.00018,  // tiny. normalBias does the real work — see notes below.
@@ -455,7 +457,13 @@ const HASH_GLSL = /* glsl */ `
    FACTORY
    ══════════════════════════════════════════════════════════════════════════════ */
 
-export function createSky({ scene, renderer, camera, quality = {}, season = 'spring' } = {}) {
+/** R / D d'ombre. Near = D − R − 80 reste 140. */
+export function shadowEnvelope(islandR) {
+  const R = islandR ?? (1.30 * 125 * LAND_SCALE + 10);
+  return { R, D: Math.round(R + 220) };
+}
+
+export function createSky({ scene, renderer, camera, quality = {}, season = 'spring', islandRadius = null } = {}) {
   const mode = season === 'autumn' ? 'autumn' : 'spring';
   const isAutumn = mode === 'autumn';
   const twilightGlow = isAutumn ? TWILIGHT_GLOW_AUTUMN : TWILIGHT_GLOW_SPRING;
@@ -916,8 +924,8 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
    *  instantly visible. A fixed box costs a little resolution and buys total
    *  temporal stability.
    *
-   *  Extent: ±125 covers WORLD.size 240 with margin. At quality.shadowMap 2048
-   *  that is 250/2048 = 0.122 world units per texel; at 4096, 0.061.
+   *  Extent: shadowEnvelope(island.radius * 1.30 + 10) — côte + rochers,
+   *  plus l'ancienne boîte ±125·L calée sur WORLD.size 240.
    *
    *  Near/far are wrapped tight around the island as seen from the light. Loose
    *  near/far is the #1 cause of acne, because `bias` is expressed in the shadow
@@ -939,8 +947,7 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
    *      back face to push the depth onto.
    */
   const shadowSize = quality.shadowMap || SKY_TUNE.shadowMapSize;
-  const R_ISLAND = SKY_TUNE.islandRadius;
-  const D_SUN = SKY_TUNE.sunDistance;
+  const { R: R_ISLAND, D: D_SUN } = shadowEnvelope(islandRadius);
   sunLight.shadow.mapSize.set(shadowSize, shadowSize);
   sunLight.shadow.camera.left = -R_ISLAND;
   sunLight.shadow.camera.right = R_ISLAND;

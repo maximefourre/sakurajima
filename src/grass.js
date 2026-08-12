@@ -173,8 +173,9 @@ const DEFAULTS = {
 	// Full coverage (player brief: no bare square metres). Clump mask only
 	// modulates density — never digs holes. bareThreshold is parked above the
 	// noise range so the bare-earth mask never fires (kept with bareFloor for
-	// memory). Only hard excludes leave grass-free ground: path, sand, ponds,
-	// rocks. Perceived density comes from COVERAGE far more than blade count.
+	// memory). Only hard excludes leave grass-free ground: sand, ponds,
+	// rocks. Paths use shortZone (short sparse blades), not a hard exclude.
+	// Perceived density comes from COVERAGE far more than blade count.
 	beachY: 1.6,
 	beachBlend: 1.5,
 	shoreWobble: 0.9,      // wiggle on the beach line so it is not a contour ring
@@ -233,9 +234,9 @@ const DEFAULTS = {
 	sunDirection: [ 0.4, 0.35, 0.85 ],
 
 	// --- LOD / culling -----------------------------------------------------------
-	// Distances stretched for the ×5 island: the old 135-unit fade end vanished
-	// the meadow from the postcard camera. chunkDivisions raised so frustum
-	// culling stays fine-grained over the much larger bounds.
+	// fadeEnd 330 : volontaire. L'ouverture postcard (~900 u) ne voit pas
+	// les brins — c'est de l'albedo. Allonger le fade coûte la géométrie
+	// (piège 10). Le plancher 0.55 se juge à la caméra suivie, sur la prairie.
 	chunkDivisions: 10,
 	lodDistance: 72,
 	lodHysteresis: 4,
@@ -751,7 +752,9 @@ export function createGrass( options = {} ) {
 		if ( CFG.shortZone && CFG.shortZone( x, z ) ) {
 			if ( rand() > 0.12 ) continue;
 			shortK = 0.45;
-			pathLiftY = 0.13;
+			pathLiftY = typeof CFG.pathLiftAt === 'function'
+				? CFG.pathLiftAt( x, z )
+				: 0.13;
 		}
 
 		// (3) height band: above the beach, below the rocky upland
