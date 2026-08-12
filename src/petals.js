@@ -562,17 +562,23 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
           vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
           vNormalW = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * normal));
 
-          // REMOUS : pres du shiba lance, les petales se soulevent et
-          // s'ecartent — un sillage de course dans le tapis. uPlayer.z est la
-          // vitesse normalisee : a l'arret, rien ne bouge.
-          float pd = distance(wp.xz, uPlayer.xy);
-          float stir = (1.0 - smoothstep(0.3, 2.8, pd)) * uPlayer.z;
-          if (stir > 0.001) {
-            float flut = 0.5 + 0.5 * sin(uTime * 8.0 + wp.x * 3.7 + wp.z * 2.9);
-            wp.y += stir * flut * 0.85;
-            vec2 away = wp.xz - uPlayer.xy;
+          // Coup de patte, pas une vague de tapis. L'ancien smoothstep 0.3–2.8
+          // + sin(x,z) commun soulevait tout le disque d'un seul geste.
+          // Centre d'instance (pas wp) : sinon le quad se tord, et phase
+          // par feuille (hash) : sinon elles restent en phase et ça lit
+          // comme une nappe.
+          vec2 leaf = instanceMatrix[3].xz;
+          float hid = fract(sin(dot(leaf, vec2(127.1, 311.7))) * 43758.5453);
+          float pd = distance(leaf, uPlayer.xy);
+          float near = 1.0 - smoothstep(0.18, 1.05, pd);
+          float kick = near * near * smoothstep(0.12, 0.62, uPlayer.z);
+          if (kick > 0.001) {
+            float flut = 0.5 + 0.5 * sin(uTime * mix(11.0, 20.0, hid) + hid * 6.28318);
+            wp.y += kick * flut * mix(0.06, 0.28, hid);
+            vec2 jitter = vec2(hid - 0.5, fract(hid * 7.13) - 0.5);
+            vec2 away = leaf - uPlayer.xy + jitter * 0.45;
             float al = max(length(away), 0.001);
-            wp.xz += (away / al) * stir * 0.55;
+            wp.xz += (away / al) * kick * mix(0.03, 0.14, hid);
           }
 
           // NOTE: must be named mvPosition -- the fog_vertex chunk reads it.
