@@ -62,6 +62,7 @@ import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
+import { createPetals, isPetalSand } from '../src/petals.js';
 import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
@@ -533,6 +534,38 @@ try {
   check('laisse de mer : houle n’ouvre pas le large, étang profond ouvert',
     deep && maxS > seaLevel + 0.5 && !crestOpens && pondOpen,
     `h=${h.toFixed(2)} maxS=${maxS.toFixed(2)} crestOpens=${crestOpens} pondOpen=${pondOpen}`);
+}
+
+/* ── tapis : pas de feuilles sur la plage (elles y flottaient) ─────────── */
+{
+  check('sable émergé : entre mer et prairie',
+    isPetalSand(0.5) && isPetalSand(1.4) && !isPetalSand(0) && !isPetalSand(4),
+    '0.5/1.4 oui, 0/4 non');
+  const probe = createPetals({
+    seed: SEED,
+    quality: { petals: 4, fallenPetals: 800 },
+    season: 'autumn',
+    canopies: [
+      { x: 40 * LAND_SCALE, y: 8, z: 70 * LAND_SCALE, radius: 14, dominant: 'red' },
+      { x: 0, y: 8, z: 0, radius: 10, dominant: 'yellow' },
+    ],
+    wind,
+    heightAt: island.heightAt,
+  });
+  let sandHits = 0;
+  const n = probe.carpetCount | 0;
+  const im = probe.carpet?.instanceMatrix;
+  if (im && n > 0) {
+    const e = im.array;
+    for (let i = 0; i < n; i++) {
+      const x = e[i * 16 + 12], z = e[i * 16 + 14];
+      if (isPetalSand(island.heightAt(x, z))) sandHits++;
+    }
+  }
+  probe.dispose();
+  check('tapis d’automne hors du sable',
+    n > 0 && sandHits === 0,
+    `${sandHits} sur sable / ${n} posées`);
 }
 
 /* ── 15. le budget d'ondes est partitionné ────────────────────────────────

@@ -2052,3 +2052,10 @@ de 3 subagents). Implémentation dans cette session, **sans Codex**.
 Vérifié : `node --check` sur les modules touchés ; `test/invariants.html`
 **low ET ultra : `INVARIANTS: 30 pass, 0 fail`**. Boot WebGL headless
 impossible ici (contexte GL refusé) — retest visuel à faire sur la machine.
+
+### Suite — feuilles sur la plage (même session)
+
+Le tapis d'automne (34 % dispersé sur toute la tuile + perch 0.25–0.70 calé
+sur l'herbe) jonchait le sable et **flottait**. `isPetalSand` refuse
+`seaLevel < h < beachTop+0.4` (1.6, comme `grass.beachY`). Invariants :
+`32 pass, 0 fail` en low.

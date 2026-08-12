@@ -75,6 +75,13 @@ const SAKURA_SHAPE_GLSL = /* glsl */ `
 const AUTUMN_CARPET_MULTIPLIER = 2.5;
 const AUTUMN_CARPET_DISPERSED_FRACTION = 0.34;
 const CARPET_CANOPY_SPREAD = 1.12;
+/** Même plafond que grass.beachY (1.6) : WORLD.beachTop + bande de dune. */
+const SAND_CEILING = WORLD.beachTop + 0.4;
+
+/** Sable émergé : trop haut pour la mer, trop bas pour l'herbe. */
+export function isPetalSand(h) {
+  return h > WORLD.seaLevel && h < SAND_CEILING;
+}
 
 /** One petal: a small quad, bent along its length so it is never perfectly flat. */
 function makePetalGeometry() {
@@ -746,6 +753,9 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
         // Uniform candidates span the full terrain tile; sea-level rejection
         // restricts that branch to the island while exclude handles pond water.
         if (dispersed && heightAt && h <= WORLD.seaLevel) continue;
+        // Plage : pas de tapis. Le perch 0.25–0.70 est calé sur l'herbe ;
+        // sur le sable nu ça flotte (constat écran 12/08).
+        if (isPetalSand(h)) continue;
         if (slopeAt && slopeAt(x, z) > 0.55) continue;
         accepted = true;
       }
