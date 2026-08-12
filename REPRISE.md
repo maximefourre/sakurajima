@@ -2059,3 +2059,12 @@ Le tapis d'automne (34 % dispersé sur toute la tuile + perch 0.25–0.70 calé
 sur l'herbe) jonchait le sable et **flottait**. `isPetalSand` refuse
 `seaLevel < h < beachTop+0.4` (1.6, comme `grass.beachY`). Invariants :
 `32 pass, 0 fail` en low.
+
+### Suite — surface d'étang, plus de lévitation, rochers solides
+
+- Tapis : `waterYAt` pose les feuilles **sur** le plan d'eau (plus le lit).
+- Perch 0.25–0.70 (haut d'herbe) abandonné : 0.02–0.08 au sol / 0.01–0.04
+  sur l'eau. L'herbe d'automne est trop filiforme, ça lisait en lévitation.
+- `island.hitsRock` + `shiba.blocked` : les gros blocs (r ≥ 0.85) arrêtent
+  le chien. Galets ignorés.
+Invariants low : `35 pass, 0 fail`.

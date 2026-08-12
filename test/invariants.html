@@ -568,6 +568,61 @@ try {
     `${sandHits} sur sable / ${n} posées`);
 }
 
+{
+  const pond = ponds.PONDS[0];
+  const onPond = createPetals({
+    seed: SEED,
+    quality: { petals: 4, fallenPetals: 700 },
+    season: 'autumn',
+    canopies: [{
+      x: pond.x, y: pond.waterY + 5, z: pond.z,
+      radius: pond.radius * 2.4, dominant: 'red',
+    }],
+    wind,
+    heightAt: island.heightAt,
+    waterYAt: (x, z) => ponds.pondWaterYAt(x, z),
+  });
+  let surface = 0, sunk = 0;
+  const pn = onPond.carpetCount | 0;
+  const pim = onPond.carpet?.instanceMatrix;
+  if (pim && pn > 0) {
+    const e = pim.array;
+    for (let i = 0; i < pn; i++) {
+      const x = e[i * 16 + 12], y = e[i * 16 + 13], z = e[i * 16 + 14];
+      const wy = ponds.pondWaterYAt(x, z);
+      if (wy === null) continue;
+      if (Math.abs(y - wy) <= 0.12) surface++;
+      else sunk++;
+    }
+  }
+  onPond.dispose();
+  check('tapis : feuilles à la surface de l’étang',
+    surface >= 3 && sunk === 0,
+    `surface=${surface} coulées=${sunk} / ${pn}`);
+}
+
+{
+  const big = (island.rockKeepOut || []).filter((r) => r.r >= 2);
+  const rk = big[0];
+  const hit = rk && island.hitsRock(rk.x, rk.z, 0);
+  const miss = rk && !island.hitsRock(rk.x + rk.r + 2.5, rk.z, 0);
+  check('hitsRock : gros bloc oui, à côté non',
+    !!rk && hit && miss,
+    rk ? `r=${rk.r.toFixed(2)} n=${big.length}` : 'aucun gros rocher');
+  const dog = createShiba({
+    seed: SEED,
+    heightAt: island.heightAt,
+    water: { surfaceAt: () => null },
+    blocked: (x, z) => island.hitsRock(x, z, 0.35),
+    body: null,
+  });
+  const blocked = rk ? !dog.passableAt(rk.x, rk.z, 0) : false;
+  dog.dispose();
+  check('chien refusé au centre d’un rocher',
+    !!rk && blocked,
+    rk ? `r=${rk.r.toFixed(2)}` : 'pas de rocher');
+}
+
 /* ── 15. le budget d'ondes est partitionné ────────────────────────────────
  * Verrou contractuel : le chien ne peut JAMAIS évincer une onde de koi. Avec
  * un ring buffer partagé il le ferait — les koi crèvent la surface ~1.3 fois/s

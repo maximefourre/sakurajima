@@ -205,6 +205,8 @@ export function createShiba({
   water = null,
   wind = null,
   particles = null,
+  /** (x, z) => true si un rocher bloque. Absent = pas de collision roche. */
+  blocked = null,
   /** Corps préconstruit, au contrat de buildBody() — le rig glTF de
    *  shiba-gltf.js. `null` construit le chien procédural, qui est le repli. */
   body = null,
@@ -338,6 +340,7 @@ export function createShiba({
 
   /** Can he move here? Water and dry ground each have one coherent rule. */
   function passable(x, z) {
+    if (typeof blocked === 'function' && blocked(x, z)) return false;
     const h = heightAt(x, z);
     const s = water.surfaceAt(x, z, nowT);
     if (s !== null) {

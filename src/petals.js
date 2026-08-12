@@ -100,7 +100,7 @@ function makePetalGeometry() {
   return g;
 }
 
-export function createPetals({ seed, quality, season = 'spring', canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null }) {
+export function createPetals({ seed, quality, season = 'spring', canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null, waterYAt = null }) {
   const mode = season === 'autumn' ? 'autumn' : 'spring';
   const autumn = mode === 'autumn';
   const COUNT = quality.petals;
@@ -749,14 +749,13 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
           z = c.z + Math.sin(a) * rr;
         }
         if (exclude && exclude(x, z)) continue;
-        h = heightAt ? heightAt(x, z) : 0;
-        // Uniform candidates span the full terrain tile; sea-level rejection
-        // restricts that branch to the island while exclude handles pond water.
-        if (dispersed && heightAt && h <= WORLD.seaLevel) continue;
-        // Plage : pas de tapis. Le perch 0.25–0.70 est calé sur l'herbe ;
-        // sur le sable nu ça flotte (constat écran 12/08).
-        if (isPetalSand(h)) continue;
-        if (slopeAt && slopeAt(x, z) > 0.55) continue;
+        const pondY = typeof waterYAt === 'function' ? waterYAt(x, z) : null;
+        h = pondY !== null ? pondY : (heightAt ? heightAt(x, z) : 0);
+        // Mer (dispersé) : pas de tapis. Les étangs passent par pondY.
+        if (dispersed && pondY === null && heightAt && h <= WORLD.seaLevel) continue;
+        // Plage : pas de tapis. Ne pas tester le lit d'étang (creusé).
+        if (pondY === null && isPetalSand(h)) continue;
+        if (pondY === null && slopeAt && slopeAt(x, z) > 0.55) continue;
         accepted = true;
       }
       if (!accepted) break;
@@ -772,11 +771,10 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
       const s = autumn
         ? R.skew(crng, 0.34, 0.62, 1.6)
         : R.skew(crng, 0.18, 0.40, 1.6) * (flower ? 1.4 : 1);
-      // Perchés sur le HAUT de l'herbe (~1.2 de haut) : à 0.06-0.42 ils
-      // lisaient « coincés DANS l'herbe » (consigne joueur). Sur la terre
-      // battue des chemins, herbe rase : posés au sol.
-      const perch = (onPath && onPath(x, z)) ? R.range(crng, 0.02, 0.10)
-                                             : R.range(crng, 0.25, 0.70);
+      // Au SOL / à la SURFACE, plus à hauteur d'herbe : l'herbe d'automne
+      // est trop clairsemée, le perch 0.25–0.70 lisait « en lévitation ».
+      const onWater = typeof waterYAt === 'function' && waterYAt(x, z) !== null;
+      const perch = onWater ? R.range(crng, 0.01, 0.04) : R.range(crng, 0.02, 0.08);
       // The source petal quad is taller than it is wide. Widen autumn only so
       // the five maple lobes retain their recognisable fan on the ground.
       _m.compose(_p.set(x, h + perch, z), _q, _s.set(autumn ? s * 1.28 : s, s, s));

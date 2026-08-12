@@ -522,9 +522,14 @@ async function boot() {
     slopeAt: world.slopeAt,
     // Eau seulement : les pétales tombés ONT leur place sur la terre battue
     // (c'est là qu'on court dedans — consigne joueur).
-    exclude: (x, z) => world.inWater(x, z),
-    // Sur les chemins l'herbe est rase : le tapis s'y pose au sol, pas perché
-    // à hauteur d'herbe de prairie.
+    // Mer et intérieur de rocher : pas de tapis. Les étangs SONT voulus
+    // (feuille à la surface) — waterYAt pose sur le plan d'eau, pas le lit.
+    exclude: (x, z) => {
+      if (world.island.hitsRock(x, z, 0)) return true;
+      if (world.ponds.pondWaterYAt(x, z) !== null) return false;
+      return world.heightAt(x, z) < world.island.seaLevel;
+    },
+    waterYAt: (x, z) => world.ponds.pondWaterYAt(x, z),
     onPath: (x, z) => isOnPath(x, z, 0.5),
   });
   scene.add(world.petals.mesh);
@@ -639,6 +644,7 @@ async function boot() {
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     water,
+    blocked: (x, z) => world.island.hitsRock(x, z, 0.35),
     particles: world.particles,
     wind: world.wind,
   });
