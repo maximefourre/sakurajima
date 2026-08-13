@@ -52,7 +52,7 @@ window.addEventListener('unhandledrejection', e => {
   finish();
 });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, STONES, HERONS, DRAGONFLIES } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
@@ -67,8 +67,10 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
-import { computeShorePineSite, placeRock } from '../src/poi.js';
+import { computeShorePineSite, placeRock, computeSteppingStones, stoneYAt } from '../src/poi.js';
 import { computeCrabSpawns } from '../src/crabs.js';
+import { computeHeronSpawns } from '../src/herons.js';
+import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -401,6 +403,122 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   }
   check('crabes : laisse sèche, hors étangs', ok,
     ok ? `${spawns.length}/${want} crabes, bande [${CRABS.strandLo}, ${CRABS.strandHi.toFixed(2)}]`
+      : detail);
+}
+
+/* ── étangs le jour (lot 2) : pures seulement ─────────────────────────── */
+{
+  const pond = ponds.PONDS[0];
+  const slabs = computeSteppingStones({
+    pond,
+    pondWaterYAt: ponds.pondWaterYAt,
+    heightAt: island.heightAt,
+    seed: SEED,
+  });
+  const koiR = STONES.koiClear * pond.radius;
+  let ok = slabs.length >= STONES.countMin && slabs.length <= STONES.countMax;
+  let detail = ok ? '' : `compte ${slabs.length} hors [${STONES.countMin}, ${STONES.countMax}]`;
+  let worstFaith = 0;
+  for (let i = 0; i < slabs.length; i++) {
+    const s = slabs[i];
+    const wy = ponds.pondWaterYAt(s.x, s.z);
+    const r = Math.hypot(s.x - pond.x, s.z - pond.z);
+    const yAt = stoneYAt(s.x, s.z, slabs);
+    const faith = Math.abs(yAt - s.y);
+    const lift = wy == null ? Infinity : Math.abs(s.y - (wy + STONES.lift));
+    worstFaith = Math.max(worstFaith, faith, Number.isFinite(lift) ? lift : 0);
+    if (wy == null || r < koiR || faith > 0.08 || lift > 0.08) {
+      ok = false;
+      detail = `dalle@(${s.x.toFixed(1)},${s.z.toFixed(1)}) wy=${wy} r=${r.toFixed(2)} `
+        + `koiR=${koiR.toFixed(2)} faith=${faith.toFixed(3)} lift=${lift.toFixed(3)}`;
+      break;
+    }
+    if (i > 0) {
+      const p = slabs[i - 1];
+      const gap = Math.hypot(s.x - p.x, s.z - p.z) - s.r - p.r;
+      if (gap > STONES.maxGap + 1e-3) {
+        ok = false;
+        detail = `écart ${gap.toFixed(2)} > ${STONES.maxGap} entre ${i - 1} et ${i}`;
+        break;
+      }
+    }
+  }
+  check('pas japonais : grand étang, hors koi, stoneYAt fidèle', ok,
+    ok ? `${slabs.length} dalles, foi max ${worstFaith.toFixed(3)} u`
+      : detail);
+}
+
+{
+  const want = QUALITY[TIER].herons;
+  const spawns = computeHeronSpawns({
+    seed: SEED,
+    heightAt: island.heightAt,
+    ponds: ponds.PONDS,
+    isInPond: ponds.isInPond,
+    count: want,
+    pondWaterYAt: ponds.pondWaterYAt,
+  });
+  let ok = spawns.length === want;
+  let detail = ok ? '' : `compte ${spawns.length} au lieu de ${want}`;
+  for (const s of spawns) {
+    const wet = ponds.isInPond(s.x, s.z);
+    const i = ponds.PONDS.reduce((b, p, k) => {
+      const d = Math.hypot(s.x - p.x, s.z - p.z);
+      return d < b.d ? { d, k } : b;
+    }, { d: Infinity, k: -1 }).k;
+    const p = ponds.PONDS[i];
+    const r = Math.hypot(s.x - p.x, s.z - p.z);
+    const wy = ponds.pondWaterYAt(s.x, s.z);
+    const depth = (wy ?? p.waterY) - island.heightAt(s.x, s.z);
+    if (!wet || r < HERONS.koiClear * p.radius
+        || depth < HERONS.shallowMin || depth > HERONS.shallowMax) {
+      ok = false;
+      detail = `héron@(${s.x.toFixed(1)},${s.z.toFixed(1)}) inPond=${wet} `
+        + `r=${r.toFixed(2)} depth=${depth.toFixed(2)}`;
+      break;
+    }
+  }
+  check('hérons : pattes dans les bas-fonds, hors koi', ok,
+    ok ? `${spawns.length}/${want} hérons, profondeur [${HERONS.shallowMin}, ${HERONS.shallowMax}]`
+      : detail);
+}
+
+{
+  const want = QUALITY[TIER].dragonflies;
+  const spots = computeDragonflySpots({
+    ponds: ponds.PONDS,
+    heightAt: island.heightAt,
+    isInPond: ponds.isInPond,
+    count: want,
+    seed: SEED,
+  });
+  let ok = spots.length > 0;
+  let detail = ok ? '' : 'aucune libellule';
+  let worst = 0;
+  for (const s of spots) {
+    const p = ponds.PONDS[s.pond];
+    if (!p) { ok = false; detail = `pond ${s.pond} hors bornes`; break; }
+    const r = Math.hypot(s.x - p.x, s.z - p.z);
+    const ratio = r / (p.radius * DRAGONFLIES.habitatK);
+    worst = Math.max(worst, ratio);
+    const clear = s.y - p.waterY;
+    if (ratio > 1 + 1e-6
+        || clear < DRAGONFLIES.minHeight - 1e-3
+        || clear > DRAGONFLIES.maxHeight + 1e-3) {
+      ok = false;
+      detail = `libellule@(${s.x.toFixed(1)},${s.z.toFixed(1)}) ratio=${ratio.toFixed(2)} `
+        + `garde=${clear.toFixed(2)}`;
+      break;
+    }
+  }
+  const noon = dragonflyActivity({ night: 0, day: 1 });
+  const night = dragonflyActivity({ night: 1, day: 0 });
+  if (!(noon > 0 && night === 0)) {
+    ok = false;
+    detail = `activité midi=${noon} nuit=${night}`;
+  }
+  check('libellules : habitat bassin, actives le jour', ok,
+    ok ? `${spots.length} libellules, pire rayon ${(worst * 100).toFixed(0)} % de l’habitat`
       : detail);
 }
 

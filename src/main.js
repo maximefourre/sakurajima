@@ -29,6 +29,8 @@ import { createShiba } from './shiba.js';
 import { loadShibaBody } from './shiba-gltf.js';
 import { createPOI } from './poi.js';
 import { createCrabs } from './crabs.js';
+import { createHerons } from './herons.js';
+import { createDragonflies } from './dragonflies.js';
 import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
@@ -56,7 +58,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 14;
+const LOAD_STEPS = 15;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -167,7 +169,7 @@ const world = {
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
-  poi: null, crabs: null,
+  poi: null, crabs: null, herons: null, dragonflies: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -438,10 +440,12 @@ async function boot() {
   // pathSurfaceLiftAt est le bombé pur du ruban : le dégagement anti-perforation
   // appartient aux triangles et ne se rejoue pas par requête ponctuelle. Son
   // écart à la surface visible est borné par un invariant (≤ 0.25, mesuré 0.098).
-  // stoneYAt s'y compose même si createPOI n'a pas encore tourné.
-  world.groundAt = (x, z) => world.heightAt(x, z)
-    + pathSurfaceLiftAt(world.heightAt, x, z)
-    + (world.poi ? world.poi.stoneYAt(x, z) : 0);
+  // stoneYAt returns the slab top (or 0). Added-as-lift would fly the dog.
+  world.groundAt = (x, z) => {
+    const base = world.heightAt(x, z) + pathSurfaceLiftAt(world.heightAt, x, z);
+    const stone = world.poi ? world.poi.stoneYAt(x, z) : 0;
+    return stone !== 0 ? stone : base;
+  };
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });
@@ -459,6 +463,8 @@ async function boot() {
     isInPond: world.inWater,
     slopeAt: world.slopeAt,
     season: world.season,
+    pondWaterYAt: (x, z) => world.ponds.pondWaterYAt(x, z),
+    ponds: world.ponds.PONDS,
   });
   scene.add(world.poi.group);
   world.crabs = createCrabs({
@@ -467,6 +473,23 @@ async function boot() {
     isInPond: world.inWater,
   });
   scene.add(world.crabs.mesh);
+
+  await step('étangs jour');
+  world.herons = createHerons({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    ponds: world.ponds.PONDS,
+    isInPond: world.inWater,
+    pondWaterYAt: (x, z) => world.ponds.pondWaterYAt(x, z),
+  });
+  scene.add(world.herons.group);
+  world.dragonflies = createDragonflies({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    ponds: world.ponds.PONDS,
+    isInPond: world.inWater,
+  });
+  scene.add(world.dragonflies.mesh);
 
   await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
   const foliageDensity = world.season === 'autumn'
@@ -517,7 +540,8 @@ async function boot() {
     // carved into the heightfield, so their beds pass every test grass does
     // apply. La sente n'est PLUS une exclusion dure : shortZone y garde une
     // herbe rase et clairsemée entre les passages (consigne joueur).
-    exclude: (x, z) => world.inWater(x, z),
+    exclude: (x, z) => world.inWater(x, z)
+      || (world.poi && world.poi.stoneYAt(x, z) !== 0),
     shortZone: (x, z) => isOnPath(x, z, 0.25),
     pathLiftAt: (x, z) => pathSurfaceLiftAt(world.heightAt, x, z),
     wind: world.wind,
@@ -821,6 +845,8 @@ function frame() {
   const dog = world.shiba;
   const dogX = dog.position.x, dogZ = dog.position.z;
   world.crabs?.update(t, dogX, dogZ);
+  world.herons?.update(t, dt, dogX, dogZ);
+  world.dragonflies?.update(t, phase);
   const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
     && world.heightAt(dogX, dogZ) < world.island.seaLevel;
   if (inSea) {
@@ -837,6 +863,7 @@ function frame() {
   }
 
   world.birds.setRepeller?.(world.shiba.position);
+  world.herons?.setRepeller?.(world.shiba.position);
   // Meme repulseur, rayon dix fois plus court (4 u contre 26) : on approche un
   // papillon de tres pres avant qu'il ne parte, et un papillon qui decolle a
   // 26 u lit comme un oiseau.
