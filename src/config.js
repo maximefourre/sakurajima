@@ -147,6 +147,8 @@ export const QUALITY = {
     butterflies: Math.round(5 * AREA_SOFT),
     crabs: 10,             // laisse locale — pas AREA_SOFT
     moths: 0.5,            // mites par lanterne (1 toutes les deux)
+    herons: 1,             // échassiers — N petit, pas AREA_SOFT
+    dragonflies: Math.round(1.413936700 * AREA_SOFT), // ≈ 8
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -165,6 +167,8 @@ export const QUALITY = {
     butterflies: Math.round(12 * AREA_SOFT),
     crabs: 18,
     moths: 1,              // une mite par lanterne
+    herons: 2,
+    dragonflies: Math.round(3.181357575 * AREA_SOFT), // ≈ 18
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -185,6 +189,8 @@ export const QUALITY = {
     butterflies: Math.round(24 * AREA_SOFT),
     crabs: 28,
     moths: 2,              // halo vivant autour de chaque cage à feu
+    herons: 3,
+    dragonflies: Math.round(5.655746800 * AREA_SOFT), // ≈ 32
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -519,4 +525,54 @@ export const MOTHS = Object.freeze({
   overdrive: 1.40,
   brightness: [0.45, 1.0],
   flickerRate: [1.8, 3.6],
+});
+
+/**
+ * Pas japonais — grand étang seulement (PONDS[0], déjà LAND_SCALEd).
+ * N petit, dalles en unités monde. Ne pas remultiplier par LAND_SCALE.
+ */
+export const STONES = Object.freeze({
+  countMin: 5,
+  countMax: 7,
+  count: 6,
+  lift: 0.04,              // dessus = pondWaterYAt + lift
+  koiClear: 0.35,          // hors disque central des koi
+  maxGap: 1.1,             // écart bord-à-bord, le shiba peut poser
+  radius: [0.42, 0.56],
+  thickness: 0.11,
+  heading: 0.45,           // azimut de recherche initial
+  zigzag: 0.14,
+});
+
+/**
+ * Hérons / aigrettes. N = QUALITY.herons (1 / 2 / 3). Pas AREA_SOFT.
+ * Pattes dans les bas-fonds, hors le disque koi ; envol si shiba < flushRadius.
+ */
+export const HERONS = Object.freeze({
+  flushRadius: 14,
+  flySpeed: 7.2,
+  cruiseY: [2.4, 4.2],
+  shallowMin: 0.06,
+  shallowMax: 0.48,
+  koiClear: 0.35,
+  minSep: 4.2,
+  peckSeconds: [0.55, 0.85],
+  idleSeconds: [1.8, 5.5],
+  size: [0.92, 1.12],
+});
+
+/**
+ * Libellules — nappe GPU au-dessus des bassins, patron lucioles.
+ * Actives le jour (`1 - phase.night`). Budget AREA_SOFT petit (≈ 8 / 18 / 32).
+ */
+export const DRAGONFLIES = Object.freeze({
+  habitatK: 0.88,          // fraction du rayon mesuré — sur l'eau, pas la prairie
+  minHeight: 0.3,          // au-dessus de waterY
+  maxHeight: 1.4,
+  driftRadius: [0.18, 0.70],
+  driftRate:   [0.85, 1.85],
+  driftLift:   0.22,
+  size: [0.20, 0.32],
+  color: 0x2ec4a0,
+  wingColor: 0xa8ffe6,
 });

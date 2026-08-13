@@ -2104,6 +2104,33 @@ Lots 2–8 non ouverts (`stoneYAt` retourne 0).
 
 ---
 
+## Session « lot 2 — étangs le jour » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md`.
+
+### Livré
+
+- `src/herons.js` : 1 géométrie (aigrette), N = 1 / 2 / 3. Spawn en bas-fonds
+  (`isInPond`, profondeur 0.06–0.48, hors disque koi 0.35·R). Idle, coup de
+  bec, envol si shiba `< 14 u` (`setRepeller` + args update).
+- `src/dragonflies.js` : nappe GPU (patron lucioles), actives le jour
+  (`dragonflyActivity = 1 - phase.night`). Habitat = disque d'eau, y =
+  waterY + [0.3, 1.4]. Budgets AREA_SOFT ≈ 8 / 18 / 32.
+- `src/poi.js` : pas japonais sur `PONDS[0]` seulement. 5–7 dalles, écart
+  ≤ 1.1 u, y = `pondWaterYAt + 0.04`, hors centre koi. `stoneYAt` rend le
+  dessus de dalle (0 hors pierre). **Pas dans `hitsSolid`** — le chien marche
+  dessus. `groundAt` prend la dalle quand `stoneYAt !== 0`.
+- `config.js` : `QUALITY.herons` / `QUALITY.dragonflies`, tables `HERONS`,
+  `DRAGONFLIES`, `STONES`.
+- `main.js` : étape `'étangs jour'` après `'côte'`. Herbe `exclude` : eau
+  **ou** dalle.
+
+### Vérification
+
+- Banc isolé : **41 pass, 0 fail** (6 dalles, 1/3 hérons, 8/32 libellules).
+
+---
+
 ## Session « lot 3 — signes sacrés » du 13/08
 
 Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md`.

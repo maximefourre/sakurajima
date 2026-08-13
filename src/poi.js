@@ -1,6 +1,7 @@
 /**
  * poi.js — authored landmarks.
  * Lot 1: kuromatsu + sitting rock past the beach-path terminus.
+ * Lot 2: stepping stones on the big pond (stoneYAt).
  * Lot 3: jizō at the junction, tsukubai on the big-pond bank, iwakura
  *        (shimenawa + shide) on the largest ridge-reef block.
  *
@@ -11,8 +12,8 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PATHS, WORLD, POI, SEED } from './config.js';
-import { streamFor, fbm2 } from './noise.js';
+import { PATHS, WORLD, POI, STONES, SEED } from './config.js';
+import { streamFor, fbm2, R } from './noise.js';
 import { springReefSite } from './island.js';
 
 const BARK = 0x2a241c;
@@ -28,8 +29,20 @@ const STONE_LICHEN = 0xc8c2a2;
 // module to the 2 k-line path/flower file for one constant.
 const PATH_HALF = PATHS.width * 0.5 * 1.28;
 
-/** Lot 2 (stepping stones) fills this in. Movers stay on heightAt + path. */
-export function stoneYAt(_x, _z) {
+/** Last slabs bound by createPOI. Tests pass an explicit list as the 3rd arg. */
+let _slabs = [];
+
+/**
+ * Slab-top Y if (x,z) is on a stone disc, else 0.
+ * Optional `slabs` keeps the query pure for the banc.
+ */
+export function stoneYAt(x, z, slabs = _slabs) {
+  if (!slabs || !slabs.length) return 0;
+  for (let i = 0; i < slabs.length; i++) {
+    const s = slabs[i];
+    const dx = x - s.x, dz = z - s.z;
+    if (dx * dx + dz * dz <= s.r * s.r) return s.y;
+  }
   return 0;
 }
 
@@ -556,8 +569,219 @@ export function makeIwakuraGeometry(site = {}) {
   return merged;
 }
 
+function countForSpan(span) {
+  const lo = STONES.radius[0] * 2 + 0.35;
+  const hi = STONES.radius[1] * 2 + STONES.maxGap;
+  let bestN = STONES.count, bestErr = Infinity;
+  for (let n = STONES.countMin; n <= STONES.countMax; n++) {
+    const c2c = span / Math.max(n - 1, 1);
+    if (c2c < lo * 0.92 || c2c > hi) continue;
+    const err = Math.abs(n - STONES.count);
+    if (err < bestErr) { bestErr = err; bestN = n; }
+  }
+  return bestN;
+}
+
+/**
+ * 5–7 tobi-ishi across a sliver of PONDS[0], bank to bank, outside the
+ * koi disc. Pure: no mesh, no module state. Y = pondWaterYAt + lift.
+ */
+export function computeSteppingStones({
+  pond, pondWaterYAt, heightAt, seed = SEED,
+} = {}) {
+  const out = [];
+  if (!pond || typeof pondWaterYAt !== 'function') return out;
+  void heightAt;
+
+  const rng = streamFor(seed, 'poi.stones');
+  const koiR = STONES.koiClear * pond.radius;
+  const STEP = 0.28;
+  const scan = pond.radius * 1.25;
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (let hi = 0; hi < 28; hi++) {
+    const ang = STONES.heading + (hi * 0.5) * ((hi & 1) ? 1 : -1) * (Math.PI / 14);
+    const tx = Math.cos(ang), tz = Math.sin(ang);
+    const nx = -tz, nz = tx;
+    for (let ok = 0; ok < 8; ok++) {
+      const offK = 0.52 + ok * 0.055;
+      const offset = offK * pond.radius;
+      if (offset < koiR + 0.2) continue;
+      const ox = pond.x + nx * offset;
+      const oz = pond.z + nz * offset;
+      const samples = [];
+      for (let t = -scan; t <= scan + 1e-6; t += STEP) {
+        const x = ox + tx * t, z = oz + tz * t;
+        const rp = Math.hypot(x - pond.x, z - pond.z);
+        const wy = pondWaterYAt(x, z);
+        samples.push({
+          x, z, t, wy,
+          ok: wy != null && rp >= koiR && rp <= pond.radius * 1.08,
+        });
+      }
+      let run0 = -1;
+      const flushRun = (a, b) => {
+        if (a < 0 || b - a < 2) return;
+        const t0 = samples[a].t, t1 = samples[b].t;
+        const span = t1 - t0;
+        const n = countForSpan(span);
+        const c2c = span / Math.max(n - 1, 1);
+        const maxC2c = STONES.radius[1] * 2 + STONES.maxGap;
+        const minC2c = STONES.radius[0] * 2 * 0.85;
+        if (c2c > maxC2c || c2c < minC2c) return;
+        const before = samples[Math.max(0, a - 1)];
+        const after = samples[Math.min(samples.length - 1, b + 1)];
+        const banks = (before && !before.ok ? 1 : 0) + (after && !after.ok ? 1 : 0);
+        const score = banks * 8 - Math.abs(n - STONES.count) * 0.6 - Math.abs(span - 8) * 0.15;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { samples, a, b, n, tx, tz, nx, nz, ang };
+        }
+      };
+      for (let i = 0; i < samples.length; i++) {
+        if (samples[i].ok) {
+          if (run0 < 0) run0 = i;
+        } else {
+          flushRun(run0, i - 1);
+          run0 = -1;
+        }
+      }
+      flushRun(run0, samples.length - 1);
+    }
+  }
+
+  if (!best) {
+    // Last resort: short chord just inside the waterline, outside the koi disc.
+    const n = STONES.count;
+    const gap = 0.55;
+    const radii = [];
+    let span = 0;
+    for (let i = 0; i < n; i++) {
+      radii.push(0.5 * (STONES.radius[0] + STONES.radius[1]));
+      if (i) span += radii[i - 1] + radii[i] + gap;
+    }
+    const half = span * 0.5;
+    if (half < pond.radius * 0.98) {
+      const offset = Math.sqrt(Math.max(0, pond.radius * pond.radius - half * half)) * 0.97;
+      if (offset >= koiR + 0.15) {
+        const ang = STONES.heading;
+        const hx = Math.cos(ang), hz = Math.sin(ang);
+        const nx = -hz, nz = hx;
+        const cx = pond.x + nx * offset, cz = pond.z + nz * offset;
+        for (let i = 0; i < n; i++) {
+          const t = (i / (n - 1) - 0.5) * span;
+          let x = cx + hx * t, z = cz + hz * t;
+          let wy = pondWaterYAt(x, z);
+          for (let s = 0; s < 12 && wy == null; s++) {
+            x += (pond.x - x) * 0.08;
+            z += (pond.z - z) * 0.08;
+            wy = pondWaterYAt(x, z);
+          }
+          const rp = Math.hypot(x - pond.x, z - pond.z);
+          if (wy == null || rp < koiR) continue;
+          out.push({
+            x, z, y: wy + STONES.lift, r: radii[i],
+            yaw: ang + R.range(rng, -0.3, 0.3),
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  const { samples, a, b, n, nx, nz, ang } = best;
+  const t0 = samples[a].t, t1 = samples[b].t;
+  for (let i = 0; i < n; i++) {
+    const u = n === 1 ? 0.5 : i / (n - 1);
+    const t = t0 + (t1 - t0) * u;
+    const zig = (i % 2 === 0 ? 1 : -1) * STONES.zigzag * (i === 0 || i === n - 1 ? 0.25 : 1);
+    const mid = samples[(a + b) >> 1];
+    const hx = Math.cos(ang), hz = Math.sin(ang);
+    let x = mid.x + hx * (t - mid.t) + nx * zig;
+    let z = mid.z + hz * (t - mid.t) + nz * zig;
+    let wy = pondWaterYAt(x, z);
+    for (let s = 0; s < 10 && wy == null; s++) {
+      x += (pond.x - x) * 0.08;
+      z += (pond.z - z) * 0.08;
+      wy = pondWaterYAt(x, z);
+    }
+    const rp = Math.hypot(x - pond.x, z - pond.z);
+    if (wy == null || rp < koiR) continue;
+    out.push({
+      x, z,
+      y: wy + STONES.lift,
+      r: R.range(rng, STONES.radius[0], STONES.radius[1]),
+      yaw: ang + R.range(rng, -0.45, 0.45),
+    });
+  }
+
+  // Drop a stone that would open a gap the dog cannot step.
+  if (out.length >= STONES.countMin) {
+    const kept = [out[0]];
+    for (let i = 1; i < out.length; i++) {
+      const prev = kept[kept.length - 1];
+      const d = Math.hypot(out[i].x - prev.x, out[i].z - prev.z);
+      const gap = d - out[i].r - prev.r;
+      if (gap > STONES.maxGap && kept.length + (out.length - i) > STONES.countMin) {
+        // skip this one only if we can still reach the minimum
+        continue;
+      }
+      kept.push(out[i]);
+    }
+    if (kept.length >= STONES.countMin && kept.length <= STONES.countMax) {
+      out.length = 0;
+      for (let i = 0; i < kept.length; i++) out.push(kept[i]);
+    }
+  }
+
+  return out;
+}
+
+/** Flat pebble, top at local y = 0 so the instance Y is the walkable top. */
+export function makeSteppingStoneGeometry(seed = SEED) {
+  const rng = streamFor(seed, 'poi.step-stone');
+  const g = new THREE.IcosahedronGeometry(1, 2);
+  const pos = g.attributes.position;
+  const ox = rng() * 20, oz = rng() * 20;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const n = fbm2(x * 2.4 + ox, z * 2.4 + oz, 3);
+    const r = 1 + 0.14 * n;
+    let vx = x * r, vy = y * r * 0.22, vz = z * r * 0.86;
+    if (vy > 0.02) vy = 0.02 + (vy - 0.02) * 0.05;
+    if (vy < -STONES.thickness) vy = -STONES.thickness;
+    pos.setXYZ(i, vx, vy, vz);
+  }
+  let yMax = -Infinity;
+  for (let i = 0; i < pos.count; i++) yMax = Math.max(yMax, pos.getY(i));
+  for (let i = 0; i < pos.count; i++) {
+    pos.setXYZ(i, pos.getX(i), pos.getY(i) - yMax, pos.getZ(i));
+  }
+  pos.needsUpdate = true;
+
+  const cols = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  const moss = new THREE.Color(STONE_MOSS);
+  const base = new THREE.Color(STONE);
+  for (let i = 0; i < pos.count; i++) {
+    const grain = 0.86 + 0.20 * fbm2(pos.getX(i) * 5.1, pos.getZ(i) * 5.1 + 2.2, 3);
+    c.copy(base).multiplyScalar(grain);
+    c.lerp(moss, Math.max(0, -pos.getY(i) / STONES.thickness) * 0.25);
+    cols[i * 3] = c.r;
+    cols[i * 3 + 1] = c.g;
+    cols[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
+}
+
 export function createPOI({
   seed = SEED, heightAt, isOnPath, isInPond, slopeAt, season = 'spring',
+  pondWaterYAt, ponds,
 } = {}) {
   void slopeAt;
   void season;
@@ -576,6 +800,13 @@ export function createPOI({
     ? computeTsukubaiSite({ heightAt, isOnPath, isInPond })
     : null;
   const iwakura = computeIwakuraSite();
+
+  const pondList = Array.isArray(ponds) ? ponds : (ponds?.PONDS ?? []);
+  const big = pondList[0] || null;
+  const stones = big && typeof pondWaterYAt === 'function'
+    ? computeSteppingStones({ pond: big, pondWaterYAt, heightAt, seed })
+    : [];
+  _slabs = stones;
 
   const solids = [];
   if (pine) solids.push({ x: pine.x, z: pine.z, r: POI.pineTrunkR });
@@ -666,6 +897,33 @@ export function createPOI({
     group.add(mesh);
   }
 
+  if (stones.length) {
+    const geo = makeSteppingStoneGeometry(seed);
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.96, metalness: 0, flatShading: true,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, stones.length);
+    mesh.name = 'stepping-stones';
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    const _m = new THREE.Matrix4();
+    const _q = new THREE.Quaternion();
+    const _e = new THREE.Euler();
+    const _p = new THREE.Vector3();
+    const _s = new THREE.Vector3();
+    for (let i = 0; i < stones.length; i++) {
+      const s = stones[i];
+      _e.set(0, s.yaw, 0);
+      _q.setFromEuler(_e);
+      _p.set(s.x, s.y, s.z);
+      _s.set(s.r, 1, s.r);
+      _m.compose(_p, _q, _s);
+      mesh.setMatrixAt(i, _m);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+
   function hitsSolid(x, z, pad = 0) {
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
@@ -687,11 +945,16 @@ export function createPOI({
     group.removeFromParent();
   }
 
+  function onStone(x, z) {
+    return stoneYAt(x, z, stones) !== 0;
+  }
+
   return {
     group,
-    stoneYAt,
+    stoneYAt: (x, z) => stoneYAt(x, z, stones),
+    onStone,
     hitsSolid,
-    sites: { pine, rock, jizo, tsukubai, iwakura },
+    sites: { pine, rock, jizo, tsukubai, iwakura, stones },
     dispose,
   };
 }
