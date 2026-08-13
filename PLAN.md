@@ -39,7 +39,8 @@ N imprimé), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`
 | `src/grass.js` | ✅ | Herbe instanciée. Hook `exclude` ajouté pour la garder hors de l'eau. |
 | `src/sky.js` | ✅ | Cycle jour/nuit. Le gain du dôme est keyframé, pas constant. |
 | `src/ponds.js` | ✅ | Étangs, carpes koi, nénuphars. (La rivière et le pont ont été SUPPRIMÉS le 29/07 sur décision utilisateur — ne pas réintroduire.) |
-| `src/details.js` | ✅ | Fleurs sauvages, réseau de 3 routes (`PATHS`), torii, lanternes générées le long des routes, galets. Exporte `isOnPath`/`initPath`. |
+| `src/details.js` | ✅ | Fleurs sauvages, réseau de 4 routes (`PATHS`), torii, lanternes générées le long des routes, galets. Exporte `isOnPath`/`initPath`. |
+| `src/bamboo.js` | ✅ | Bosquet instancié à l'est (lot 8), vent partagé. |
 | `src/detailtex.js` | ✅ | Bump maps générées (grain sol/roche, veinage bois), zéro texture externe. |
 | `src/season.js` | ✅ | Résolveur pur de saison : URL → localStorage → `spring`. |
 | `src/seasonal-foliage.js` | ✅ | Profils de feuillage partagés sakura/momiji (silhouette, dominantes, palettes) pour couronnes, feuilles en vol et tapis. |

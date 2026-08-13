@@ -53,8 +53,9 @@ island.js   — heightfield analytique → grille bakée → mesh terrain + océ
 ponds.js    — 3 étangs à koi (seul carve composé dans le heightfield)
 grass.js    — brins instanciés, LOD par chunks, plancher 0.55 là où il y a des brins
 sakura.js   — 5 archétypes sakura/momiji, feuillage instancié (saison au boot)
-details.js  — fleurs sauvages, RÉSEAU DE CHEMINS (3 routes) + TORII + LANTERNES
+details.js  — fleurs sauvages, RÉSEAU DE CHEMINS (4 routes) + TORII + LANTERNES
               générées le long des routes, galets (exporte isOnPath, initPath)
+bamboo.js   — bosquet instancié à l'est (fût + feuillage, vent partagé)
 detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
@@ -101,10 +102,11 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   le pointeur est grossier — un téléphone ne survit pas au bake ultra) ; le
   bouton persiste et recharge. Il n'existe PLUS de rebuild à chaud ni de câblage dupliqué —
   chaque système se dimensionne à la construction, un point c'est tout.
-- **Réseau de chemins = `PATHS`** (`config.js`) : 3 routes depuis un carrefour
+- **Réseau de chemins = `PATHS`** (`config.js`) : 4 routes depuis un carrefour
   en lisière de prairie — 'torii' (grimpe à la terrasse de la falaise ouest,
   rim rehaussé à 12.5·H pour un vrai dénivelé), 'etangs' (boucle fermée,
-  premier point = dernier), 'plage'. `details.js` : un ruban par route,
+  premier point = dernier), 'plage', 'bambous' (est, bosse (56,-10)·L).
+  `details.js` : un ruban par route,
   `isOnPath(x, z, extra)` sur TOUTES les routes (demi-largeur = `PATH_HALF`,
   le max après remap fbm), lanternes GÉNÉRÉES le
   long des routes (quinconce, sautées si pente > 0.9 ou sol trop bas — AUCUNE
@@ -177,7 +179,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    disjoints, plus celui des lucioles, les trois signes sacrés, les pas
    japonais (`stoneYAt` fidèle), hérons en bas-fonds, libellules dans
    l'habitat bassin, mites à une lanterne, shiba secoué seulement après nage,
-   regard sans lacet du corps, chashitsu hors chemin/eau/pente.
+   regard sans lacet du corps, chashitsu hors chemin/eau/pente, bosquet de
+   bambous à l'est du carrefour hors ruban.
    **`ponds.attach()` est appelé TÔT**, juste
    après l'île, parce que l'habitat des lucioles en a besoin : il réécrit `PONDS`
    avec les valeurs MESURÉES, donc l'invariant 4 travaille sur des rayons
@@ -193,7 +196,7 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    (là où des brins existent). L'ouverture postcard peut n'être que de
    l'albedo — `fadeEnd` 330, coût géométrique, piège 10. Nuit (0.97) : lune
    basse au sud avec halo, étoiles dans la bande 0–20°, terre lisible,
-   lanternes allumées le long des trois routes. Vue sol : chemins de terre
+   lanternes allumées le long des quatre routes. Vue sol : chemins de terre
    granuleux, herbe **rase** dessus (`shortZone`), torii debout sur la montée,
    aucun arbre sur un chemin. La laisse de mer est fermée (houle ≠ étang) ;
    la pose de nage ne pompe pas avec la vague.

@@ -146,6 +146,7 @@ export const QUALITY = {
     fireflies: Math.round(28.28 * AREA_SOFT),
     butterflies: Math.round(5 * AREA_SOFT),
     crabs: 10,             // laisse locale — pas AREA_SOFT
+    bamboo: Math.round(10 * AREA_SOFT), // bosquet local, instances plus grosses
     moths: 0.5,            // mites par lanterne (1 toutes les deux)
     herons: 1,             // échassiers — N petit, pas AREA_SOFT
     dragonflies: Math.round(1.413936700 * AREA_SOFT), // ≈ 8
@@ -167,6 +168,7 @@ export const QUALITY = {
     fireflies: Math.round(74.23 * AREA_SOFT),
     butterflies: Math.round(12 * AREA_SOFT),
     crabs: 18,
+    bamboo: Math.round(20 * AREA_SOFT),
     moths: 1,              // une mite par lanterne
     herons: 2,
     dragonflies: Math.round(3.181357575 * AREA_SOFT), // ≈ 18
@@ -190,6 +192,7 @@ export const QUALITY = {
     fireflies: Math.round(141.40 * AREA_SOFT),
     butterflies: Math.round(24 * AREA_SOFT),
     crabs: 28,
+    bamboo: Math.round(34 * AREA_SOFT),
     moths: 2,              // halo vivant autour de chaque cage à feu
     herons: 3,
     dragonflies: Math.round(5.655746800 * AREA_SOFT), // ≈ 32
@@ -217,12 +220,13 @@ export const SEASONS = Object.freeze({ spring: 'printemps', autumn: 'automne' })
 export const DEFAULT_SEASON = 'spring';
 
 /**
- * Le réseau de chemins de terre. Trois routes partant d'un carrefour en
+ * Le réseau de chemins de terre. Quatre routes partant d'un carrefour en
  * lisière de la prairie : la MONTÉE AUX TORII (reprend les lacets éprouvés
  * de l'ancienne montée, jusqu'à la terrasse belvédère de la falaise ouest),
  * la BOUCLE DES ÉTANGS (fermée, elle longe les trois bassins à koi sans
- * jamais entrer dans leurs berges creusées), et le CHEMIN DE LA PLAGE vers
- * le sable du sud-est. Coordonnées authorées, montées en LAND_SCALE comme
+ * jamais entrer dans leurs berges creusées), le CHEMIN DE LA PLAGE vers
+ * le sable du sud-est, et le SENTIER EST vers la bosse (56,-10) et le
+ * bosquet de bambous. Coordonnées authorées, montées en LAND_SCALE comme
  * toute la géographie.
  */
 export const PATHS = {
@@ -250,6 +254,14 @@ export const PATHS = {
       points: [
         [6, -30], [18, -18], [30, -4], [38, 10], [44, 26], [46, 40],
         [49, 62], [50.5, 71.9],
+      ] },
+    { name: 'bambous',
+      // Carrefour → bosse est (56,-10). NNE puis est : au nord de la
+      // chashitsu / des étangs, au sud de la plage, hors berges carvées.
+      // Assez de stations pour que le Catmull ne coupe ni falaise ni bassin.
+      points: [
+        [6, -30], [11, -27], [18, -24], [26, -21], [34, -18],
+        [42, -15], [49, -12], [56, -10],
       ] },
   ].map((r) => ({ ...r, points: r.points.map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]) })),
 };
@@ -638,4 +650,21 @@ export const GULLS = Object.freeze({
   perchSep: 0.55,
   orbitRadius: 11,
   flyHeight: 7.5,
+});
+
+/**
+ * Bosquet de bambous (lot 8). Local — la bosse est déjà LAND_SCALEd
+ * (`island.js` BUMPS[0]). Compte en AREA_SOFT via QUALITY.bamboo ;
+ * instances un peu plus grandes. Ne pas remultiplier le centre.
+ */
+export const BAMBOO = Object.freeze({
+  cx: 56 * LAND_SCALE,
+  cz: -10 * LAND_SCALE,
+  radius: 13 * LAND_SCALE,
+  pathClear: 0.8,            // extra isOnPath — hors ruban, pas hors bosquet
+  slopeMax: 0.32,
+  hMin: 2.4,
+  hMax: 34,                 // la bosse est culmine ~24–28 u
+  minSep: 1.65,
+  scale: Object.freeze([1.18, 1.58]),
 });

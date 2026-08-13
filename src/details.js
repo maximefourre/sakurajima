@@ -11,9 +11,9 @@
  *   1. Wildflowers, in drifts rather than sprinkled. Real meadows are patchy —
  *      a species takes a hollow and holds it — and an even scatter is the single
  *      most reliable way to make procedural planting look procedural.
- *   2. A network of packed-earth paths (torii climb, pond loop, beach trail)
- *      with stone lanterns ONLY along those routes — never orphan lamps in a
- *      field. Their fire boxes come up as the sun goes down.
+ *   2. A network of packed-earth paths (torii climb, pond loop, beach trail,
+ *      east bamboo trail) with stone lanterns ONLY along those routes — never
+ *      orphan lamps in a field. Their fire boxes come up as the sun goes down.
  *   3. Beach litter — pebbles and driftwood along the tideline, where the eye
  *      goes looking for scale and currently finds an unbroken sweep of sand.
  *   4. Torii gates on the climb to the west-cliff overlook terrace.
@@ -614,7 +614,7 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
       // Le DEPART des routes ouvertes garde sa PLEINE largeur — il est au
       // carrefour, pas en pleine nature, et le pincement de depart y lisait
       // comme un coup de pinceau leve pose sur l'herbe (capture joueur).
-      // La fusion des trois routes est faite par le patin de carrefour.
+      // La fusion des routes au carrefour est faite par le patin.
       // La fin du ruban ne se joue PAS sur la largeur. Deux tentatives l'ont
       // prouve : un fuseau vers zero donne une aiguille, une largeur constante
       // donne une coupe au couteau — les deux rejetees par l'utilisateur. Une
@@ -684,7 +684,7 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
 
 /**
  * Le PATIN DE CARREFOUR : un disque irregulier de terre battue centre sur le
- * premier point du reseau (les trois routes y naissent), meme recette de
+ * premier point du reseau (les quatre routes y naissent), meme recette de
  * contour fbm que la terrasse des torii, aPathEdge -> 1 au pourtour pour
  * l'effilochage. Pose a l'etage LE PLUS BAS (lift 0.04, sous le bord de ruban
  * 0.06) : les trois rubans pleine largeur le recouvrent sans marche. Tesselle

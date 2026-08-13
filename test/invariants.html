@@ -52,7 +52,7 @@ window.addEventListener('unhandledrejection', e => {
   finish();
 });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS, STONES, HERONS, DRAGONFLIES, SEA_TORII } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS, STONES, HERONS, DRAGONFLIES, SEA_TORII, BAMBOO } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
@@ -74,6 +74,7 @@ import { computeMothSpots } from '../src/moths.js';
 import { computeHeronSpawns } from '../src/herons.js';
 import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
 import { computeGullSpawns } from '../src/gulls.js';
+import { computeBambooSpawns, inBambooGrove } from '../src/bamboo.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -1639,6 +1640,43 @@ function milieuAppuisGltf(r) {
     Math.abs(wrap(hIdle - h0)) < 0.08 && Math.abs(hRun) < 0.85 && lookIdle > 0.4,
     `idle Δheading ${wrap(hIdle - h0).toFixed(3)}, run heading ${hRun.toFixed(3)}, lookIdle ${lookIdle.toFixed(2)}`);
   never.dispose();
+}
+
+/* ── lot 8. sentier est + bosquet de bambous ───────────────────────────────
+ * Purs : PATHS + computeBambooSpawns. Les rubans 8–10 ci-dessus jugent déjà
+ * les quatre routes (dont `bambous`) au même plafond 0.55. */
+{
+  const route = PATHS.routes.find((r) => r.name === 'bambous');
+  const [jx, jz] = PATHS.routes[0].points[0];
+  const start = route ? route.points[0] : [NaN, NaN];
+  const end = route ? route.points[route.points.length - 1] : [NaN, NaN];
+  const bump = [56 * LAND_SCALE, -10 * LAND_SCALE];
+  const startOk = route && Math.hypot(start[0] - jx, start[1] - jz) < 1e-6;
+  const endOk = route && Math.hypot(end[0] - bump[0], end[1] - bump[1]) < 8;
+  check('route bambous : du carrefour à la bosse est',
+    !!route && startOk && endOk && route.points.length >= 6,
+    route
+      ? `${route.points.length} pts, fin→bosse ${Math.hypot(end[0] - bump[0], end[1] - bump[1]).toFixed(2)}`
+      : 'route absente');
+
+  const want = QUALITY[TIER].bamboo;
+  const spots = computeBambooSpawns({
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: ponds.isInPond,
+    slopeAt: island.slopeAt,
+    count: want,
+    seed: SEED,
+  });
+  let onPath = 0, west = 0, offGrove = 0;
+  for (const s of spots) {
+    if (isOnPath(s.x, s.z, BAMBOO.pathClear)) onPath++;
+    if (s.x <= jx) west++;
+    if (!inBambooGrove(s.x, s.z, 0.05)) offGrove++;
+  }
+  check('bosquet de bambous à l’est du carrefour, hors ruban',
+    spots.length >= Math.floor(want * 0.6) && onPath === 0 && west === 0 && offGrove === 0,
+    `${spots.length}/${want}, ${onPath} sur ruban, ${west} à l’ouest, ${offGrove} hors bosquet`);
 }
 
 finish();

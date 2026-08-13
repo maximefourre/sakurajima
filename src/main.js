@@ -33,6 +33,7 @@ import { createCrabs } from './crabs.js';
 import { createHerons } from './herons.js';
 import { createDragonflies } from './dragonflies.js';
 import { createGulls } from './gulls.js';
+import { createBamboo, inBambooGrove } from './bamboo.js';
 import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
@@ -60,7 +61,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 17;
+const LOAD_STEPS = 18;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -529,10 +530,22 @@ async function boot() {
     // keepOut is the chashitsu yard (~6 u) — wrap it here, sakura ignores unknown opts.
     isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4)
       && world.heightAt(x, z) > 2.6
-      && !(world.poi && world.poi.keepOut(x, z)),
+      && !(world.poi && world.poi.keepOut(x, z))
+      && !inBambooGrove(x, z),
     windUniforms: forestWind,
   });
   scene.add(world.forest.group);
+
+  await step('bambous');
+  world.bamboo = createBamboo({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    slopeAt: world.slopeAt,
+    isOnPath,
+    isInPond: world.inWater,
+    windUniforms: forestWind,
+  });
+  scene.add(world.bamboo.group);
 
   await step('herbe');
   world.grass = createGrass({
@@ -869,6 +882,7 @@ function frame() {
     1.4, 0.28 + 0.62 * wu.uWindStrength.value * wu.uWindMaster.value
   );
   world.forest.update(t, forestWind);
+  world.bamboo?.update(t);
   world.forest.setEnvironment?.({
     sunDirection: phase.keyDir,
     sunColor: phase.keyColor,

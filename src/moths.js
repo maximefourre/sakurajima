@@ -3,7 +3,7 @@
  *
  * Le versant nocturne des CHEMINS, dont fireflies.js est celui des étangs.
  * Même recette GPU : un quad instancié, additif, non éclairé. Habitat = les
- * lanternes des trois routes plus la paire de terrasse. Pas de mites au
+ * lanternes des quatre routes plus la paire de terrasse. Pas de mites au
  * hokora : les bougies suffisent, et lanternSpots ne les porte déjà pas.
  *
  * Dérive SERRÉE autour de chaque cage à feu (1.4–2.2 u), pas le vol traînant

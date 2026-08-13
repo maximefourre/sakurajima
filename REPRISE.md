@@ -2273,3 +2273,34 @@ Lots 6 et 8 non ouverts.
 - `test/invariants.html?q=low` : **51 pass, 0 fail**. Site
   `@(61.55,-94.39)` h=7.49 slope=0, hors chemin hors étang ; 19/19 points
   du disque refusés par le mock `isLand`, 6 poteaux dans l'emprise.
+
+---
+
+## Session « lot 8 — est : bambous + 4ᵉ sentier » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md` § lot 8.
+Lot le plus dangereux : contrats de ruban (pose collée puis
+`clearRibbonTriangles`, jamais de sonde de voisinage). Pas de rivière, pas
+de pont, pas de lanterne hors de la nouvelle route.
+
+### Livré
+
+- `config.js` : 4ᵉ route `bambous` depuis le carrefour `[6,-30]` vers la
+  bosse est `(56,-10)` (authoré, un seul `LAND_SCALE` via le `.map` existant).
+  `QUALITY.*.bamboo` en `AREA_SOFT` (10 / 20 / 34). Table `BAMBOO`.
+- `details.js` : intouché côté algo — le 4ᵉ ruban et ses lanternes sont
+  ramassés automatiquement depuis `PATHS`.
+- `src/bamboo.js` : bosquet instancié (fût + nœuds + plaques de feuillage),
+  `windUniforms` partagé (adaptateur `forestWind` de main). Hors ruban,
+  à l'est du carrefour, autour de la bosse.
+- `main.js` : `LOAD_STEPS` 18, étape `'bambous'` après les cerisiers.
+  `isLand` refuse le disque du bosquet (biome, pas des cerisiers verts).
+
+### Vérification
+
+- `node --check` sur `config.js`, `bamboo.js`, `main.js`, `details.js`.
+- `test/invariants.html` via Chrome CDP : **55 pass, 0 fail** en `?q=low`
+  et `?q=ultra`. Route `bambous` 8 pts, fin sur la bosse. 46 lanternes,
+  0 orpheline. Rubans ultra : marge 0.0200, élévation max 0.2427
+  (plage, plafond 0.55) ; `bambous` liftMax 0.2193. Bosquet 57/57 low,
+  192/192 ultra, 0 sur ruban, 0 à l'ouest du carrefour.
