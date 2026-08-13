@@ -67,7 +67,7 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
-import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut } from '../src/poi.js';
+import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry } from '../src/poi.js';
 import { chashitsuPosts } from '../src/chashitsu.js';
 import { computeCrabSpawns } from '../src/crabs.js';
 import { computeMothSpots } from '../src/moths.js';
@@ -204,6 +204,9 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   const orphans = spots.filter((s) => !isOnPath(s.x, s.z, lanternExtra));
   check('aucune lanterne orpheline', orphans.length === 0,
     `${spots.length} lanternes, extra ${lanternExtra}${orphans.length ? `, ${orphans.length} orphelines` : ''}`);
+  const onDirt = spots.filter((s) => isOnPath(s.x, s.z, 0));
+  check('aucune lanterne sur la terre battue', onDirt.length === 0,
+    `${spots.length} lanternes, ${onDirt.length} sur ruban`);
 }
 
 /* ── 8-10. terre battue : dégagée, collée, hauteur logique fidèle ───────── */
@@ -384,6 +387,17 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
         `h=${rh.toFixed(2)} seaward=${seaward.toFixed(2)} onPath=${rOnPath} inPond=${rPond}`);
     }
   }
+
+  const pineGeo = makeKuromatsuGeometry();
+  pineGeo.computeBoundingBox();
+  const bb = pineGeo.boundingBox;
+  const spanX = bb.max.x - bb.min.x;
+  const spanZ = bb.max.z - bb.min.z;
+  const spanY = bb.max.y - bb.min.y;
+  pineGeo.dispose();
+  check('kuromatsu : houppier large, pas une pile de disques',
+    spanX > 2.4 && spanZ > 2.0 && spanY > 4.5,
+    `bbox ${spanX.toFixed(2)} × ${spanY.toFixed(2)} × ${spanZ.toFixed(2)}`);
 }
 
 {
@@ -613,6 +627,14 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     check('torii marin : piliers dans l’eau (h < 0)',
       h0 < 0 && h1 < 0,
       `posts h=${h0.toFixed(2)}, ${h1.toFixed(2)} nukiY=${site.nukiY.toFixed(2)}`);
+    const plage = PATHS.routes.find((r) => r.name === 'plage');
+    const [bx, bz] = plage.points[plage.points.length - 1];
+    const st = SEA_TORII.stack;
+    const dGate = Math.hypot(site.x - bx, site.z - bz);
+    const dStack = Math.hypot(st.x - bx, st.z - bz);
+    check('torii marin : plus près de la plage que son îlot',
+      dGate < dStack - 2,
+      `gate ${dGate.toFixed(1)} stack ${dStack.toFixed(1)}`);
   }
 
   const stacks = island.seaStacks || [];
@@ -966,13 +988,14 @@ try {
 }
 
 {
-  const big = (island.rockKeepOut || []).filter((r) => r.r >= 2);
-  const rk = big[0];
+  const walls = (island.rockKeepOut || []).filter((r) => r.r >= 2 && r.block !== false);
+  const steps = (island.rockKeepOut || []).filter((r) => r.r >= 0.85 && r.block === false);
+  const rk = walls[0];
   const hit = rk && island.hitsRock(rk.x, rk.z, 0);
   const miss = rk && !island.hitsRock(rk.x + rk.r + 2.5, rk.z, 0);
   check('hitsRock : gros bloc oui, à côté non',
     !!rk && hit && miss,
-    rk ? `r=${rk.r.toFixed(2)} n=${big.length}` : 'aucun gros rocher');
+    rk ? `r=${rk.r.toFixed(2)} n=${walls.length}` : 'aucun gros rocher');
   const dog = createShiba({
     seed: SEED,
     heightAt: island.heightAt,
@@ -985,6 +1008,15 @@ try {
   check('chien refusé au centre d’un rocher',
     !!rk && blocked,
     rk ? `r=${rk.r.toFixed(2)}` : 'pas de rocher');
+
+  const step = steps[0];
+  const climbY = step && island.rockYAt(step.x, step.z);
+  const climbOpen = step && !island.hitsRock(step.x, step.z, 0.35);
+  check('rocher bas : surface marchable, pas un mur',
+    !!step && climbY > island.heightAt(step.x, step.z) && climbOpen,
+    step
+      ? `r=${step.r.toFixed(2)} top=${climbY.toFixed(2)} n=${steps.length}`
+      : 'aucun bloc franchissable');
 }
 
 /* ── 15. le budget d'ondes est partitionné ────────────────────────────────

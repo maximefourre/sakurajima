@@ -2322,3 +2322,19 @@ Rejoué sur le `main` fusionné (pas seulement dans le worktree L8) :
 Pas de `git push`. Tour visuel headless : le voile reste sur
 « initialisation » (WebGL headless, même piège qu’en lot 1). La scène
 s’ouvre dans Chrome local `http://127.0.0.1:5173/index.html?q=low`.
+
+---
+
+## Session « audit visuel 8 lots » du 13/08
+
+Cinq trouvailles joueur, causes et correctifs.
+
+| # | Symptôme | Cause | Correctif |
+|---|---|---|---|
+| 1 | Lanterne en plein chemin | `computeLanternSpots` ne testait que l’eau et la pente. À un fourche, l’épaule d’une route est le ruban d’une autre. | Skip si `isOnPath(x,z,0)` ; essayer l’autre côté. |
+| 2 | Pin = pile de disques noirs | Houppier centré sur le fût, icosaèdres écrasés empilés. | Branches hors axe, nuages aux extrémités. |
+| 3 | Rocher devant le torii marin | Extra stack `s=5.4` + offset vers `CAMERA.start` (NE). Depuis la plage, l’îlot masque le portail. | Stack `s=3.2` ; offset vers le terminus `plage`. |
+| 4 | Tout rocher = mur | `hitsRock` pour tout `r≥0.85` ; le saut ne traverse pas le cylindre XZ. Le rocher d’assise était dans `hitsSolid`. | Blocs bas → `rockYAt` / assise → `stoneYAt`. Murs (stacks, récif) gardés. Saut si `y > topY`. |
+| 5 | 20 fps ultra plage/forêt | 560k·AREA_SOFT ≈ 3.17 M de brins, `fadeEnd` 330 (la forêt reste soumise depuis la plage). | Ultra 420k ; fade 170/250. |
+
+Vérif : `node --check` ; `INVARIANTS: 59 pass, 0 fail` low **et** ultra.

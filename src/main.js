@@ -447,7 +447,9 @@ async function boot() {
   world.groundAt = (x, z) => {
     const base = world.heightAt(x, z) + pathSurfaceLiftAt(world.heightAt, x, z);
     const stone = world.poi ? world.poi.stoneYAt(x, z) : 0;
-    return stone !== 0 ? stone : base;
+    const rock = world.island.rockYAt ? world.island.rockYAt(x, z) : 0;
+    const lift = stone !== 0 ? stone : rock;
+    return lift !== 0 ? lift : base;
   };
 
   await step('étangs et carpes');
@@ -733,7 +735,7 @@ async function boot() {
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     water,
-    blocked: (x, z) => world.island.hitsRock(x, z, 0.35)
+    blocked: (x, z) => world.island.hitsRock(x, z, 0.35, world.shiba?.position.y)
       || world.poi.hitsSolid(x, z, 0.35),
     particles: world.particles,
     wind: world.wind,

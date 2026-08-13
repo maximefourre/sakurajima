@@ -180,7 +180,7 @@ export const QUALITY = {
   },
   ultra: {
     label: 'ultra',
-    grassBlades: Math.round(560000 * AREA_SOFT),
+    grassBlades: Math.round(420000 * AREA_SOFT),
     grassRadius: Math.round(130 * LAND_SCALE),
     petals: Math.round(30000 * AREA_SOFT),
     // ~311k au sol au printemps, ×2.5 en automne (le tapis doit joncher
@@ -624,13 +624,13 @@ export const SEA_TORII = Object.freeze({
   stack: Object.freeze({
     x: 56 * LAND_SCALE,
     z: 108 * LAND_SCALE,
-    s: 5.4,
-    ky: 1.65,
+    s: 3.2,
+    ky: 1.25,
     shape: 4,
     yaw: 0.65,
-    sink: 0.20,
+    sink: 0.28,
   }),
-  offset: 7.2,   // vers la caméra d'ouverture : piliers dans l'eau libre
+  offset: 7.2,   // vers le terminus `plage` : le portail se lit depuis le sable
   scale: 1.55,   // la montée terrestre est à 1.35
   baseY: 0.05,
 });

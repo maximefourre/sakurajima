@@ -234,15 +234,16 @@ const DEFAULTS = {
 	sunDirection: [ 0.4, 0.35, 0.85 ],
 
 	// --- LOD / culling -----------------------------------------------------------
-	// fadeEnd 330 : volontaire. L'ouverture postcard (~900 u) ne voit pas
-	// les brins — c'est de l'albedo. Allonger le fade coûte la géométrie
-	// (piège 10). Le plancher 0.55 se juge à la caméra suivie, sur la prairie.
+	// fadeEnd 250 : l'ouverture postcard (~900 u) ne voit pas les brins —
+	// c'est de l'albedo. 330 soumettait encore la forêt depuis la plage
+	// (piège 10, ~20 fps ultra). Le plancher 0.55 se juge à la caméra
+	// suivie, sur la prairie.
 	chunkDivisions: 10,
 	lodDistance: 72,
 	lodHysteresis: 4,
 	lodKeep: 0.62,     // lo coverage ~= 0.62 x 1.45 ~= 90% of hi - the swap stops reading as a pop
-	fadeStart: 240,
-	fadeEnd: 330
+	fadeStart: 170,
+	fadeEnd: 250
 
 };
 

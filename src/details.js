@@ -264,8 +264,9 @@ export function pathProximity(x, z) {
  * invariant bench can re-run the same placement without building meshes.
  *
  * One lantern every PATHS.lanternEvery world units of arc, alternating sides,
- * offset by (width/2 + 1.3). Skipped under water (h < seaLevel+0.3) or on a
- * cliff face (local slope > 0.9).
+ * offset by (width/2 + 1.3). Skipped under water (h < seaLevel+0.3), on a
+ * cliff face (local slope > 0.9), or on any route's dirt (`isOnPath(..., 0)`
+ * — forks used to plant a lamp in the roadway).
  *
  * @param {Function} heightAt
  * @param {Function} [slopeAt]
@@ -291,12 +292,18 @@ export function computeLanternSpots(heightAt, slopeAt = null) {
       route.curve.getTangentAt(t, tn);
       const l = Math.hypot(tn.x, tn.z) || 1;
       const nx = -tn.z / l, nz = tn.x / l;
-      const x = p.x + nx * sideOff * side;
-      const z = p.z + nz * sideOff * side;
-      const h = heightAt(x, z);
-      const sl = slopeAt ? slopeAt(x, z) : 0;
-      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9) {
+      // Prefer the alternating shoulder. If that foot lands on ANY route's
+      // dirt (forks, the 4th trail hugging `plage`), try the other side,
+      // then skip — never a lamp in the roadway.
+      for (const trySide of [side, -side]) {
+        const x = p.x + nx * sideOff * trySide;
+        const z = p.z + nz * sideOff * trySide;
+        const h = heightAt(x, z);
+        const sl = slopeAt ? slopeAt(x, z) : 0;
+        if (h < WORLD.seaLevel + 0.3 || sl > 0.9) continue;
+        if (isOnPath(x, z, 0)) continue;
         spots.push({ x, z });
+        break;
       }
       side = -side;
       n++;
@@ -320,7 +327,9 @@ export function computeLanternSpots(heightAt, slopeAt = null) {
       const z = p.z + nz * sideOff * side;
       const h = heightAt(x, z);
       const sl = slopeAt ? slopeAt(x, z) : 0;
-      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9) spots.push({ x, z });
+      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9 && !isOnPath(x, z, 0)) {
+        spots.push({ x, z });
+      }
     }
   }
   return spots;

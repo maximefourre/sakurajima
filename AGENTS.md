@@ -89,8 +89,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   galets) scalent en `AREA = L²` ; les coûteux (herbe, arbres, pétales,
   rochers) en `AREA_SOFT = AREA^0.75`, compensé par des instances plus grosses.
   Honnêteté : `AREA_SOFT` est la POLITIQUE par défaut, pas une protection — le
-  coefficient herbe ultra a été volontairement monté (300k→560k, ≈3.17 M de
-  brins) à la demande de l'utilisateur, un choix de goût pour la machine cible.
+  coefficient herbe ultra a été volontairement monté puis recalé
+  (300k→560k→420k, ≈2.37 M de brins) : 560k lisait à 20 fps au sol.
   Les vrais replis machine faible sont les tiers low/high.
 - **`sunDistance` dérive du rayon d'ombre réel** (`sky.js`, `shadowEnvelope`) :
   `R ≈ 1.30 · island.radius + 10` (côte + rochers, pas `125 · LAND_SCALE`),

@@ -1240,7 +1240,14 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       if (p.h < 0.9) _col.multiplyScalar(mix(0.55, 1.0, clamp((p.h + 1.2) / 2.1, 0, 1)));
       im.setColorAt(i, _col);
 
-      rockKeepOut.push({ x: p.x, z: p.z, r: Math.max(sx, sz) * 1.15 });
+      const visibleH = sy * (1 - sink);
+      const block = !!(p.stack || p.spring || p.extra || visibleH > 1.25);
+      const topY = p.h - sy * sink + sy * 0.58;
+      rockKeepOut.push({
+        x: p.x, z: p.z,
+        r: Math.max(sx, sz) * 1.15,
+        topY, block,
+      });
       if (p.stack) {
         seaStacks.push({
           x: p.x, z: p.z, h: p.h,
@@ -1365,16 +1372,36 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     meadow: { ...MEADOW },
     rockKeepOut,
     seaStacks,
-    /** Galets (r < 0.85) ignorés : on marche dessus. pad = rayon du corps. */
-    hitsRock(x, z, pad = 0) {
+    /**
+     * Galets (r < 0.85) et blocs bas (block=false) : on marche dessus
+     * (`rockYAt`). pad = rayon du corps. `y` : si le chien saute au-dessus
+     * du sommet, le mur ne compte plus.
+     */
+    hitsRock(x, z, pad = 0, y = null) {
       for (let i = 0; i < rockKeepOut.length; i++) {
         const rk = rockKeepOut[i];
         if (rk.r < 0.85) continue;
+        if (rk.block === false) continue;
         const dx = x - rk.x, dz = z - rk.z;
         const rad = rk.r + pad;
-        if (dx * dx + dz * dz < rad * rad) return true;
+        if (dx * dx + dz * dz >= rad * rad) continue;
+        if (y != null && Number.isFinite(rk.topY) && y > rk.topY + 0.2) continue;
+        return true;
       }
       return false;
+    },
+    /** Dessus d'un bloc franchissable, sinon 0. */
+    rockYAt(x, z) {
+      let best = 0;
+      for (let i = 0; i < rockKeepOut.length; i++) {
+        const rk = rockKeepOut[i];
+        if (rk.block !== false || !(rk.r >= 0.85)) continue;
+        const dx = x - rk.x, dz = z - rk.z;
+        if (dx * dx + dz * dz < rk.r * rk.r) {
+          if (rk.topY > best) best = rk.topY;
+        }
+      }
+      return best;
     },
     waterUniforms,
   };

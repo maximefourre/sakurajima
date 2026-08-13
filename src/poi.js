@@ -25,8 +25,9 @@ export { computeChashitsuSite, chashitsuKeepOut };
 
 const BARK = 0x2a241c;
 const BARK_DARK = 0x1a1612;
-const NEEDLE = 0x1a2814;
-const NEEDLE_LIT = 0x24351a;
+const NEEDLE = 0x24361c;
+const NEEDLE_LIT = 0x3a5228;
+const NEEDLE_DEEP = 0x1a2814;
 const STONE = 0x8a8680;
 const STONE_DARK = 0x716d69;
 const STONE_MOSS = 0x5d6b33;
@@ -91,14 +92,18 @@ export function computeShorePineSite({ heightAt, isOnPath, isInPond } = {}) {
 
 
 /**
- * Sea gate on the authored extra stack, offset toward CAMERA.start so the
- * posts stand in open water. Pure: only SEA_TORII + heightAt.
+ * Sea gate on the authored extra stack, offset toward the beach-path
+ * terminus so a walker on the sand sees the gate first, the islet behind.
+ * Posts must still stand in open water. Pure: SEA_TORII + PATHS + heightAt.
  */
 export function computeSeaToriiSite({ heightAt } = {}) {
   if (typeof heightAt !== 'function') return null;
   const st = SEA_TORII.stack;
-  const cam = CAMERA.start;
-  let dx = cam.x - st.x, dz = cam.z - st.z;
+  const route = plageRoute();
+  const end = route && route.points.length
+    ? route.points[route.points.length - 1]
+    : [CAMERA.start.x, CAMERA.start.z];
+  let dx = end[0] - st.x, dz = end[1] - st.z;
   const len = Math.hypot(dx, dz);
   if (!(len > 1e-6)) return null;
   dx /= len;
@@ -106,7 +111,7 @@ export function computeSeaToriiSite({ heightAt } = {}) {
 
   const x = st.x + dx * SEA_TORII.offset;
   const z = st.z + dz * SEA_TORII.offset;
-  const yaw = Math.atan2(cam.x - st.x, cam.z - st.z);
+  const yaw = Math.atan2(end[0] - st.x, end[1] - st.z);
   const scale = SEA_TORII.scale;
   const baseY = SEA_TORII.baseY;
   const c = Math.cos(yaw), s = Math.sin(yaw);
@@ -199,22 +204,23 @@ function mergeParts(parts) {
 }
 
 /**
- * One black pine: stacked cylinders leaning toward local +Z, foliage as
- * squashed icosahedra — plates, not sakura balls.
+ * One black pine: a crooked trunk leaning inland (local +Z), branches
+ * reaching sideways, foliage as irregular clouds at the branch tips —
+ * not a stack of discs on a pole.
  */
 export function makeKuromatsuGeometry() {
   const parts = [];
   const segs = [
-    { h: 1.35, r0: 0.34, r1: 0.28, w: 0.045 },
-    { h: 1.45, r0: 0.27, r1: 0.21, w: 0.055 },
-    { h: 1.50, r0: 0.20, r1: 0.145, w: 0.060 },
-    { h: 1.35, r0: 0.14, r1: 0.085, w: 0.055 },
-    { h: 1.15, r0: 0.08, r1: 0.042, w: 0.050 },
+    { h: 1.15, r0: 0.42, r1: 0.34, w: 0.04 },
+    { h: 1.25, r0: 0.33, r1: 0.26, w: 0.06 },
+    { h: 1.20, r0: 0.25, r1: 0.18, w: 0.08 },
+    { h: 1.05, r0: 0.17, r1: 0.11, w: 0.07 },
+    { h: 0.85, r0: 0.10, r1: 0.045, w: 0.05 },
   ];
   const wSum = segs.reduce((s, g) => s + g.w, 0);
   for (const s of segs) s.dA = POI.pineLean * (s.w / wSum);
 
-  let y = -0.42, z = 0, angle = 0.05;
+  let y = -0.42, z = 0, angle = 0.08;
   const joints = [{ y, z, angle }];
 
   for (const s of segs) {
@@ -232,44 +238,51 @@ export function makeKuromatsuGeometry() {
     joints.push({ y, z, angle });
   }
 
-  // Buried flare so the trunk reads planted, not perched.
-  const flare = new THREE.CylinderGeometry(0.30, 0.42, 0.38, 8);
-  flare.translate(0, -0.28, 0.02);
+  const flare = new THREE.CylinderGeometry(0.36, 0.52, 0.48, 8);
+  flare.translate(0, -0.28, 0.03);
   paint(flare, BARK_DARK, 0.06);
   parts.push(flare);
 
-  const branch = (jy, jz, ja, side, len, r) => {
-    const arm = new THREE.CylinderGeometry(r * 0.45, r, len, 6);
-    const tilt = 1.05;
-    arm.rotateZ(side * tilt);
-    arm.rotateX(ja * 0.4);
-    const ox = Math.sin(side * tilt) * len * 0.5;
-    arm.translate(ox, jy + 0.08, jz + Math.sin(ja) * 0.15);
-    paint(arm, BARK, 0.08);
-    parts.push(arm);
-  };
-  branch(joints[2].y, joints[2].z, joints[2].angle, -1, 0.95, 0.055);
-  branch(joints[3].y, joints[3].z, joints[3].angle, 1, 0.80, 0.045);
-
-  const plates = [
-    { j: 2, x: 0.05, up: 0.15, out: 0.35, sx: 1.55, sy: 0.30, sz: 1.25 },
-    { j: 3, x: -0.15, up: 0.10, out: 0.45, sx: 1.70, sy: 0.28, sz: 1.40 },
-    { j: 3, x: 0.55, up: 0.05, out: 0.15, sx: 1.15, sy: 0.24, sz: 0.95 },
-    { j: 4, x: 0.10, up: 0.05, out: 0.35, sx: 1.45, sy: 0.26, sz: 1.20 },
-    { j: 4, x: -0.50, up: -0.05, out: 0.20, sx: 1.10, sy: 0.22, sz: 0.90 },
-    { j: 5, x: 0.00, up: 0.05, out: 0.20, sx: 1.05, sy: 0.22, sz: 0.88 },
-    { j: 2, x: -0.45, up: 0.20, out: 0.10, sx: 1.05, sy: 0.22, sz: 0.85 },
-  ];
-  for (const p of plates) {
-    const j = joints[Math.min(p.j, joints.length - 1)];
+  const cloud = (cx, cy, cz, sx, sy, sz, tilt, spin, col) => {
     const leaf = new THREE.IcosahedronGeometry(1, 1);
-    leaf.scale(p.sx, p.sy, p.sz);
-    leaf.rotateZ(p.x * 0.15);
-    leaf.rotateX(0.18);
-    leaf.translate(p.x, j.y + p.up, j.z + p.out);
-    paint(leaf, p.j >= 4 ? NEEDLE_LIT : NEEDLE, 0.14);
+    leaf.scale(sx, sy, sz);
+    leaf.rotateZ(tilt);
+    leaf.rotateY(spin);
+    leaf.rotateX(0.22);
+    leaf.translate(cx, cy, cz);
+    paint(leaf, col, 0.16);
     parts.push(leaf);
-  }
+  };
+
+  const arm = (jy, jz, ja, yaw, pitch, len, r) => {
+    const wood = new THREE.CylinderGeometry(r * 0.42, r, len, 6);
+    wood.rotateZ(yaw);
+    wood.rotateX(pitch + ja * 0.25);
+    const hx = Math.sin(yaw) * Math.cos(pitch) * len * 0.5;
+    const hy = Math.cos(yaw) * Math.cos(pitch) * len * 0.5;
+    const hz = Math.sin(pitch) * len * 0.5;
+    wood.translate(hx, jy + hy * 0.15, jz + hz);
+    paint(wood, BARK, 0.08);
+    parts.push(wood);
+    return { x: hx * 2, y: jy + hy * 0.35, z: jz + hz * 2 };
+  };
+
+  const b0 = arm(joints[1].y, joints[1].z, joints[1].angle, -1.15, 0.15, 1.55, 0.07);
+  const b1 = arm(joints[2].y, joints[2].z, joints[2].angle, 1.05, 0.05, 1.85, 0.065);
+  const b2 = arm(joints[2].y + 0.15, joints[2].z, joints[2].angle, -0.85, 0.35, 1.35, 0.05);
+  const b3 = arm(joints[3].y, joints[3].z, joints[3].angle, 0.95, 0.28, 1.45, 0.048);
+  const b4 = arm(joints[3].y, joints[3].z, joints[3].angle, -1.25, -0.05, 1.20, 0.042);
+  const tip = joints[joints.length - 1];
+
+  cloud(b0.x, b0.y + 0.15, b0.z, 1.15, 0.55, 0.95, -0.25, 0.4, NEEDLE);
+  cloud(b0.x * 0.55, b0.y + 0.35, b0.z * 0.7, 0.85, 0.42, 0.70, -0.1, 1.1, NEEDLE_DEEP);
+  cloud(b1.x, b1.y + 0.20, b1.z, 1.45, 0.62, 1.15, 0.20, -0.3, NEEDLE_LIT);
+  cloud(b1.x * 0.6, b1.y + 0.45, b1.z * 0.55, 1.05, 0.48, 0.88, 0.12, 0.8, NEEDLE);
+  cloud(b2.x, b2.y + 0.10, b2.z, 0.95, 0.44, 0.78, -0.18, 0.2, NEEDLE);
+  cloud(b3.x, b3.y + 0.12, b3.z, 1.10, 0.50, 0.90, 0.15, -0.6, NEEDLE_LIT);
+  cloud(b4.x, b4.y + 0.08, b4.z, 0.88, 0.40, 0.72, -0.22, 0.5, NEEDLE_DEEP);
+  cloud(0.05, tip.y + 0.15, tip.z + 0.25, 0.95, 0.48, 0.80, 0.05, 0.15, NEEDLE_LIT);
+  cloud(-0.35, tip.y - 0.05, tip.z - 0.05, 0.70, 0.36, 0.58, -0.3, 1.4, NEEDLE);
 
   const merged = mergeParts(parts);
   merged.computeVertexNormals();
@@ -865,7 +878,10 @@ export function createPOI({
 
   const solids = [];
   if (pine) solids.push({ x: pine.x, z: pine.z, r: POI.pineTrunkR });
-  if (rock) solids.push({ x: rock.x, z: rock.z, r: POI.rockR });
+  const sitTop = rock
+    ? rock.h - POI.rockSink + 0.22
+    : 0;
+  const sitR = POI.rockPlateau * 0.5;
   if (jizo) solids.push({ x: jizo.x, z: jizo.z, r: POI.jizoR });
   if (tsukubai) solids.push({ x: tsukubai.x, z: tsukubai.z, r: POI.tsukubaiR });
   const tea = chashitsu ? createChashitsu({ seed, site: chashitsu }) : null;
@@ -1029,8 +1045,21 @@ export function createPOI({
     group.removeFromParent();
   }
 
+  function sitYAt(x, z) {
+    if (!rock) return 0;
+    const dx = x - rock.x, dz = z - rock.z;
+    if (dx * dx + dz * dz <= sitR * sitR) return sitTop;
+    return 0;
+  }
+
+  function surfaceYAt(x, z) {
+    const slab = stoneYAt(x, z, stones);
+    if (slab !== 0) return slab;
+    return sitYAt(x, z);
+  }
+
   function onStone(x, z) {
-    return stoneYAt(x, z, stones) !== 0;
+    return surfaceYAt(x, z) !== 0;
   }
 
   function keepOut(x, z) {
@@ -1039,7 +1068,7 @@ export function createPOI({
 
   return {
     group,
-    stoneYAt: (x, z) => stoneYAt(x, z, stones),
+    stoneYAt: (x, z) => surfaceYAt(x, z),
     onStone,
     hitsSolid,
     keepOut,
