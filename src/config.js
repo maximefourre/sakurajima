@@ -149,6 +149,7 @@ export const QUALITY = {
     moths: 0.5,            // mites par lanterne (1 toutes les deux)
     herons: 1,             // échassiers — N petit, pas AREA_SOFT
     dragonflies: Math.round(1.413936700 * AREA_SOFT), // ≈ 8
+    gulls: 6,              // stacks + nuki — pas AREA_SOFT
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -169,6 +170,7 @@ export const QUALITY = {
     moths: 1,              // une mite par lanterne
     herons: 2,
     dragonflies: Math.round(3.181357575 * AREA_SOFT), // ≈ 18
+    gulls: 10,
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -191,6 +193,7 @@ export const QUALITY = {
     moths: 2,              // halo vivant autour de chaque cage à feu
     herons: 3,
     dragonflies: Math.round(5.655746800 * AREA_SOFT), // ≈ 32
+    gulls: 16,
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -575,4 +578,43 @@ export const DRAGONFLIES = Object.freeze({
   size: [0.20, 0.32],
   color: 0x2ec4a0,
   wingColor: 0xa8ffe6,
+});
+
+/**
+ * Torii marin (lot 4). Un stack AUTHORÉ — les cinq stacks tirés au rng
+ * `island:rocks` bougent avec ROCK_TOTAL et le pas du bake, donc aucun
+ * n'est une silhouette stable depuis CAMERA.start ET le pin de la plage.
+ * Même leçon que SPRING_ROCKS : zéro tirage rng, les autres rochers
+ * restent où ils étaient.
+ */
+export const SEA_TORII = Object.freeze({
+  stack: Object.freeze({
+    x: 56 * LAND_SCALE,
+    z: 108 * LAND_SCALE,
+    s: 5.4,
+    ky: 1.65,
+    shape: 4,
+    yaw: 0.65,
+    sink: 0.20,
+  }),
+  offset: 7.2,   // vers la caméra d'ouverture : piliers dans l'eau libre
+  scale: 1.55,   // la montée terrestre est à 1.35
+  baseY: 0.05,
+});
+
+/**
+ * Goélands. N vit sur QUALITY.gulls (6 / 10 / 16) — habitat local (stacks
+ * + nuki), pas AREA_SOFT.
+ */
+export const GULLS = Object.freeze({
+  flushRadius: 20,
+  cameraFlush: 8,
+  flySeconds: [8.5, 14],
+  preenSeconds: [1.1, 1.8],
+  idleSeconds: [2.4, 5.5],
+  size: [0.92, 1.18],
+  nukiAlong: Object.freeze([-1.35, 0, 1.35]),
+  perchSep: 0.55,
+  orbitRadius: 11,
+  flyHeight: 7.5,
 });

@@ -52,11 +52,11 @@ window.addEventListener('unhandledrejection', e => {
   finish();
 });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS, STONES, HERONS, DRAGONFLIES } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS, STONES, HERONS, DRAGONFLIES, SEA_TORII } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
-import { createIsland, springReefSite } from '../src/island.js';
+import { createIsland, springReefSite, SEA_STACK_RANDOM } from '../src/island.js';
 import { createDetails, flowerSpots, initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
@@ -67,11 +67,12 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
-import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt } from '../src/poi.js';
+import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite } from '../src/poi.js';
 import { computeCrabSpawns } from '../src/crabs.js';
 import { computeMothSpots } from '../src/moths.js';
 import { computeHeronSpawns } from '../src/herons.js';
 import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
+import { computeGullSpawns } from '../src/gulls.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -598,6 +599,62 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   check('libellules : habitat bassin, actives le jour', ok,
     ok ? `${spots.length} libellules, pire rayon ${(worst * 100).toFixed(0)} % de l’habitat`
       : detail);
+}
+
+/* ── silhouette mer (lot 4) : pures + sites exportés par l'île ── */
+{
+  const site = computeSeaToriiSite({ heightAt: island.heightAt });
+  if (!site) {
+    check('torii marin : piliers dans l’eau (h < 0)', false, 'computeSeaToriiSite a rendu null');
+  } else {
+    const h0 = site.posts[0].h, h1 = site.posts[1].h;
+    check('torii marin : piliers dans l’eau (h < 0)',
+      h0 < 0 && h1 < 0,
+      `posts h=${h0.toFixed(2)}, ${h1.toFixed(2)} nukiY=${site.nukiY.toFixed(2)}`);
+  }
+
+  const stacks = island.seaStacks || [];
+  const extras = stacks.filter((s) => s.extra);
+  const randoms = stacks.filter((s) => !s.extra);
+  const st = SEA_TORII.stack;
+  const extraHit = extras.find((s) => Math.hypot(s.x - st.x, s.z - st.z) < 1e-3);
+  check('torii marin : stacks tirés intacts, un extra authoré',
+    randoms.length === SEA_STACK_RANDOM && extras.length === 1 && !!extraHit,
+    `random=${randoms.length}/${SEA_STACK_RANDOM} extra=${extras.length} `
+      + `at (${st.x.toFixed(1)},${st.z.toFixed(1)})`);
+
+  const want = QUALITY[TIER].gulls;
+  const gulls = computeGullSpawns({
+    stacks, torii: site, count: want, seed: SEED,
+  });
+  let gOk = gulls.length === want && want > 0;
+  let gDetail = gOk ? '' : `compte ${gulls.length} au lieu de ${want}`;
+  for (const g of gulls) {
+    const onStack = stacks.some((s) => {
+      const rad = Math.max(s.sx || 4, s.sz || 4) * 1.25 + 1.0;
+      return Math.hypot(g.x - s.x, g.z - s.z) <= rad;
+    });
+    let onNuki = false;
+    if (site) {
+      const dx = g.x - site.x, dz = g.z - site.z;
+      const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
+      const lx = dx * c - dz * s;
+      const lz = dx * s + dz * c;
+      onNuki = Math.abs(lz) < 0.9
+        && Math.abs(lx) < 2.8 * site.scale
+        && Math.abs(g.y - site.nukiY) < 1.4;
+    }
+    const kindOk = g.kind === 'stack' || g.kind === 'nuki';
+    if (!kindOk || !(onStack || onNuki)) {
+      gOk = false;
+      gDetail = `gull@(${g.x.toFixed(1)},${g.z.toFixed(1)}) kind=${g.kind} `
+        + `stack=${onStack} nuki=${onNuki}`;
+      break;
+    }
+  }
+  check('goélands : spawn sur un stack ou le nuki', gOk,
+    gOk ? `${gulls.length}/${want} kind=stack|nuki`
+      : gDetail);
 }
 
 /* ── Eau et chien ─────────────────────────────────────────────────────────

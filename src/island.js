@@ -29,7 +29,7 @@
  */
 
 import * as THREE from 'three';
-import { WORLD, LAND_SCALE, HEIGHT_SCALE } from './config.js';
+import { WORLD, LAND_SCALE, HEIGHT_SCALE, SEA_TORII } from './config.js';
 import { makeGrainBump } from './detailtex.js';
 import {
   noise2, fbm2, ridged2,
@@ -37,6 +37,9 @@ import {
 } from './noise.js';
 
 const TAU = Math.PI * 2;
+
+/** Random offshore stacks. The sea-torii islet is authored on top and is not counted here. */
+export const SEA_STACK_RANDOM = 5;
 
 /* ────────────────────────────────────────────────────────────────
    Art direction — the knobs a human actually wants
@@ -1069,7 +1072,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   rockMat.customProgramCacheKey = () => 'sakurajima-rock-v2';
 
   const ROCK_TOTAL = quality && quality.rocks ? quality.rocks : 100;
-  const SEA_STACKS = 5;
+  const SEA_STACKS = SEA_STACK_RANDOM;
 
   /** Rejection-sample positions biased to the shoreline and to steep ground. */
   const placed = [];
@@ -1150,19 +1153,35 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     }
   }
 
+  // Authored sea-torii islet. Consumes zero rngRock() so the five random
+  // stacks and every land boulder keep the transforms they had before lot 4.
+  {
+    const r = SEA_TORII.stack;
+    placed.push({
+      x: r.x, z: r.z,
+      h: heightAt(r.x, r.z),
+      slope: slopeAt(r.x, r.z),
+      stack: true,
+      extra: r,
+    });
+  }
+
   // Split the placements across the distinct shapes.
   const buckets = shapes.map(() => []);
   for (const p of placed) {
-    const idx = p.spring
-      ? p.spring.shape
-      : p.stack
-        ? (rngRock() < 0.5 ? 1 : 4)                     // the beefier silhouettes
-        : Math.floor(rngRock() * shapes.length) % shapes.length;
+    const idx = p.extra
+      ? p.extra.shape
+      : p.spring
+        ? p.spring.shape
+        : p.stack
+          ? (rngRock() < 0.5 ? 1 : 4)                     // the beefier silhouettes
+          : Math.floor(rngRock() * shapes.length) % shapes.length;
     buckets[idx].push(p);
   }
 
   const rockMeshes = [];
   const rockKeepOut = [];
+  const seaStacks = [];
 
   const _m = new THREE.Matrix4();
   const _q = new THREE.Quaternion();
@@ -1186,8 +1205,9 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       const p = list[i];
 
       let sx, sy, sz;
-      if (p.spring) {
-        sx = p.spring.s; sy = p.spring.s * p.spring.ky; sz = p.spring.s;
+      const authored = p.spring || p.extra || null;
+      if (authored) {
+        sx = authored.s; sy = authored.s * authored.ky; sz = authored.s;
       } else {
         let base = p.stack
           ? 3.2 + rngRock() * 2.8
@@ -1202,10 +1222,10 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       normalAt(p.x, p.z, _nrm);
       _nrm.lerp(_up, 0.45).normalize();
       _q.setFromUnitVectors(_up, _nrm);
-      _qy.setFromAxisAngle(_up, p.spring ? p.spring.yaw : rngRock() * TAU);
+      _qy.setFromAxisAngle(_up, authored ? authored.yaw : rngRock() * TAU);
       _q.multiply(_qy);
 
-      const sink = p.spring ? p.spring.sink
+      const sink = authored ? authored.sink
         : p.stack ? 0.18 + rngRock() * 0.12 : 0.26 + rngRock() * 0.30;
       _p.set(p.x, p.h - sy * sink, p.z);
       _s.set(sx, sy, sz);
@@ -1215,11 +1235,20 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
 
       // Wet rock below the tideline is markedly darker; that contrast sells the surf.
       if (p.spring) _col.setHSL(0.09, 0.09, 0.46);
+      else if (p.extra) _col.setHSL(0.085, 0.06, 0.36);
       else _col.setHSL(0.085 + (rngRock() - 0.5) * 0.05, 0.05 + rngRock() * 0.08, 0.40 + rngRock() * 0.15);
       if (p.h < 0.9) _col.multiplyScalar(mix(0.55, 1.0, clamp((p.h + 1.2) / 2.1, 0, 1)));
       im.setColorAt(i, _col);
 
       rockKeepOut.push({ x: p.x, z: p.z, r: Math.max(sx, sz) * 1.15 });
+      if (p.stack) {
+        seaStacks.push({
+          x: p.x, z: p.z, h: p.h,
+          sx, sy, sz,
+          topY: p.h - sy * sink + sy * 0.62,
+          extra: !!p.extra,
+        });
+      }
     }
 
     im.instanceMatrix.needsUpdate = true;
@@ -1335,6 +1364,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     extent: HALF,
     meadow: { ...MEADOW },
     rockKeepOut,
+    seaStacks,
     /** Galets (r < 0.85) ignorés : on marche dessus. pad = rayon du corps. */
     hitsRock(x, z, pad = 0) {
       for (let i = 0; i < rockKeepOut.length; i++) {

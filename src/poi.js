@@ -4,6 +4,7 @@
  * Lot 2: stepping stones on the big pond (stoneYAt).
  * Lot 3: jizō at the junction, tsukubai on the big-pond bank, iwakura
  *        (shimenawa + shide) on the largest ridge-reef block.
+ * Lot 4: sea torii on the authored extra stack.
  *
  * Placement is a pure walk from PATHS / authored pond / reef (no WebGL)
  * so the invariant can fail the site without constructing a mesh.
@@ -12,9 +13,11 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PATHS, WORLD, POI, STONES, SEED } from './config.js';
+import { PATHS, WORLD, POI, STONES, SEED, CAMERA, SEA_TORII } from './config.js';
 import { streamFor, fbm2, R } from './noise.js';
 import { springReefSite } from './island.js';
+import { makeToriiGeometry } from './details.js';
+import { makeWoodBump } from './detailtex.js';
 
 const BARK = 0x2a241c;
 const BARK_DARK = 0x1a1612;
@@ -80,6 +83,49 @@ export function computeShorePineSite({ heightAt, isOnPath, isInPond } = {}) {
     return { x, z, h, yaw: Math.atan2(-dx, -dz) };
   }
   return null;
+}
+
+
+/**
+ * Sea gate on the authored extra stack, offset toward CAMERA.start so the
+ * posts stand in open water. Pure: only SEA_TORII + heightAt.
+ */
+export function computeSeaToriiSite({ heightAt } = {}) {
+  if (typeof heightAt !== 'function') return null;
+  const st = SEA_TORII.stack;
+  const cam = CAMERA.start;
+  let dx = cam.x - st.x, dz = cam.z - st.z;
+  const len = Math.hypot(dx, dz);
+  if (!(len > 1e-6)) return null;
+  dx /= len;
+  dz /= len;
+
+  const x = st.x + dx * SEA_TORII.offset;
+  const z = st.z + dz * SEA_TORII.offset;
+  const yaw = Math.atan2(cam.x - st.x, cam.z - st.z);
+  const scale = SEA_TORII.scale;
+  const baseY = SEA_TORII.baseY;
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const half = 1.9 * scale;
+  const posts = [
+    { x: x + half * c, z: z - half * s },
+    { x: x - half * c, z: z + half * s },
+  ];
+  for (let i = 0; i < posts.length; i++) {
+    const h = heightAt(posts[i].x, posts[i].z);
+    if (!(h < 0)) return null;
+    posts[i].h = h;
+  }
+
+  return {
+    x, z,
+    h: heightAt(x, z),
+    yaw, scale, baseY,
+    nukiY: baseY + 3.30 * scale,
+    posts,
+    stack: { x: st.x, z: st.z, h: heightAt(st.x, st.z) },
+    extra: true,
+  };
 }
 
 function paint(geo, hex, vary = 0) {
@@ -800,6 +846,9 @@ export function createPOI({
     ? computeTsukubaiSite({ heightAt, isOnPath, isInPond })
     : null;
   const iwakura = computeIwakuraSite();
+  const seaTorii = typeof heightAt === 'function'
+    ? computeSeaToriiSite({ heightAt })
+    : null;
 
   const pondList = Array.isArray(ponds) ? ponds : (ponds?.PONDS ?? []);
   const big = pondList[0] || null;
@@ -897,6 +946,24 @@ export function createPOI({
     group.add(mesh);
   }
 
+  if (seaTorii) {
+    const geo = makeToriiGeometry();
+    const bump = makeWoodBump(seed);
+    bump.repeat.set(1.5, 1);
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.72, metalness: 0,
+      bumpMap: bump, bumpScale: 0.22,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'sea-torii';
+    mesh.position.set(seaTorii.x, seaTorii.baseY, seaTorii.z);
+    mesh.rotation.y = seaTorii.yaw;
+    mesh.scale.setScalar(seaTorii.scale);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
   if (stones.length) {
     const geo = makeSteppingStoneGeometry(seed);
     const mat = new THREE.MeshStandardMaterial({
@@ -938,8 +1005,11 @@ export function createPOI({
     group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
-        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
-        else o.material.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          m.bumpMap?.dispose();
+          m.dispose();
+        }
       }
     });
     group.removeFromParent();
@@ -954,7 +1024,7 @@ export function createPOI({
     stoneYAt: (x, z) => stoneYAt(x, z, stones),
     onStone,
     hitsSolid,
-    sites: { pine, rock, jizo, tsukubai, iwakura, stones },
+    sites: { pine, rock, jizo, tsukubai, iwakura, stones, seaTorii },
     dispose,
   };
 }

@@ -32,6 +32,7 @@ import { createPOI } from './poi.js';
 import { createCrabs } from './crabs.js';
 import { createHerons } from './herons.js';
 import { createDragonflies } from './dragonflies.js';
+import { createGulls } from './gulls.js';
 import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
@@ -59,7 +60,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 16;
+const LOAD_STEPS = 17;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -170,7 +171,7 @@ const world = {
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
-  poi: null, crabs: null, moths: null, herons: null, dragonflies: null,
+  poi: null, crabs: null, moths: null, herons: null, dragonflies: null, gulls: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -491,6 +492,14 @@ async function boot() {
     isInPond: world.inWater,
   });
   scene.add(world.dragonflies.mesh);
+
+  await step('goélands');
+  world.gulls = createGulls({
+    seed: SEED, quality: q,
+    stacks: world.island.seaStacks,
+    torii: world.poi.sites.seaTorii,
+  });
+  scene.add(world.gulls.mesh);
 
   await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
   const foliageDensity = world.season === 'autumn'
@@ -865,6 +874,7 @@ function frame() {
   world.crabs?.update(t, dogX, dogZ);
   world.herons?.update(t, dt, dogX, dogZ);
   world.dragonflies?.update(t, phase);
+  world.gulls?.update(t, dt, world.shiba, camera);
   const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
     && world.heightAt(dogX, dogZ) < world.island.seaLevel;
   if (inSea) {

@@ -61,8 +61,9 @@ clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
 fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
 herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
 dragonflies.js — libellules GPU au-dessus des bassins (jour)
-poi.js      — landmarks authorés (côte, pas japonais, jizō, tsukubai, iwakura) + stoneYAt
+poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin) + stoneYAt
 crabs.js    — crabes de laisse (fuite, enfouissement)
+gulls.js    — goélands posés sur stacks / nuki du torii marin
 shiba.js / shiba-geom.js / shiba-gltf.js — chien (glTF + repli procédural)
 touch.js / boot.js — commandes tactiles, voile d'erreur
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu
