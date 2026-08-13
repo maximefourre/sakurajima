@@ -1303,7 +1303,7 @@ const TORII_DARK = 0x30261e;
  * geometry with painted vertex colours, same trick as the lantern, so three
  * gates are one instanced draw call.
  */
-function makeToriiGeometry() {
+export function makeToriiGeometry() {
   const parts = [];
   const tint = new THREE.Color();
   const part = (geo, hex, y, x = 0) => {

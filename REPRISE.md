@@ -2101,3 +2101,42 @@ Lots 2–8 non ouverts (`stoneYAt` retourne 0).
   (SwiftShader a booté mais `Page.captureScreenshot` a pendu) — retest visuel
   à faire sur la machine : suivre la route plage jusqu’au pin, midi, courir
   vers les crabes.
+
+---
+
+## Session « lot 4 — silhouette mer » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md` (lot 4
+seulement). Lots 2, 3, 5–8 non ouverts (`stoneYAt` reste 0).
+
+### Choix de site
+
+Les 5 sea stacks tirés sur `island:rocks` bougent avec `ROCK_TOTAL` et le
+pas du bake (low / high / ultra / banc `rocks: 8`). Aucun n’est une
+silhouette stable depuis `CAMERA.start` **et** le pin du lot 1. Un 6ᵉ stack
+est donc **authoré**, même leçon que `SPRING_ROCKS` : zéro `rngRock()`, les
+cinq tirés et tous les autres rochers gardent leur transform.
+
+- Extra : `(56, 108)·LAND_SCALE` ≈ `(177.81, 342.92)`, `h ≈ −0.96`
+- Torii décalé de `7.2` vers la caméra d’ouverture (face au large depuis
+  le pin, `pa ≈ 0°`, `va ≈ 13°` dans le 42° d’ouverture)
+
+### Livré
+
+- `details.js` : `makeToriiGeometry` exporté, vermillon et winding inchangés.
+- `island.js` : extra stack shape 4, `s=5.4`, `ky=1.65` ; `seaStacks` exporté.
+- `poi.js` : `computeSeaToriiSite` (pur) + mesh `×1.55`, piliers en `h < 0`,
+  nuki à `baseY + 3.30·s` (hors houle ~2.5).
+- `gulls.js` : 6 / 10 / 16, idle / toilette / envol groupé si shiba `< 20 u`
+  d’un perchoir ou caméra `< 8 u`. `computeGullSpawns` pour le banc.
+- `config.js` : `QUALITY.*.gulls`, tables `SEA_TORII` / `GULLS`.
+- `main.js` : `LOAD_STEPS` 15, étape `'goélands'` après `'côte'`.
+
+### Vérification
+
+- `node --check` sur `config.js`, `details.js`, `island.js`, `poi.js`,
+  `gulls.js`, `main.js`.
+- `test/invariants.html` via Chrome CDP : **41 pass, 0 fail** en `?q=low`
+  et `?q=ultra`. Piliers `h≈-1.29/-1.66` (low) et `-1.19/-1.67` (ultra),
+  nukiY=5.17 ; 5 stacks tirés + extra `(177.8, 342.9)` ; goélands 6/6 low,
+  16/16 ultra sur stack ou nuki.

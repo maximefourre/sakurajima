@@ -1,16 +1,18 @@
 /**
- * poi.js — authored landmarks. Lot 1: one kuromatsu and a sitting rock
- * just past the beach-path terminus.
+ * poi.js — authored landmarks. Lot 1: kuromatsu + sitting rock past the
+ * beach-path terminus. Lot 4: sea torii on the authored extra stack.
  *
- * Placement is a pure walk from PATHS (no WebGL) so the invariant can
- * fail the site without constructing a mesh. Geometry is the lantern
- * recipe: merged primitives, vertex colours, one draw per family.
+ * Placement is a pure walk from PATHS / SEA_TORII (no WebGL) so the
+ * invariant can fail the site without constructing a mesh. Geometry is
+ * the lantern recipe: merged primitives, vertex colours, one draw per family.
  */
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PATHS, WORLD, POI, SEED } from './config.js';
+import { PATHS, WORLD, POI, SEED, CAMERA, SEA_TORII } from './config.js';
 import { streamFor, fbm2 } from './noise.js';
+import { makeToriiGeometry } from './details.js';
+import { makeWoodBump } from './detailtex.js';
 
 const BARK = 0x2a241c;
 const BARK_DARK = 0x1a1612;
@@ -58,6 +60,48 @@ export function computeShorePineSite({ heightAt, isOnPath, isInPond } = {}) {
     return { x, z, h, yaw: Math.atan2(-dx, -dz) };
   }
   return null;
+}
+
+/**
+ * Sea gate on the authored extra stack, offset toward CAMERA.start so the
+ * posts stand in open water. Pure: only SEA_TORII + heightAt.
+ */
+export function computeSeaToriiSite({ heightAt } = {}) {
+  if (typeof heightAt !== 'function') return null;
+  const st = SEA_TORII.stack;
+  const cam = CAMERA.start;
+  let dx = cam.x - st.x, dz = cam.z - st.z;
+  const len = Math.hypot(dx, dz);
+  if (!(len > 1e-6)) return null;
+  dx /= len;
+  dz /= len;
+
+  const x = st.x + dx * SEA_TORII.offset;
+  const z = st.z + dz * SEA_TORII.offset;
+  const yaw = Math.atan2(cam.x - st.x, cam.z - st.z);
+  const scale = SEA_TORII.scale;
+  const baseY = SEA_TORII.baseY;
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const half = 1.9 * scale;
+  const posts = [
+    { x: x + half * c, z: z - half * s },
+    { x: x - half * c, z: z + half * s },
+  ];
+  for (let i = 0; i < posts.length; i++) {
+    const h = heightAt(posts[i].x, posts[i].z);
+    if (!(h < 0)) return null;
+    posts[i].h = h;
+  }
+
+  return {
+    x, z,
+    h: heightAt(x, z),
+    yaw, scale, baseY,
+    nukiY: baseY + 3.30 * scale,
+    posts,
+    stack: { x: st.x, z: st.z, h: heightAt(st.x, st.z) },
+    extra: true,
+  };
 }
 
 function paint(geo, hex, vary = 0) {
@@ -253,6 +297,9 @@ export function createPOI({
     ? computeShorePineSite({ heightAt, isOnPath, isInPond })
     : null;
   const rock = pine ? placeRock(pine, heightAt, isOnPath, isInPond) : null;
+  const seaTorii = typeof heightAt === 'function'
+    ? computeSeaToriiSite({ heightAt })
+    : null;
 
   const solids = [];
   if (pine) solids.push({ x: pine.x, z: pine.z, r: POI.pineTrunkR });
@@ -286,6 +333,24 @@ export function createPOI({
     group.add(mesh);
   }
 
+  if (seaTorii) {
+    const geo = makeToriiGeometry();
+    const bump = makeWoodBump(seed);
+    bump.repeat.set(1.5, 1);
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.72, metalness: 0,
+      bumpMap: bump, bumpScale: 0.22,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'sea-torii';
+    mesh.position.set(seaTorii.x, seaTorii.baseY, seaTorii.z);
+    mesh.rotation.y = seaTorii.yaw;
+    mesh.scale.setScalar(seaTorii.scale);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
   function hitsSolid(x, z, pad = 0) {
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
@@ -300,8 +365,11 @@ export function createPOI({
     group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
-        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
-        else o.material.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          m.bumpMap?.dispose();
+          m.dispose();
+        }
       }
     });
     group.removeFromParent();
@@ -311,7 +379,7 @@ export function createPOI({
     group,
     stoneYAt,
     hitsSolid,
-    sites: { pine, rock },
+    sites: { pine, rock, seaTorii },
     dispose,
   };
 }

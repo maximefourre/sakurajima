@@ -29,6 +29,7 @@ import { createShiba } from './shiba.js';
 import { loadShibaBody } from './shiba-gltf.js';
 import { createPOI } from './poi.js';
 import { createCrabs } from './crabs.js';
+import { createGulls } from './gulls.js';
 import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
@@ -56,7 +57,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 14;
+const LOAD_STEPS = 15;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -167,7 +168,7 @@ const world = {
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
-  poi: null, crabs: null,
+  poi: null, crabs: null, gulls: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -467,6 +468,14 @@ async function boot() {
     isInPond: world.inWater,
   });
   scene.add(world.crabs.mesh);
+
+  await step('goélands');
+  world.gulls = createGulls({
+    seed: SEED, quality: q,
+    stacks: world.island.seaStacks,
+    torii: world.poi.sites.seaTorii,
+  });
+  scene.add(world.gulls.mesh);
 
   await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
   const foliageDensity = world.season === 'autumn'
@@ -821,6 +830,7 @@ function frame() {
   const dog = world.shiba;
   const dogX = dog.position.x, dogZ = dog.position.z;
   world.crabs?.update(t, dogX, dogZ);
+  world.gulls?.update(t, dt, world.shiba, camera);
   const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
     && world.heightAt(dogX, dogZ) < world.island.seaLevel;
   if (inSea) {
