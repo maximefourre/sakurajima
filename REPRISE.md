@@ -2101,3 +2101,32 @@ Lots 2–8 non ouverts (`stoneYAt` retourne 0).
   (SwiftShader a booté mais `Page.captureScreenshot` a pendu) — retest visuel
   à faire sur la machine : suivre la route plage jusqu’au pin, midi, courir
   vers les crabes.
+
+---
+
+## Session « lot 3 — signes sacrés » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md`.
+Indépendant du lot 2 (`stoneYAt` reste 0). Pas de hérons, mites, torii marin,
+bambous, ni gestes shiba.
+
+### Livré
+
+- `src/poi.js` : jizō au carrefour (`PATHS.routes[0].points[0]`), hors ruban
+  de `PATH_HALF + 1.2` ; tsukubai sur la berge du grand étang (cuve + louche,
+  eau stagnante = disque, pas un 4ᵉ `PONDS`) ; iwakura = shimenawa + shide
+  sur `SPRING_ROCKS[0]` (aucun rocher ajouté). Pierre patinée en vertex
+  colours (grain + mousse, motif du hokora, sanctuaire intact).
+  `hitsSolid` gagne le jizō et la cuve.
+- Pures : `computeJizoSite`, `computeTsukubaiSite`, `computeIwakuraSite`.
+- `island.js` : `springReefSite()` re-dérive les coords authorées du plus
+  gros bloc (zéro RNG).
+- `config.js` : knobs `POI.jizo*` / `tsukubai*` / `iwakuraMax`. Pas de
+  nouvelle étape `LOAD_STEPS`.
+
+### Vérification
+
+- `node --check` sur `poi.js`, `config.js`, `island.js`, `main.js`.
+- `test/invariants.html?q=low` et `?q=ultra` : **41 pass, 0 fail**.
+  Jizō `@(19.91,-99.44)` hors ruban ; tsukubai `@(40.01,-106.38)` hors étang
+  et hors chemin ; iwakura dist 0.000 du récif `(-155.63,-18.94)`.

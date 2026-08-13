@@ -56,7 +56,7 @@ import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
-import { createIsland } from '../src/island.js';
+import { createIsland, springReefSite } from '../src/island.js';
 import { createDetails, flowerSpots, initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
@@ -67,7 +67,7 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
-import { computeShorePineSite, placeRock } from '../src/poi.js';
+import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite } from '../src/poi.js';
 import { computeCrabSpawns } from '../src/crabs.js';
 
 function check(name, cond, detail = '') {
@@ -402,6 +402,50 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   check('crabes : laisse sèche, hors étangs', ok,
     ok ? `${spawns.length}/${want} crabes, bande [${CRABS.strandLo}, ${CRABS.strandHi.toFixed(2)}]`
       : detail);
+}
+
+/* ── signes sacrés (lot 3) : pures seulement ────────────────────────────── */
+{
+  const site = computeJizoSite({
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: ponds.isInPond,
+  });
+  if (!site) {
+    check('jizō : hors ruban au carrefour', false, 'computeJizoSite a rendu null');
+  } else {
+    const onPath = isOnPath(site.x, site.z, POI.jizoPathExtra);
+    check('jizō : hors ruban au carrefour', !onPath,
+      `onPath=${onPath} @(${site.x.toFixed(2)},${site.z.toFixed(2)})`);
+  }
+}
+
+{
+  const site = computeTsukubaiSite({
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: ponds.isInPond,
+  });
+  if (!site) {
+    check('tsukubai : hors étang et hors chemin', false,
+      'computeTsukubaiSite a rendu null');
+  } else {
+    const wet = ponds.isInPond(site.x, site.z);
+    const onPath = isOnPath(site.x, site.z, POI.pathClear);
+    check('tsukubai : hors étang et hors chemin', !wet && !onPath,
+      `inPond=${wet} onPath=${onPath} @(${site.x.toFixed(2)},${site.z.toFixed(2)})`);
+  }
+}
+
+{
+  const site = computeIwakuraSite();
+  const reef = springReefSite();
+  const d = (site && reef)
+    ? Math.hypot(site.x - reef.x, site.z - reef.z)
+    : Infinity;
+  check('iwakura : à moins de 2 u du plus gros bloc du récif',
+    Number.isFinite(d) && d <= POI.iwakuraMax,
+    `dist=${d.toFixed(3)} (plafond ${POI.iwakuraMax})`);
 }
 
 /* ── Eau et chien ─────────────────────────────────────────────────────────

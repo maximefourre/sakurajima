@@ -1,23 +1,32 @@
 /**
- * poi.js — authored landmarks. Lot 1: one kuromatsu and a sitting rock
- * just past the beach-path terminus.
+ * poi.js — authored landmarks.
+ * Lot 1: kuromatsu + sitting rock past the beach-path terminus.
+ * Lot 3: jizō at the junction, tsukubai on the big-pond bank, iwakura
+ *        (shimenawa + shide) on the largest ridge-reef block.
  *
- * Placement is a pure walk from PATHS (no WebGL) so the invariant can
- * fail the site without constructing a mesh. Geometry is the lantern
- * recipe: merged primitives, vertex colours, one draw per family.
+ * Placement is a pure walk from PATHS / authored pond / reef (no WebGL)
+ * so the invariant can fail the site without constructing a mesh.
+ * Geometry is the lantern recipe: merged primitives, vertex colours.
  */
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PATHS, WORLD, POI, SEED } from './config.js';
 import { streamFor, fbm2 } from './noise.js';
+import { springReefSite } from './island.js';
 
 const BARK = 0x2a241c;
 const BARK_DARK = 0x1a1612;
 const NEEDLE = 0x1a2814;
 const NEEDLE_LIT = 0x24351a;
 const STONE = 0x8a8680;
-const STONE_MOSS = 0x5a6240;
+const STONE_DARK = 0x716d69;
+const STONE_MOSS = 0x5d6b33;
+const STONE_LICHEN = 0xc8c2a2;
+
+// Same formula as details.PATH_HALF — importing details would couple this
+// module to the 2 k-line path/flower file for one constant.
+const PATH_HALF = PATHS.width * 0.5 * 1.28;
 
 /** Lot 2 (stepping stones) fills this in. Movers stay on heightAt + path. */
 export function stoneYAt(_x, _z) {
@@ -72,6 +81,45 @@ function paint(geo, hex, vary = 0) {
     c[i * 3] = tint.r * j;
     c[i * 3 + 1] = tint.g * j;
     c[i * 3 + 2] = tint.b * j;
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+  geo.deleteAttribute('uv');
+  return geo;
+}
+
+/**
+ * Grain + moss + rare lichen, echoing the hokora motif in vertex colours
+ * so we do not lift the shrine shader out of details.js.
+ */
+function paintStone(geo, hex, mossAmt = 0.45) {
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  const pos = geo.attributes.position;
+  const nrm = geo.attributes.normal;
+  const n = pos.count;
+  const c = new Float32Array(n * 3);
+  const base = new THREE.Color(hex);
+  const moss = new THREE.Color(STONE_MOSS);
+  const lichen = new THREE.Color(STONE_LICHEN);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const grain = 0.82 + 0.28 * (0.60 * fbm2(x * 1.15 + 2.2, z * 1.15 - 1.4, 3)
+      + 0.40 * fbm2(x * 4.10 + 11.3, y * 4.10 + 5.9, 2));
+    tmp.copy(base).multiplyScalar(grain);
+    const up = Math.max(0, nrm.getY(i));
+    const low = Math.max(0, 1 - y * 0.55);
+    const blotch = Math.max(0, fbm2(x * 2.35 + 9.2, z * 2.35 + 5.7, 3));
+    const w = mossAmt * Math.min(0.82, low * (0.35 + 0.65 * blotch) * 0.85
+      + up * 0.22);
+    tmp.lerp(moss, w);
+    tmp.multiplyScalar(1 - w * 0.16);
+    const lichenN = fbm2(x * 7.20 + 6.8, y * 7.20 + 1.3, 2);
+    if (lichenN > 0.42 && y > 0.28) {
+      tmp.lerp(lichen, (lichenN - 0.42) * 0.28);
+    }
+    c[i * 3] = tmp.r;
+    c[i * 3 + 1] = tmp.g;
+    c[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
   geo.deleteAttribute('uv');
@@ -240,6 +288,274 @@ export function placeRock(pine, heightAt, isOnPath, isInPond) {
   return null;
 }
 
+function dryOffPath(heightAt, isOnPath, isInPond, x, z, extra, minH) {
+  if (typeof isOnPath === 'function' && isOnPath(x, z, extra)) return false;
+  if (typeof isInPond === 'function' && isInPond(x, z)) return false;
+  const h = heightAt(x, z);
+  return h > minH;
+}
+
+/** Undirected road axes at the junction, then the bisector of the widest gap. */
+function junctionGapHeading() {
+  const axes = [];
+  const pushAxis = (dx, dz) => {
+    if (!(Math.hypot(dx, dz) > 1e-6)) return;
+    let a = Math.atan2(dz, dx);
+    if (a < 0) a += Math.PI;
+    if (a >= Math.PI) a -= Math.PI;
+    axes.push(a);
+  };
+  for (const route of PATHS.routes) {
+    const pts = route.points;
+    if (pts.length < 2) continue;
+    pushAxis(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]);
+    const last = pts[pts.length - 1];
+    const closed = pts.length > 2
+      && Math.abs(last[0] - pts[0][0]) < 1e-6
+      && Math.abs(last[1] - pts[0][1]) < 1e-6;
+    if (closed) {
+      const prev = pts[pts.length - 2];
+      pushAxis(pts[0][0] - prev[0], pts[0][1] - prev[1]);
+    }
+  }
+  if (axes.length === 0) return 0.18;
+  axes.sort((a, b) => a - b);
+  let bestMid = axes[0] + Math.PI * 0.5, bestGap = -1;
+  for (let i = 0; i < axes.length; i++) {
+    const a0 = axes[i];
+    const a1 = i + 1 < axes.length ? axes[i + 1] : axes[0] + Math.PI;
+    const gap = a1 - a0;
+    if (gap > bestGap) {
+      bestGap = gap;
+      bestMid = a0 + gap * 0.5;
+    }
+  }
+  return bestMid;
+}
+
+/**
+ * First dry point beside PATHS.routes[0].points[0], off the ribbon by
+ * ≥ PATH_HALF + 1.2. Yaw faces the junction (local +Z).
+ */
+export function computeJizoSite({ heightAt, isOnPath, isInPond } = {}) {
+  if (typeof heightAt !== 'function') return null;
+  const route = PATHS.routes[0];
+  if (!route || !route.points.length) return null;
+  const [jx, jz] = route.points[0];
+  const extra = POI.jizoPathExtra;
+  const minD = PATH_HALF + extra;
+  const maxD = minD + POI.jizoSearch;
+  const step = POI.jizoStep;
+  const prefer = junctionGapHeading();
+  const turns = 16;
+  for (let d = minD; d <= maxD + 1e-6; d += step) {
+    for (let k = 0; k < turns; k++) {
+      const half = (k + 1) >> 1;
+      const sign = (k & 1) ? -1 : 1;
+      const a = prefer + sign * half * ((Math.PI * 2) / turns);
+      const x = jx + Math.cos(a) * d;
+      const z = jz + Math.sin(a) * d;
+      if (!dryOffPath(heightAt, isOnPath, isInPond, x, z, extra, WORLD.seaLevel + 0.4)) {
+        continue;
+      }
+      return { x, z, h: heightAt(x, z), yaw: Math.atan2(jx - x, jz - z) };
+    }
+  }
+  return null;
+}
+
+/**
+ * First dry bank of PONDS[0], off the wet margin and off the ribbon.
+ * Yaw faces the pond (local +Z).
+ */
+export function computeTsukubaiSite({ heightAt, isOnPath, isInPond } = {}) {
+  if (typeof heightAt !== 'function') return null;
+  const [px, pz] = POI.pondBig;
+  const [jx, jz] = PATHS.routes[0].points[0];
+  const prefer = Math.atan2(jz - pz, jx - px);
+  const extra = POI.tsukubaiPathExtra;
+  const rMin = POI.pondBigR * 0.70;
+  const rMax = POI.pondBigR + POI.tsukubaiSearch;
+  const step = POI.tsukubaiStep;
+  const turns = 20;
+  for (let d = rMin; d <= rMax + 1e-6; d += step) {
+    for (let k = 0; k < turns; k++) {
+      const half = (k + 1) >> 1;
+      const sign = (k & 1) ? -1 : 1;
+      const a = prefer + sign * half * ((Math.PI * 2) / turns);
+      const x = px + Math.cos(a) * d;
+      const z = pz + Math.sin(a) * d;
+      if (!dryOffPath(heightAt, isOnPath, isInPond, x, z, extra, WORLD.seaLevel + 0.2)) {
+        continue;
+      }
+      return { x, z, h: heightAt(x, z), yaw: Math.atan2(px - x, pz - z) };
+    }
+  }
+  return null;
+}
+
+/** Shimenawa sits on the largest reef block — no new rock. */
+export function computeIwakuraSite() {
+  const reef = springReefSite();
+  return {
+    x: reef.x,
+    z: reef.z,
+    s: reef.s,
+    ky: reef.ky,
+    yaw: reef.yaw,
+    sink: reef.sink,
+  };
+}
+
+/**
+ * Standing roadside jizō: pedestal, robe, bald head, faded bib.
+ * Without the bib it reads as a cairn.
+ */
+export function makeJizoGeometry() {
+  const parts = [];
+  const add = (geo, hex, moss) => {
+    paintStone(geo, hex, moss);
+    parts.push(geo);
+  };
+
+  const pedestal = new THREE.CylinderGeometry(0.28, 0.32, 0.15, 10);
+  pedestal.translate(0, 0.05, 0);
+  add(pedestal, STONE_DARK, 0.62);
+
+  const body = new THREE.CylinderGeometry(0.155, 0.205, 0.46, 10);
+  body.translate(0, 0.35, 0);
+  add(body, STONE, 0.42);
+
+  const robe = new THREE.SphereGeometry(0.20, 8, 6);
+  robe.scale(1.05, 0.72, 0.95);
+  robe.translate(0, 0.36, 0.02);
+  add(robe, STONE, 0.38);
+
+  const head = new THREE.SphereGeometry(0.135, 10, 8);
+  head.translate(0, 0.74, 0.015);
+  add(head, STONE, 0.12);
+
+  const bun = new THREE.SphereGeometry(0.042, 6, 5);
+  bun.translate(0, 0.87, 0);
+  add(bun, STONE, 0.08);
+
+  const hands = new THREE.BoxGeometry(0.13, 0.065, 0.075);
+  hands.translate(0, 0.42, 0.155);
+  add(hands, STONE, 0.18);
+
+  // Faded cloth, not vermilion — weathered, still names the figure.
+  const bib = new THREE.BoxGeometry(0.11, 0.14, 0.02);
+  bib.translate(0, 0.50, 0.175);
+  paint(bib, 0x7a3c34, 0.04);
+  parts.push(bib);
+
+  for (const s of [-1, 1]) {
+    const eye = new THREE.SphereGeometry(0.016, 6, 4);
+    eye.translate(s * 0.042, 0.755, 0.118);
+    paint(eye, 0x3a3834, 0);
+    parts.push(eye);
+  }
+
+  const merged = mergeParts(parts);
+  merged.computeVertexNormals();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/** Stone basin + bamboo ladle. The stagnant disc is a separate mesh. */
+export function makeTsukubaiGeometry() {
+  const parts = [];
+  const add = (geo, hex, moss) => {
+    paintStone(geo, hex, moss);
+    parts.push(geo);
+  };
+
+  const foot = new THREE.CylinderGeometry(0.36, 0.40, 0.14, 10);
+  foot.translate(0, 0.03, 0);
+  add(foot, STONE_DARK, 0.62);
+
+  const bowl = new THREE.CylinderGeometry(0.34, 0.38, 0.26, 12);
+  bowl.translate(0, 0.22, 0);
+  add(bowl, STONE, 0.44);
+
+  const rim = new THREE.TorusGeometry(0.325, 0.042, 8, 16);
+  rim.rotateX(Math.PI * 0.5);
+  rim.translate(0, 0.35, 0);
+  add(rim, STONE, 0.22);
+
+  const well = new THREE.CylinderGeometry(0.245, 0.225, 0.09, 12);
+  well.translate(0, 0.28, 0);
+  add(well, 0x4a4842, 0.12);
+
+  const BAMBOO = 0xc4b07a;
+  const handle = new THREE.CylinderGeometry(0.012, 0.016, 0.52, 6);
+  handle.rotateZ(Math.PI * 0.5);
+  handle.rotateY(0.32);
+  handle.translate(0.04, 0.405, 0.02);
+  paint(handle, BAMBOO, 0.08);
+  parts.push(handle);
+
+  const cup = new THREE.CylinderGeometry(0.034, 0.026, 0.052, 8);
+  cup.rotateZ(0.95);
+  cup.translate(-0.21, 0.385, -0.07);
+  paint(cup, BAMBOO, 0.06);
+  parts.push(cup);
+
+  const merged = mergeParts(parts);
+  merged.computeVertexNormals();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+function makeTsukubaiWaterGeometry() {
+  // CircleGeometry faces +Z; rotate so FrontSide looks at the sky.
+  const g = new THREE.CircleGeometry(0.22, 16);
+  g.rotateX(-Math.PI * 0.5);
+  g.translate(0, 0.305, 0);
+  return g;
+}
+
+/** Shimenawa + shide sized to SPRING_ROCKS[0]. No boulder. */
+export function makeIwakuraGeometry(site = {}) {
+  const s = site.s ?? 4.6;
+  const ky = site.ky ?? 1.15;
+  const sink = site.sink ?? 0.34;
+  const y = s * ky * (1 - sink) * 0.38;
+  const r = s * 0.46;
+  const straw = 0xd9cba6;
+  const paper = 0xeee9dc;
+  const parts = [];
+
+  const rope = new THREE.TorusGeometry(r, 0.068, 6, 28);
+  rope.rotateX(Math.PI * 0.5);
+  rope.translate(0, y, 0);
+  paint(rope, straw, 0.10);
+  parts.push(rope);
+
+  const nShide = 5;
+  for (let i = 0; i < nShide; i++) {
+    const a = (i / nShide) * Math.PI * 2 + 0.18;
+    const bx = Math.cos(a) * r;
+    const bz = Math.sin(a) * r;
+    for (let segment = 0; segment < 4; segment++) {
+      const outward = segment % 2 === 0 ? 0 : 0.04;
+      const strip = new THREE.BoxGeometry(0.09, 0.125, 0.016);
+      strip.translate(
+        bx + Math.cos(a) * outward,
+        y - 0.07 - segment * 0.125,
+        bz + Math.sin(a) * outward,
+      );
+      paint(strip, paper, 0);
+      parts.push(strip);
+    }
+  }
+
+  const merged = mergeParts(parts);
+  merged.computeVertexNormals();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
 export function createPOI({
   seed = SEED, heightAt, isOnPath, isInPond, slopeAt, season = 'spring',
 } = {}) {
@@ -253,10 +569,19 @@ export function createPOI({
     ? computeShorePineSite({ heightAt, isOnPath, isInPond })
     : null;
   const rock = pine ? placeRock(pine, heightAt, isOnPath, isInPond) : null;
+  const jizo = typeof heightAt === 'function'
+    ? computeJizoSite({ heightAt, isOnPath, isInPond })
+    : null;
+  const tsukubai = typeof heightAt === 'function'
+    ? computeTsukubaiSite({ heightAt, isOnPath, isInPond })
+    : null;
+  const iwakura = computeIwakuraSite();
 
   const solids = [];
   if (pine) solids.push({ x: pine.x, z: pine.z, r: POI.pineTrunkR });
   if (rock) solids.push({ x: rock.x, z: rock.z, r: POI.rockR });
+  if (jizo) solids.push({ x: jizo.x, z: jizo.z, r: POI.jizoR });
+  if (tsukubai) solids.push({ x: tsukubai.x, z: tsukubai.z, r: POI.tsukubaiR });
 
   if (pine) {
     const geo = makeKuromatsuGeometry();
@@ -281,6 +606,61 @@ export function createPOI({
     mesh.name = 'sitting-rock';
     mesh.position.set(rock.x, rock.h - POI.rockSink, rock.z);
     mesh.rotation.y = rock.yaw;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  if (jizo) {
+    const geo = makeJizoGeometry();
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.94, metalness: 0, flatShading: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'jizo';
+    mesh.position.set(jizo.x, jizo.h - 0.03, jizo.z);
+    mesh.rotation.y = jizo.yaw;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  if (tsukubai) {
+    const geo = makeTsukubaiGeometry();
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.94, metalness: 0, flatShading: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'tsukubai';
+    mesh.position.set(tsukubai.x, tsukubai.h - 0.04, tsukubai.z);
+    mesh.rotation.y = tsukubai.yaw;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    // Stagnant bowl water — a disc, not a 4th PONDS.
+    const waterGeo = makeTsukubaiWaterGeometry();
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: 0x2c3a32, roughness: 0.22, metalness: 0.08,
+      transparent: true, opacity: 0.82, depthWrite: false,
+    });
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.name = 'tsukubai-water';
+    water.position.copy(mesh.position);
+    water.rotation.y = tsukubai.yaw;
+    water.receiveShadow = true;
+    group.add(water);
+  }
+
+  if (iwakura && typeof heightAt === 'function') {
+    const geo = makeIwakuraGeometry(iwakura);
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.88, metalness: 0,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'iwakura';
+    mesh.position.set(iwakura.x, heightAt(iwakura.x, iwakura.z), iwakura.z);
+    mesh.rotation.y = iwakura.yaw;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
@@ -311,7 +691,7 @@ export function createPOI({
     group,
     stoneYAt,
     hitsSolid,
-    sites: { pine, rock },
+    sites: { pine, rock, jizo, tsukubai, iwakura },
     dispose,
   };
 }

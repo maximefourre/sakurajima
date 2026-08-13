@@ -460,6 +460,20 @@ export const POI = Object.freeze({
   rockOffset: 1.85,            // vers le large, depuis le fût
   rockPlateau: 1.4,
   rockSink: 0.14,
+
+  // Lot 3 — signes sacrés. N=1, pas d'AREA. Décalage jizō = PATH_HALF + extra.
+  jizoPathExtra: 1.2,
+  jizoSearch: 5.0,
+  jizoStep: 0.35,
+  jizoR: 0.38,
+  // PONDS[0] déjà LAND_SCALEd — ne pas remultiplier.
+  pondBig: [16 * LAND_SCALE, -42 * LAND_SCALE],
+  pondBigR: 7.2 * LAND_SCALE,
+  tsukubaiPathExtra: 0.55,
+  tsukubaiSearch: 18,
+  tsukubaiStep: 0.45,
+  tsukubaiR: 0.48,
+  iwakuraMax: 2,
 });
 
 /**
