@@ -1313,6 +1313,17 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     extent: HALF,
     meadow: { ...MEADOW },
     rockKeepOut,
+    /** Galets (r < 0.85) ignorés : on marche dessus. pad = rayon du corps. */
+    hitsRock(x, z, pad = 0) {
+      for (let i = 0; i < rockKeepOut.length; i++) {
+        const rk = rockKeepOut[i];
+        if (rk.r < 0.85) continue;
+        const dx = x - rk.x, dz = z - rk.z;
+        const rad = rk.r + pad;
+        if (dx * dx + dz * dz < rad * rad) return true;
+      }
+      return false;
+    },
     waterUniforms,
   };
 }

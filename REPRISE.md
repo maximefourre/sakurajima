@@ -2032,3 +2032,39 @@ Piège 8, variante nouvelle payée deux fois cette session : fenêtre recouverte
 les TRANSITIONS CSS gèlent aussi — le voile `.gone` garde `visibility: visible`
 calculée et reste hit-testable, ce qui fait mentir `elementFromPoint`. Toute
 sonde de hit-testing exige un onglet réellement visible.
+
+---
+
+## Session « correctifs audit » du 12/08
+
+Plan : `docs/superpowers/plans/2026-08-12-correctifs-audit.md` (v2 après ADV
+de 3 subagents). Implémentation dans cette session, **sans Codex**.
+
+| Chantier | Quoi |
+|---|---|
+| A | Contrats AGENTS/PLAN : Espace=saut, herbe rase, dégagement exact, 560k, `sunDistance` depuis le rayon réel, vérif visuelle honnête |
+| B | `water.isPond` + laisse sur le fond ; hystérésis de nage sur profondeur plate ; `passableAt` pour le banc |
+| C | Terrasse en anneaux clipés puis dégagés ; fbm de largeur remappé 0..1 ; `PATH_HALF` ; `pathLiftAt` |
+| D | Plancher caméra = max(sol, eau plate) ; premier doigt en capture avant OC ; `e.repeat` ignoré |
+| E | `shadowEnvelope(1.30·R+10)` ; fallback `SKY_TUNE` aligné ; herbe `radius: 1.12·île` |
+| F | `LOAD_STEPS=13` ; `Object.hasOwn` au clic qualité ; `TIER=` + WARN ; lanternes extra 1.6 ; `finally` |
+
+Vérifié : `node --check` sur les modules touchés ; `test/invariants.html`
+**low ET ultra : `INVARIANTS: 30 pass, 0 fail`**. Boot WebGL headless
+impossible ici (contexte GL refusé) — retest visuel à faire sur la machine.
+
+### Suite — feuilles sur la plage (même session)
+
+Le tapis d'automne (34 % dispersé sur toute la tuile + perch 0.25–0.70 calé
+sur l'herbe) jonchait le sable et **flottait**. `isPetalSand` refuse
+`seaLevel < h < beachTop+0.4` (1.6, comme `grass.beachY`). Invariants :
+`32 pass, 0 fail` en low.
+
+### Suite — surface d'étang, plus de lévitation, rochers solides
+
+- Tapis : `waterYAt` pose les feuilles **sur** le plan d'eau (plus le lit).
+- Perch 0.25–0.70 (haut d'herbe) abandonné : 0.02–0.08 au sol / 0.01–0.04
+  sur l'eau. L'herbe d'automne est trop filiforme, ça lisait en lévitation.
+- `island.hitsRock` + `shiba.blocked` : les gros blocs (r ≥ 0.85) arrêtent
+  le chien. Galets ignorés.
+Invariants low : `35 pass, 0 fail`.

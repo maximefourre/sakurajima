@@ -41,7 +41,8 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
   d'ouverture, **24.6** au sol ; automne 59 / 49.3 (le « ~41 fps » d'avant venait
   d'une mesure faussée, cf. piège 9). Le poste dominant est le FEUILLAGE de la
   forêt — 88 % du temps de frame en vue large, 75 % au sol.
-- Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra, Espace pause.
+- Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra,
+  Espace saut, `P` pause du temps.
 
 ## Architecture (qui fait quoi, qui dépend de qui)
 
@@ -50,13 +51,16 @@ config.js   — TOUTES les constantes d'art direction + presets qualité
 noise.js    — PRNG seedé (streamFor), noise2/fbm2/ridged2, smoothstep/clamp/mix
 island.js   — heightfield analytique → grille bakée → mesh terrain + océan + rochers
 ponds.js    — 3 étangs à koi (seul carve composé dans le heightfield)
-grass.js    — brins instanciés, LOD par chunks, plancher de densité 0.55 partout
+grass.js    — brins instanciés, LOD par chunks, plancher 0.55 là où il y a des brins
 sakura.js   — 5 archétypes sakura/momiji, feuillage instancié (saison au boot)
 details.js  — fleurs sauvages, RÉSEAU DE CHEMINS (3 routes) + TORII + LANTERNES
               générées le long des routes, galets (exporte isOnPath, initPath)
 detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
-clouds.js / birds.js / petals.js / wind.js / shiba.js / season.js / seasonal-foliage.js — atmosphère, saison & personnage
+clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
+fireflies.js / butterflies.js / particles.js — faune, pétales, poussière
+shiba.js / shiba-geom.js / shiba-gltf.js — chien (glTF + repli procédural)
+touch.js / boot.js — commandes tactiles, voile d'erreur
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu
 ```
 
@@ -75,12 +79,14 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   galets) scalent en `AREA = L²` ; les coûteux (herbe, arbres, pétales,
   rochers) en `AREA_SOFT = AREA^0.75`, compensé par des instances plus grosses.
   Honnêteté : `AREA_SOFT` est la POLITIQUE par défaut, pas une protection — le
-  coefficient herbe ultra a été volontairement monté (300k→470k, ≈2.66 M de
+  coefficient herbe ultra a été volontairement monté (300k→560k, ≈3.17 M de
   brins) à la demande de l'utilisateur, un choix de goût pour la machine cible.
   Les vrais replis machine faible sont les tiers low/high.
-- **`sunDistance` dérive de `LAND_SCALE`** (`sky.js`) : le near-plane d'ombre
-  est `D_SUN − R_ISLAND − 80` et devient négatif (ombres mortes, zéro erreur)
-  si on remet une constante.
+- **`sunDistance` dérive du rayon d'ombre réel** (`sky.js`, `shadowEnvelope`) :
+  `R ≈ 1.30 · island.radius + 10` (côte + rochers, pas `125 · LAND_SCALE`),
+  `D = R + 220`, near = `D − R − 80` (= 140). Changer R sans D rend le near
+  **négatif** (ombres mortes, zéro erreur). Le fallback `SKY_TUNE` utilise
+  la même formule, pour qu'un argument oublié ne puisse pas tuer les ombres.
 - **Changement de qualité = reload** : le tier est résolu AVANT le boot
   (`?q=` → localStorage `sakurajima.quality` → défaut : `ultra`, ou `high` si
   le pointeur est grossier — un téléphone ne survit pas au bake ultra) ; le
@@ -90,7 +96,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   en lisière de prairie — 'torii' (grimpe à la terrasse de la falaise ouest,
   rim rehaussé à 12.5·H pour un vrai dénivelé), 'etangs' (boucle fermée,
   premier point = dernier), 'plage'. `details.js` : un ruban par route,
-  `isOnPath(x, z, extra = 1.3)` sur TOUTES les routes, lanternes GÉNÉRÉES le
+  `isOnPath(x, z, extra)` sur TOUTES les routes (demi-largeur = `PATH_HALF`,
+  le max après remap fbm), lanternes GÉNÉRÉES le
   long des routes (quinconce, sautées si pente > 0.9 ou sol trop bas — AUCUNE
   lanterne orpheline, consigne utilisateur), torii aux fractions `toriiAt` de
   la route 'torii'. `main.js` appelle `initPath()` AVANT `createGrass`, et
@@ -98,20 +105,23 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   consigne utilisateur).
 - **Les rubans se posent COLLÉS puis se dégagent triangle par triangle**
   (`clearRibbonTriangles`, details.js) : `y = heightAt + bombé`, puis chaque
-  triangle est relevé du déficit mesuré sur un treillis barycentrique jusqu'à
-  dominer le terrain (marge 0.02, convergence en ≤ 2 passes). Relever les TROIS
+  triangle est relevé du déficit mesuré sur l'arrangement exact ruban ∩ grille
+  bakée (marge 0.02). Le treillis barycentrique n'est qu'un fallback si
+  `heightGrid` est absent — il ne prouve pas le dégagement. Relever les TROIS
   sommets du même montant translate le plan sans le pencher — la passe est
   monotone, donc elle converge. Ne PAS revenir à une sonde de voisinage : un max
   (ou un résidu de plan) sur un disque paie la pente et la concavité, qui ne
   perforent jamais, et fait FLOTTER le chemin (~1 u, deux régressions payées).
-  `pathSurfaceLiftAt` — surface de marche du shiba et de la caméra — ne peut pas
-  rejouer ce dégagement par requête ponctuelle : c'est un bombé pur, dont
-  l'écart à la surface visible est BORNÉ par un invariant (≤ 0.25, mesuré 0.098).
+  La terrasse du belvédère est un **patin à anneaux** (pas un éventail) : clip
+  par azimut **avant** le dégagement, sinon le sommet centre soulève toute la
+  dalle. `pathSurfaceLiftAt` — surface de marche du shiba et de la caméra — ne
+  peut pas rejouer ce dégagement par requête ponctuelle : c'est un bombé pur,
+  dont l'écart à la surface visible est BORNÉ par un invariant (≤ 0.25).
 - **`createSakuraForest` et `createGrass` ignorent en silence les options
   inconnues.** sakura veut `isLand`, `windUniforms`, `quality` **numérique**
   (un objet → budget NaN → arbres sans branches). grass veut `count`, `bounds`,
-  `exclude` (pas `quality`).
-  (grille de buckets) branché dans l'`exclude` de l'herbe (les deux sites).
+  `exclude` / `shortZone` (pas `quality`). Sur la sente l'herbe est **rase**
+  (`shortZone` → `isOnPath`), plus une exclusion dure.
 - La falaise ouest vit dans `analyticHeight` (secteur angulaire plein-ouest,
   rim + chute) — pas un mesh séparé, tout suit (couleurs, pente, herbe).
 
@@ -147,8 +157,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
 ## Vérification type
 
 1. **`test/invariants.html`** (via serve.py) : la console doit finir par
-   `INVARIANTS: 26 pass, 0 fail` (26 au 08/08 — le compte grandit avec les
-   chantiers, seul le `0 fail` est immuable) — chemin sur terre ferme, far plane, nuages,
+   `INVARIANTS: N pass, 0 fail` (N grandit avec les chantiers, seul le
+   `0 fail` est immuable) — chemin sur terre ferme, far plane, nuages,
    étangs carvés, routes hors étangs, la route des torii grimpe à la falaise,
    aucune lanterne orpheline, les trois de la terre battue (dégagée du
    terrain, collée à ≤ 0.55 u, hauteur logique fidèle à la surface visible),
@@ -165,9 +175,13 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    repasse en `?q=ultra` — c'est là que le correctif C-ter s'est fait prendre
    (élévation 1.11 u en ultra contre 0.93 en low, pour un plafond de 0.55).
 2. Visuel — midi (`__sk.world.dayTime = 0.5`) : mer jusqu'à l'horizon sans
-   ligne rasoir, ombres présentes (si absentes → near-plane, piège sky.js).
-   Herbe SANS zone nue (plancher 0.55). Nuit (0.97) : lune basse au sud avec
-   halo, étoiles dans la bande 0–20°, terre lisible, lanternes allumées le
-   long des trois routes. Vue sol : chemins de terre granuleux, herbe exclue
-   dessus, torii debout sur la montée, aucun arbre sur un chemin.
+   ligne rasoir, ombres présentes jusqu'à la côte (si absentes → near-plane,
+   piège sky.js). Herbe : plancher 0.55 **à la caméra suivie, sur la prairie**
+   (là où des brins existent). L'ouverture postcard peut n'être que de
+   l'albedo — `fadeEnd` 330, coût géométrique, piège 10. Nuit (0.97) : lune
+   basse au sud avec halo, étoiles dans la bande 0–20°, terre lisible,
+   lanternes allumées le long des trois routes. Vue sol : chemins de terre
+   granuleux, herbe **rase** dessus (`shortZone`), torii debout sur la montée,
+   aucun arbre sur un chemin. La laisse de mer est fermée (houle ≠ étang) ;
+   la pose de nage ne pompe pas avec la vague.
 3. Tiers : `?q=low|high|ultra` — aria-pressed reflète le tier réel au boot.

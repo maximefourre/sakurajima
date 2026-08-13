@@ -79,12 +79,12 @@ function failAll(reason) {
   finishSummary();
 }
 
-let THREE, seedNoise, createWind, createPetals, AUTUMN_PALETTES, isAutumnDominant, dominantForIndex;
+let THREE, seedNoise, createWind, createPetals, isPetalSand, forEachCarpetLeaf, AUTUMN_PALETTES, isAutumnDominant, dominantForIndex;
 try {
   THREE = await import('three').then(m => m.default ?? m);
   ({ seedNoise } = await import('../src/noise.js'));
   ({ createWind } = await import('../src/wind.js'));
-  ({ createPetals } = await import('../src/petals.js'));
+  ({ createPetals, isPetalSand, forEachCarpetLeaf } = await import('../src/petals.js'));
   ({ AUTUMN_PALETTES, isAutumnDominant, dominantForIndex } = await import('../src/seasonal-foliage.js'));
 } catch (err) {
   failAll('import failed: ' + (err?.message || err));
@@ -209,7 +209,10 @@ function readAttr(geo, name) {
 function validateAttributes() {
   if (!petals) return { ok: false, detail: 'petals null' };
   const airGeo = petals.mesh?.geometry;
-  const carpetGeo = petals.carpet?.geometry;
+  const carpetMesh = petals.carpet?.isInstancedMesh
+    ? petals.carpet
+    : petals.carpet?.children?.find((c) => c.isInstancedMesh);
+  const carpetGeo = carpetMesh?.geometry;
   const aShapeAir = readAttr(airGeo, 'aShape');
   const aColorAir = readAttr(airGeo, 'aColor');
   const aShapeCarpet = readAttr(carpetGeo, 'aShape');
@@ -287,8 +290,9 @@ function finish() {
     !!petals && petals.count === AIR,
     petals ? `got ${petals.count}` : 'petals null');
 
+  const carpetExpect = season === 'autumn' ? Math.round(CARPET * 2.5) : CARPET;
   check('compte tapis',
-    !!petals && petals.carpetCount === CARPET,
+    !!petals && petals.carpetCount === carpetExpect,
     petals ? `got ${petals.carpetCount}` : 'petals null');
 
   check('kind retour',
@@ -301,6 +305,43 @@ function finish() {
   check('zéro erreur shader/page',
     shaderErrors === 0 && pageErrors === 0 && frames >= 2,
     `shader=${shaderErrors} page=${pageErrors} frames=${frames}`);
+
+  check('sable émergé rejeté, mer et prairie non',
+    isPetalSand(0.5) && isPetalSand(1.4) && !isPetalSand(0) && !isPetalSand(3),
+    '0.5/1.4 sable, 0 mer, 3 prairie');
+
+  // Couronne au-dessus du sable (+x) et de la prairie (−x). Aucune instance
+  // du tapis ne doit atterrir sur le sable (sinon elles flottent à perch).
+  {
+    let sandHits = 0, meadowHits = 0, probed = false;
+    try {
+      const probe = createPetals({
+        seed: SEED,
+        quality: { petals: 8, fallenPetals: 500 },
+        season: 'autumn',
+        canopies: [
+          { x: 20, y: 8, z: 0, radius: 8, dominant: 'red' },
+          { x: -20, y: 8, z: 0, radius: 8, dominant: 'yellow' },
+        ],
+        wind,
+        heightAt: (x) => (x > 0 ? 0.5 : 4.0),
+      });
+      const n = probe.carpetCount | 0;
+      if (n > 0) {
+        probed = true;
+        forEachCarpetLeaf(probe.carpet, (x) => {
+          if (x > 0) sandHits++;
+          else meadowHits++;
+        });
+      }
+      probe.dispose();
+    } catch (err) {
+      say('✗ probe tapis : ' + (err?.message || err), 'bad');
+    }
+    check('tapis : zéro feuille sur le sable',
+      probed && sandHits === 0 && meadowHits > 0,
+      probed ? `sable=${sandHits} prairie=${meadowHits}` : 'probe vide');
+  }
 
   finishSummary();
 }

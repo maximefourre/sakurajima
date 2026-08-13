@@ -75,6 +75,28 @@ const SAKURA_SHAPE_GLSL = /* glsl */ `
 const AUTUMN_CARPET_MULTIPLIER = 2.5;
 const AUTUMN_CARPET_DISPERSED_FRACTION = 0.34;
 const CARPET_CANOPY_SPREAD = 1.12;
+/** Même plafond que grass.beachY (1.6) : WORLD.beachTop + bande de dune. */
+const SAND_CEILING = WORLD.beachTop + 0.4;
+
+/** Sable émergé : trop haut pour la mer, trop bas pour l'herbe. */
+export function isPetalSand(h) {
+  return h > WORLD.seaLevel && h < SAND_CEILING;
+}
+
+/** Parcourt toutes les feuilles du tapis (chunks ou mesh unique), pose bakée. */
+export function forEachCarpetLeaf(carpet, fn) {
+  if (!carpet) return;
+  const list = carpet.isInstancedMesh ? [carpet] : (carpet.children || []);
+  for (let m = 0; m < list.length; m++) {
+    const mesh = list[m];
+    if (!mesh.isInstancedMesh) continue;
+    const e = mesh.instanceMatrix.array;
+    const n = mesh.userData.fullCount ?? mesh.count;
+    for (let i = 0; i < n; i++) {
+      fn(e[i * 16 + 12], e[i * 16 + 13], e[i * 16 + 14]);
+    }
+  }
+}
 
 /** One petal: a small quad, bent along its length so it is never perfectly flat. */
 function makePetalGeometry() {
@@ -93,7 +115,7 @@ function makePetalGeometry() {
   return g;
 }
 
-export function createPetals({ seed, quality, season = 'spring', canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null }) {
+export function createPetals({ seed, quality, season = 'spring', canopies = [], wind, heightAt, slopeAt = null, exclude = null, onPath = null, waterYAt = null }) {
   const mode = season === 'autumn' ? 'autumn' : 'spring';
   const autumn = mode === 'autumn';
   const COUNT = quality.petals;
@@ -480,6 +502,7 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
    * never enter the transparent sort against the airborne pass.
    */
   let carpet = null, carpetGeo = null, carpetMat = null;
+  let carpetPlaced = 0;
   const baseCarpetCount = (quality.fallenPetals | 0) || 0;
   const CARPET_COUNT = autumn
     ? Math.round(baseCarpetCount * AUTUMN_CARPET_MULTIPLIER)
@@ -555,17 +578,23 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
           vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
           vNormalW = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * normal));
 
-          // REMOUS : pres du shiba lance, les petales se soulevent et
-          // s'ecartent — un sillage de course dans le tapis. uPlayer.z est la
-          // vitesse normalisee : a l'arret, rien ne bouge.
-          float pd = distance(wp.xz, uPlayer.xy);
-          float stir = (1.0 - smoothstep(0.3, 2.8, pd)) * uPlayer.z;
-          if (stir > 0.001) {
-            float flut = 0.5 + 0.5 * sin(uTime * 8.0 + wp.x * 3.7 + wp.z * 2.9);
-            wp.y += stir * flut * 0.85;
-            vec2 away = wp.xz - uPlayer.xy;
+          // Coup de patte, pas une vague de tapis. L'ancien smoothstep 0.3–2.8
+          // + sin(x,z) commun soulevait tout le disque d'un seul geste.
+          // Centre d'instance (pas wp) : sinon le quad se tord, et phase
+          // par feuille (hash) : sinon elles restent en phase et ça lit
+          // comme une nappe.
+          vec2 leaf = instanceMatrix[3].xz;
+          float hid = fract(sin(dot(leaf, vec2(127.1, 311.7))) * 43758.5453);
+          float pd = distance(leaf, uPlayer.xy);
+          float near = 1.0 - smoothstep(0.18, 1.05, pd);
+          float kick = near * near * smoothstep(0.12, 0.62, uPlayer.z);
+          if (kick > 0.001) {
+            float flut = 0.5 + 0.5 * sin(uTime * mix(11.0, 20.0, hid) + hid * 6.28318);
+            wp.y += kick * flut * mix(0.06, 0.28, hid);
+            vec2 jitter = vec2(hid - 0.5, fract(hid * 7.13) - 0.5);
+            vec2 away = leaf - uPlayer.xy + jitter * 0.45;
             float al = max(length(away), 0.001);
-            wp.xz += (away / al) * stir * 0.55;
+            wp.xz += (away / al) * kick * mix(0.03, 0.14, hid);
           }
 
           // NOTE: must be named mvPosition -- the fog_vertex chunk reads it.
@@ -701,8 +730,17 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
       return true;
     };
 
+    const CARPET_DIV = 10;
+    const cellSize = WORLD.size / CARPET_DIV;
+    const cellOf = new Int16Array(CARPET_COUNT);
+    const carpetCell = (x, z) => {
+      const ix = Math.max(0, Math.min(CARPET_DIV - 1, Math.floor((x + half) / cellSize)));
+      const iz = Math.max(0, Math.min(CARPET_DIV - 1, Math.floor((z + half) / cellSize)));
+      return iz * CARPET_DIV + ix;
+    };
+
     const cMesh = new THREE.InstancedMesh(carpetGeo, carpetMat, CARPET_COUNT);
-    cMesh.name = 'petal-carpet';
+    cMesh.name = 'petal-carpet-bake';
     cMesh.castShadow = false;
     cMesh.receiveShadow = false;   // ShaderMaterial: no shadow chunks, same as airborne
     cMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -742,11 +780,13 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
           z = c.z + Math.sin(a) * rr;
         }
         if (exclude && exclude(x, z)) continue;
-        h = heightAt ? heightAt(x, z) : 0;
-        // Uniform candidates span the full terrain tile; sea-level rejection
-        // restricts that branch to the island while exclude handles pond water.
-        if (dispersed && heightAt && h <= WORLD.seaLevel) continue;
-        if (slopeAt && slopeAt(x, z) > 0.55) continue;
+        const pondY = typeof waterYAt === 'function' ? waterYAt(x, z) : null;
+        h = pondY !== null ? pondY : (heightAt ? heightAt(x, z) : 0);
+        // Mer (dispersé) : pas de tapis. Les étangs passent par pondY.
+        if (dispersed && pondY === null && heightAt && h <= WORLD.seaLevel) continue;
+        // Plage : pas de tapis. Ne pas tester le lit d'étang (creusé).
+        if (pondY === null && isPetalSand(h)) continue;
+        if (pondY === null && slopeAt && slopeAt(x, z) > 0.55) continue;
         accepted = true;
       }
       if (!accepted) break;
@@ -762,11 +802,10 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
       const s = autumn
         ? R.skew(crng, 0.34, 0.62, 1.6)
         : R.skew(crng, 0.18, 0.40, 1.6) * (flower ? 1.4 : 1);
-      // Perchés sur le HAUT de l'herbe (~1.2 de haut) : à 0.06-0.42 ils
-      // lisaient « coincés DANS l'herbe » (consigne joueur). Sur la terre
-      // battue des chemins, herbe rase : posés au sol.
-      const perch = (onPath && onPath(x, z)) ? R.range(crng, 0.02, 0.10)
-                                             : R.range(crng, 0.25, 0.70);
+      // Au SOL / à la SURFACE, plus à hauteur d'herbe : l'herbe d'automne
+      // est trop clairsemée, le perch 0.25–0.70 lisait « en lévitation ».
+      const onWater = typeof waterYAt === 'function' && waterYAt(x, z) !== null;
+      const perch = onWater ? R.range(crng, 0.01, 0.04) : R.range(crng, 0.02, 0.08);
       // The source petal quad is taller than it is wide. Widen autumn only so
       // the five maple lobes retain their recognisable fan on the ground.
       _m.compose(_p.set(x, h + perch, z), _q, _s.set(autumn ? s * 1.28 : s, s, s));
@@ -795,12 +834,81 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
         aColorC[placed * 3 + 2] = 1;
       }
       if (dispersed) dispersedLeft--;
+      cellOf[placed] = carpetCell(x, z);
       placed++;
     }
     cMesh.count = placed;
     cMesh.instanceMatrix.needsUpdate = true;
-    cMesh.computeBoundingSphere();   // InstancedMesh version unions instances
-    carpet = cMesh;
+
+    // Découpe spatiale : un InstancedMesh par cellule. Loin de la caméra on
+    // ne soumet qu'un préfixe mélangé (même idée que FOLIAGE_SHUFFLE_BLOCK).
+    const nCells = CARPET_DIV * CARPET_DIV;
+    const lists = Array.from({ length: nCells }, () => []);
+    for (let i = 0; i < placed; i++) lists[cellOf[i]].push(i);
+    const lodRng = streamFor(seed, 'petals.carpet.lod');
+    const srcM = cMesh.instanceMatrix.array;
+    const carpetGroup = new THREE.Group();
+    carpetGroup.name = 'petal-carpet';
+    const carpetChunks = [];
+    const _bsMin = new THREE.Vector3();
+    const _bsMax = new THREE.Vector3();
+
+    for (let c = 0; c < nCells; c++) {
+      const ids = lists[c];
+      if (ids.length === 0) continue;
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.min(i, (lodRng() * (i + 1)) | 0);
+        const tmp = ids[i]; ids[i] = ids[j]; ids[j] = tmp;
+      }
+      const n = ids.length;
+      const tint = new Float32Array(n * 3);
+      const shape = new Float32Array(n);
+      const col = new Float32Array(n * 3);
+      const g = makePetalGeometry();
+      g.rotateX(-Math.PI / 2);
+      g.setAttribute('aTintAge', new THREE.InstancedBufferAttribute(tint, 3));
+      g.setAttribute('aShape', new THREE.InstancedBufferAttribute(shape, 1));
+      g.setAttribute('aColor', new THREE.InstancedBufferAttribute(col, 3));
+      const chunk = new THREE.InstancedMesh(g, carpetMat, n);
+      chunk.name = `petal-carpet-${c}`;
+      chunk.castShadow = false;
+      chunk.receiveShadow = false;
+      chunk.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      _bsMin.set(Infinity, Infinity, Infinity);
+      _bsMax.set(-Infinity, -Infinity, -Infinity);
+      for (let k = 0; k < n; k++) {
+        const i = ids[k];
+        const o = k * 16, s = i * 16;
+        for (let e = 0; e < 16; e++) chunk.instanceMatrix.array[o + e] = srcM[s + e];
+        tint[k * 3] = aTintAge[i * 3];
+        tint[k * 3 + 1] = aTintAge[i * 3 + 1];
+        tint[k * 3 + 2] = aTintAge[i * 3 + 2];
+        shape[k] = aShapeC[i];
+        col[k * 3] = aColorC[i * 3];
+        col[k * 3 + 1] = aColorC[i * 3 + 1];
+        col[k * 3 + 2] = aColorC[i * 3 + 2];
+        const lx = srcM[s + 12], ly = srcM[s + 13], lz = srcM[s + 14];
+        if (lx < _bsMin.x) _bsMin.x = lx; if (lx > _bsMax.x) _bsMax.x = lx;
+        if (ly < _bsMin.y) _bsMin.y = ly; if (ly > _bsMax.y) _bsMax.y = ly;
+        if (lz < _bsMin.z) _bsMin.z = lz; if (lz > _bsMax.z) _bsMax.z = lz;
+      }
+      chunk.instanceMatrix.needsUpdate = true;
+      const cx = (_bsMin.x + _bsMax.x) * 0.5;
+      const cy = (_bsMin.y + _bsMax.y) * 0.5;
+      const cz = (_bsMin.z + _bsMax.z) * 0.5;
+      const radius = 0.5 * _bsMin.distanceTo(_bsMax) + 1.2;
+      chunk.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), radius);
+      chunk.frustumCulled = true;
+      chunk.userData.fullCount = n;
+      carpetGroup.add(chunk);
+      carpetChunks.push({ mesh: chunk, geo: g, full: n, cx, cy, cz, radius });
+    }
+    cMesh.dispose();
+    carpetGeo.dispose();
+    carpetGeo = null;
+    carpet = carpetGroup;
+    carpet._chunks = carpetChunks;
+    carpetPlaced = placed;
   }
 
   const _sun = new THREE.Vector3();
@@ -809,8 +917,34 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     if (carpetMat) carpetMat.uniforms.uPlayer.value.set(x, z, speedN);
   }
 
-  function update(t, phase) {
+  const _camPos = new THREE.Vector3();
+  const CARPET_LOD_NEAR = 110;
+  const CARPET_LOD_FAR = 280;
+  const CARPET_LOD_KEEP = 0.20;
+
+  function update(t, phase, camera) {
     if (carpetMat) carpetMat.uniforms.uTime.value = t;
+    const chunks = carpet && carpet._chunks;
+    if (chunks && camera) {
+      camera.getWorldPosition(_camPos);
+      for (let i = 0; i < chunks.length; i++) {
+        const ch = chunks[i];
+        const dx = ch.cx - _camPos.x, dy = ch.cy - _camPos.y, dz = ch.cz - _camPos.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - ch.radius;
+        if (d > CARPET_LOD_FAR) {
+          ch.mesh.visible = false;
+          ch.mesh.count = 0;
+          continue;
+        }
+        ch.mesh.visible = true;
+        if (d <= CARPET_LOD_NEAR) {
+          ch.mesh.count = ch.full;
+        } else {
+          const u = (d - CARPET_LOD_NEAR) / (CARPET_LOD_FAR - CARPET_LOD_NEAR);
+          ch.mesh.count = Math.max(1, Math.floor(ch.full * (1 - u * (1 - CARPET_LOD_KEEP))));
+        }
+      }
+    }
     // Wind uniforms are shared by reference and already updated by wind.update().
     if (!phase) return;
     // keyDir/keyColor resolve to sun by day and moon by night, so petals stay
@@ -836,15 +970,23 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     geo.dispose();
     material.dispose();
     mesh.dispose();
+    const chunks = carpet && carpet._chunks;
+    if (chunks) {
+      for (let i = 0; i < chunks.length; i++) {
+        chunks[i].geo.dispose();
+        chunks[i].mesh.dispose();
+      }
+    } else {
+      carpet?.dispose();
+    }
     carpetGeo?.dispose();
     carpetMat?.dispose();
-    carpet?.dispose();
   }
 
   return {
     mesh, carpet, update, setPlayer, dispose,
     count: COUNT,
-    carpetCount: carpet ? carpet.count : 0,
+    carpetCount: carpetPlaced,
     season: mode,
     kind: autumn ? 'maple' : 'sakura',
   };

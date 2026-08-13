@@ -14,12 +14,13 @@
  *  2. Le materiau charge est un MeshBasicMaterial, pas un Standard : l'asset
  *     declare KHR_materials_unlit. Ecrire roughness dessus ne leve aucune
  *     erreur et ne fait RIEN. On reconstruit un MeshStandardMaterial.
- *  3. Les os des paupieres et des oreilles seront bindes dans une pose NON
- *     NULLE (tache 3), parce que animate() leur ecrit une valeur non nulle au
- *     repos. Bindes a l'identite, ils donneraient une deformation permanente.
+ *  3. Les os des paupieres et des oreilles sont bindes dans une pose NON
+ *     NULLE, parce que animate() leur ecrit une valeur non nulle au repos.
+ *     Bindes a l'identite, ils donneraient une deformation permanente.
  *
- *  Etat : tache 2 du chantier G. loadShibaBody() rend pour l'instant la
- *  geometrie normalisee et son materiau ; le squelette arrive en tache 3.
+ *  Etat : chantier G livre. loadShibaBody() rend le rig complet (squelette,
+ *  poids, hooks poseLeg/poseBody/poseHead/poseTail, swimFloat) ou null si
+ *  l'asset manque — shiba.js reprend alors le chien procedural.
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';

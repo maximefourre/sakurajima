@@ -205,6 +205,8 @@ export function createShiba({
   water = null,
   wind = null,
   particles = null,
+  /** (x, z) => true si un rocher bloque. Absent = pas de collision roche. */
+  blocked = null,
   /** Corps préconstruit, au contrat de buildBody() — le rig glTF de
    *  shiba-gltf.js. `null` construit le chien procédural, qui est le repli. */
   body = null,
@@ -338,14 +340,14 @@ export function createShiba({
 
   /** Can he move here? Water and dry ground each have one coherent rule. */
   function passable(x, z) {
+    if (typeof blocked === 'function' && blocked(x, z)) return false;
     const h = heightAt(x, z);
     const s = water.surfaceAt(x, z, nowT);
     if (s !== null) {
-      // Il nage : la pente du LIT ne le concerne plus. Seule compte la laisse.
-      // Mer : refus quand le fond descend sous -swimReach (il longe alors la
-      // laisse en arc, ce qui se lit comme "il ne veut pas aller plus loin",
-      // pas comme un mur). Étangs : aucun refus, il traverse à la nage.
-      return h > seaLevelLocal - SHIBA.swimReach || s > seaLevelLocal + 0.5;
+      // Classification étang/mer : water.isPond, JAMAIS la hauteur de surface.
+      // La houle (amp 1.15) dépasse 0.5 et ouvrait la laisse (audit C1).
+      if (typeof water.isPond === 'function' && water.isPond(x, z)) return true;
+      return h > seaLevelLocal - SHIBA.swimReach;
     }
     return !(slopeAt && slopeAt(x, z) > SHIBA.maxSlope);
   }
@@ -802,6 +804,11 @@ export function createShiba({
     // LA question, posée une fois par frame. profondeur = 0 signifie sec.
     const s = water.surfaceAt(position.x, position.z, t);
     const depth = s === null ? 0 : Math.max(0, s - ground);
+    const still = s === null ? null
+      : (typeof water.isPond === 'function' && water.isPond(position.x, position.z)
+        ? s
+        : seaLevelLocal);
+    const depthStill = still === null ? 0 : Math.max(0, still - ground);
     const wasWading = state.wading;
     const wasInWater = state.wading || state.swimming;
     state.depth = depth;
@@ -812,11 +819,11 @@ export function createShiba({
       waterImpact(position.x, position.z, 1.35);
     }
 
-    // The 0.12 u hysteresis absorbs triangle noise at the lose-footing line;
-    // without it the ground and swimming poses beat against one another.
+    // Hystérésis sur la profondeur PLATE : la houle (amp 1.15) dépasse
+    // la bande 0.12 et faisait pomper nage/sol à chaque creux.
     if (state.swimming) {
-      if (depth < SHIBA.swimDepth - 0.12) state.swimming = false;
-    } else if (depth > SHIBA.swimDepth) {
+      if (depthStill < SHIBA.swimDepth - 0.12) state.swimming = false;
+    } else if (depthStill > SHIBA.swimDepth) {
       state.swimming = true;
     }
     state.swimBlend += clamp((state.swimming ? 1 : 0) - state.swimBlend, -dt * 3.5, dt * 4.5);
@@ -977,6 +984,8 @@ export function createShiba({
      *  glTF de sa géométrie skinnée, et le banc n'a pas à savoir lequel il a.
      *  Appeler group.updateMatrixWorld(true) avant. */
     soles: () => rig.legs.map((leg) => rig.sole(leg)),
+    /** Banc seulement : pose nowT puis évalue la laisse live. */
+    passableAt(x, z, t) { nowT = t; return passable(x, z); },
     get heading() { return state.heading; },
     get speed() { return state.speed; },
     get speedN() { return Math.min(1, Math.max(0, state.speed / SHIBA.runSpeed)); },

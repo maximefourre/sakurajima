@@ -18,8 +18,8 @@ python3 serve.py 5173      # serveur no-store + charset utf-8 (indispensable, vo
 open http://127.0.0.1:5173/index.html
 ```
 
-Bancs d'essai isolés : `test/invariants.html` (le juge de paix — 7 pass
-attendus), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`,
+Bancs d'essai isolés : `test/invariants.html` (le juge de paix — `0 fail`,
+N imprimé), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`,
 `test/atmosphere.html`.
 
 ---
