@@ -290,8 +290,9 @@ function finish() {
     !!petals && petals.count === AIR,
     petals ? `got ${petals.count}` : 'petals null');
 
+  const carpetExpect = season === 'autumn' ? Math.round(CARPET * 2.5) : CARPET;
   check('compte tapis',
-    !!petals && petals.carpetCount === Math.round(CARPET * 2.5),
+    !!petals && petals.carpetCount === carpetExpect,
     petals ? `got ${petals.carpetCount}` : 'petals null');
 
   check('kind retour',
