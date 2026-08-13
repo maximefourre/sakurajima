@@ -2218,3 +2218,31 @@ cinq tirés et tous les autres rochers gardent leur transform.
   et `?q=ultra`. Piliers `h≈-1.29/-1.66` (low) et `-1.19/-1.67` (ultra),
   nukiY=5.17 ; 5 stacks tirés + extra `(177.8, 342.9)` ; goélands 6/6 low,
   16/16 ultra sur stack ou nuki.
+
+---
+
+## Session « lot 7 — chashitsu abandonné » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md` § lot 7.
+Lots 6 et 8 non ouverts.
+
+### Livré
+
+- `src/chashitsu.js` : une pièce, ossature bois + cloisons ouvertes (pas de
+  shoji), toit de chaume procédural, mousse, gable +Z ouvert vers les
+  bassins. Recette hokora (primitives mergées, vertex colours, FrontSide)
+  sans toucher au sanctuaire. Aucun habitant, aucune fumée, aucune lanterne.
+- Placement pur `computeChashitsuSite` : hors la boucle `etangs`, hors
+  `isOnPath(..., 4)`, hors eau, pente `< 0.25`, hauteur prairie. Vue vers
+  le centroïde des trois étangs.
+- `poi.hitsSolid` : 6 poteaux. `poi.keepOut` / `hitsFootprint` : disque 6 u.
+- `main.js` : `isLand` des cerisiers et `exclude` herbe refusent le disque
+  (fermé dans le closure existant, pas d'option inconnue à sakura).
+- Pas de nouvelle étape `LOAD_STEPS`.
+
+### Vérification
+
+- `node --check` sur `chashitsu.js`, `poi.js`, `config.js`, `main.js`.
+- `test/invariants.html?q=low` : **51 pass, 0 fail**. Site
+  `@(61.55,-94.39)` h=7.49 slope=0, hors chemin hors étang ; 19/19 points
+  du disque refusés par le mock `isLand`, 6 poteaux dans l'emprise.

@@ -61,7 +61,8 @@ clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
 fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
 herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
 dragonflies.js — libellules GPU au-dessus des bassins (jour)
-poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin) + stoneYAt
+poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin, chashitsu) + stoneYAt
+chashitsu.js — pièce de thé abandonnée (lot 7), site lisière étangs, importée par poi.js
 crabs.js    — crabes de laisse (fuite, enfouissement)
 gulls.js    — goélands posés sur stacks / nuki du torii marin
 shiba.js / shiba-geom.js / shiba-gltf.js — chien (glTF + repli procédural)
@@ -172,7 +173,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    mouillée, étangs nageables ET franchissables, bancs d'ondes koi/chien
    disjoints, plus celui des lucioles, les trois signes sacrés, les pas
    japonais (`stoneYAt` fidèle), hérons en bas-fonds, libellules dans
-   l'habitat bassin, mites à une lanterne. **`ponds.attach()` est appelé TÔT**, juste
+   l'habitat bassin, mites à une lanterne, chashitsu hors chemin/eau/pente.
+   **`ponds.attach()` est appelé TÔT**, juste
    après l'île, parce que l'habitat des lucioles en a besoin : il réécrit `PONDS`
    avec les valeurs MESURÉES, donc l'invariant 4 travaille sur des rayons
    mesurés et non authorés. Vérifié dans les deux ordres.

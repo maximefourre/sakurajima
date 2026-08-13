@@ -486,6 +486,27 @@ export const POI = Object.freeze({
   tsukubaiStep: 0.45,
   tsukubaiR: 0.48,
   iwakuraMax: 2,
+
+  // Lot 7 — chashitsu. Pond centres already LAND_SCALEd (ponds.js SITES).
+  ponds: Object.freeze([
+    Object.freeze({ x: 16 * LAND_SCALE, z: -42 * LAND_SCALE, r: 7.2 * LAND_SCALE }),
+    Object.freeze({ x: -4 * LAND_SCALE, z: -73 * LAND_SCALE, r: 5.2 * LAND_SCALE }),
+    Object.freeze({ x: 20 * LAND_SCALE, z: -70 * LAND_SCALE, r: 4.0 * LAND_SCALE }),
+  ]),
+  chashitsuPathExtra: 4,         // same corridor the forest already refuses
+  chashitsuSlopeMax: 0.25,
+  chashitsuHMin: 3.0,            // prairie, above the sand/dune band
+  chashitsuHMax: 10.5,           // meadow shelf sits ~7.6; below the west rim
+  chashitsuHTarget: 5.4 * HEIGHT_SCALE,
+  chashitsuKeepOut: 6,
+  chashitsuPostR: 0.20,
+  chashitsuOffsetMin: 9,
+  chashitsuOffsetMax: 22,
+  chashitsuStep: 0.55,
+  chashitsuBankClear: 5.5,       // stay off the tsukubai / wet berm
+  chashitsuFoot: 2.05,
+  chashitsuMaxTilt: 0.42,
+  chashitsuJuncClear: 14,
 });
 
 /**

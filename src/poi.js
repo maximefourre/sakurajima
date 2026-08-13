@@ -5,6 +5,7 @@
  * Lot 3: jizō at the junction, tsukubai on the big-pond bank, iwakura
  *        (shimenawa + shide) on the largest ridge-reef block.
  * Lot 4: sea torii on the authored extra stack.
+ * Lot 7: abandoned chashitsu on the etangs meadow edge (see chashitsu.js).
  *
  * Placement is a pure walk from PATHS / authored pond / reef (no WebGL)
  * so the invariant can fail the site without constructing a mesh.
@@ -18,6 +19,9 @@ import { streamFor, fbm2, R } from './noise.js';
 import { springReefSite } from './island.js';
 import { makeToriiGeometry } from './details.js';
 import { makeWoodBump } from './detailtex.js';
+import { computeChashitsuSite, createChashitsu, chashitsuKeepOut } from './chashitsu.js';
+
+export { computeChashitsuSite, chashitsuKeepOut };
 
 const BARK = 0x2a241c;
 const BARK_DARK = 0x1a1612;
@@ -829,7 +833,6 @@ export function createPOI({
   seed = SEED, heightAt, isOnPath, isInPond, slopeAt, season = 'spring',
   pondWaterYAt, ponds,
 } = {}) {
-  void slopeAt;
   void season;
 
   const group = new THREE.Group();
@@ -849,6 +852,9 @@ export function createPOI({
   const seaTorii = typeof heightAt === 'function'
     ? computeSeaToriiSite({ heightAt })
     : null;
+  const chashitsu = typeof heightAt === 'function'
+    ? computeChashitsuSite({ heightAt, isOnPath, isInPond, slopeAt })
+    : null;
 
   const pondList = Array.isArray(ponds) ? ponds : (ponds?.PONDS ?? []);
   const big = pondList[0] || null;
@@ -862,6 +868,14 @@ export function createPOI({
   if (rock) solids.push({ x: rock.x, z: rock.z, r: POI.rockR });
   if (jizo) solids.push({ x: jizo.x, z: jizo.z, r: POI.jizoR });
   if (tsukubai) solids.push({ x: tsukubai.x, z: tsukubai.z, r: POI.tsukubaiR });
+  const tea = chashitsu ? createChashitsu({ seed, site: chashitsu }) : null;
+  if (tea) {
+    for (let i = 0; i < tea.posts.length; i++) {
+      const p = tea.posts[i];
+      solids.push({ x: p.x, z: p.z, r: POI.chashitsuPostR });
+    }
+    group.add(tea.group);
+  }
 
   if (pine) {
     const geo = makeKuromatsuGeometry();
@@ -1019,12 +1033,18 @@ export function createPOI({
     return stoneYAt(x, z, stones) !== 0;
   }
 
+  function keepOut(x, z) {
+    return chashitsuKeepOut(chashitsu, x, z);
+  }
+
   return {
     group,
     stoneYAt: (x, z) => stoneYAt(x, z, stones),
     onStone,
     hitsSolid,
-    sites: { pine, rock, jizo, tsukubai, iwakura, stones, seaTorii },
+    keepOut,
+    hitsFootprint: keepOut,
+    sites: { pine, rock, jizo, tsukubai, iwakura, stones, seaTorii, chashitsu },
     dispose,
   };
 }

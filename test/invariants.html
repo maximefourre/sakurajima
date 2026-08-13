@@ -67,7 +67,8 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
-import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite } from '../src/poi.js';
+import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut } from '../src/poi.js';
+import { chashitsuPosts } from '../src/chashitsu.js';
 import { computeCrabSpawns } from '../src/crabs.js';
 import { computeMothSpots } from '../src/moths.js';
 import { computeHeronSpawns } from '../src/herons.js';
@@ -655,6 +656,55 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   check('goélands : spawn sur un stack ou le nuki', gOk,
     gOk ? `${gulls.length}/${want} kind=stack|nuki`
       : gDetail);
+}
+
+/* ── chashitsu (lot 7) : pures seulement, pas de forêt ─────────────────── */
+{
+  const site = computeChashitsuSite({
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: ponds.isInPond,
+    slopeAt: island.slopeAt,
+  });
+  if (!site) {
+    check('chashitsu : lisière prairie, hors chemin, hors eau, pente douce', false,
+      'computeChashitsuSite a rendu null');
+    check('chashitsu : emprise ~6 u refusée par isLand', false, 'pas de site');
+  } else {
+    const onPath = isOnPath(site.x, site.z, POI.chashitsuPathExtra);
+    const wet = ponds.isInPond(site.x, site.z);
+    const slope = island.slopeAt(site.x, site.z);
+    const h = island.heightAt(site.x, site.z);
+    const prairie = h >= POI.chashitsuHMin && h <= POI.chashitsuHMax;
+    check('chashitsu : lisière prairie, hors chemin, hors eau, pente douce',
+      !onPath && !wet && slope < POI.chashitsuSlopeMax && prairie,
+      `h=${h.toFixed(2)} slope=${slope.toFixed(3)} `
+      + `@(${site.x.toFixed(2)},${site.z.toFixed(2)}) onPath=${onPath} inPond=${wet}`);
+
+    const mockIsLand = (x, z) => !ponds.isInPond(x, z)
+      && !isOnPath(x, z, 4)
+      && island.heightAt(x, z) > 2.6
+      && !chashitsuKeepOut(site, x, z);
+    let nFail = 0, n = 0;
+    const rs = [0, 1.6, 3.2, 4.8];
+    for (let ri = 0; ri < rs.length; ri++) {
+      const r = rs[ri];
+      const turns = r === 0 ? 1 : 6;
+      for (let k = 0; k < turns; k++) {
+        const a = (k / turns) * Math.PI * 2;
+        n++;
+        if (!mockIsLand(site.x + Math.cos(a) * r, site.z + Math.sin(a) * r)) nFail++;
+      }
+    }
+    const posts = chashitsuPosts(site);
+    let postsIn = posts.length > 0;
+    for (let i = 0; i < posts.length; i++) {
+      if (!chashitsuKeepOut(site, posts[i].x, posts[i].z)) postsIn = false;
+    }
+    check('chashitsu : emprise ~6 u refusée par isLand',
+      nFail >= 6 && postsIn,
+      `${nFail}/${n} points du disque refusés, ${posts.length} poteaux dans l’emprise`);
+  }
 }
 
 /* ── Eau et chien ─────────────────────────────────────────────────────────
