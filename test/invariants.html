@@ -1549,6 +1549,48 @@ function milieuAppuisGltf(r) {
   check('rig glTF : aucune explosion sur 12 poses, pattes non collées', ok, detail);
 }
 
+/* ── lot 6. shiba : aboie, se secoue, regarde ─────────────────────────────
+ * Purs : createShiba + update, pas de renderer. Le secouage n'existe que
+ * après une immersion ≥ wetBeforeShake ; le regard n'écrit jamais heading.
+ */
+{
+  const wrap = (a) => {
+    let d = a;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  };
+  const dryWater = {
+    surfaceAt: () => null,
+    isPond: () => false,
+    impact() {}, setSwimmer() {},
+  };
+  const never = createShiba({ seed: SEED, heightAt: island.heightAt, water: dryWater });
+  let maxShake = 0;
+  for (let i = 0; i < 80; i++) {
+    never.update(i * 0.05, 0.05, null);
+    maxShake = Math.max(maxShake, never.state.shake);
+  }
+  check('un shiba qui n’a jamais nagé ne se secoue pas',
+    maxShake === 0 && never.state.wetTime === 0,
+    `shake max ${maxShake.toFixed(3)}, wetTime ${never.state.wetTime.toFixed(3)}`);
+
+  const h0 = never.state.heading;
+  const px = never.position.x, pz = never.position.z, py = never.position.y;
+  never.setLookTargets([{ x: px - 8, y: py + 1, z: pz, kind: 'pine' }]);
+  for (let i = 0; i < 16; i++) never.update(4 + i * 0.05, 0.05, null);
+  const hIdle = never.state.heading;
+  const lookIdle = never.state.look;
+  never.setStick(1, 0, true);
+  for (let i = 0; i < 25; i++) never.update(6 + i * 0.016, 0.016, null);
+  const hRun = never.state.heading;
+  never.setStick(0, 0, false);
+  check('le regard ne détourne pas le corps en course',
+    Math.abs(wrap(hIdle - h0)) < 0.08 && Math.abs(hRun) < 0.85 && lookIdle > 0.4,
+    `idle Δheading ${wrap(hIdle - h0).toFixed(3)}, run heading ${hRun.toFixed(3)}, lookIdle ${lookIdle.toFixed(2)}`);
+  never.dispose();
+}
+
 finish();
 </script>
 </body>

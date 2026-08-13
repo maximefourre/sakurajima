@@ -319,6 +319,8 @@ export function createHerons({
     return best;
   }
 
+  let lastFlush = null;
+
   function flush(b) {
     const dest = pickAlt(b);
     b.state = TAKEOFF;
@@ -329,6 +331,9 @@ export function createHerons({
     b.destYaw = dest.yaw;
     b.flyY = R.range(rng, HERONS.cruiseY[0], HERONS.cruiseY[1]);
     b.peck = 0;
+    lastFlush = { x: b.x, y: b.y, z: b.z };
+    const fn = api.onFlush;
+    if (typeof fn === 'function') fn(lastFlush);
   }
 
   function update(t, dt, shibaX, shibaZ) {
@@ -409,5 +414,15 @@ export function createHerons({
     group.removeFromParent();
   }
 
-  return { group, mesh, update, setRepeller, dispose };
+  function forEach(fn) {
+    for (let i = 0; i < n; i++) fn(birds[i]);
+  }
+
+  const api = {
+    group, mesh, update, setRepeller, dispose, forEach,
+    /** Settable: ({x,y,z}) => void. Called on each takeoff. */
+    onFlush: () => {},
+    get lastFlush() { return lastFlush; },
+  };
+  return api;
 }

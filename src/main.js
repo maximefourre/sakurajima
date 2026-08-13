@@ -723,6 +723,29 @@ async function boot() {
   });
   scene.add(world.shiba.group);
 
+  lookStatic.length = 0;
+  {
+    const sites = world.poi?.sites;
+    if (sites?.pine) {
+      lookStatic.push({ x: sites.pine.x, y: sites.pine.h + 3.2, z: sites.pine.z, kind: 'pine' });
+    }
+    if (sites?.jizo) {
+      lookStatic.push({ x: sites.jizo.x, y: sites.jizo.h + 0.75, z: sites.jizo.z, kind: 'jizo' });
+    }
+    const hokora = world.details?.group?.getObjectByName?.('cliff-hokora');
+    if (hokora) {
+      lookStatic.push({
+        x: hokora.position.x,
+        y: hokora.position.y + 1.25,
+        z: hokora.position.z,
+        kind: 'hokora',
+      });
+    }
+  }
+  if (world.herons) {
+    world.herons.onFlush = () => world.shiba.notify('heron-flush');
+  }
+
   // Prime the cycle once before the first frame so we never flash a black scene.
   world.sky.update(world.dayTime, 0);
 
@@ -783,6 +806,18 @@ async function boot() {
 /* ── loop ────────────────────────────────────────────────────── */
 const clock = new THREE.Clock();
 let fpsAcc = 0, fpsFrames = 0, hudAcc = 0;
+const lookStatic = [];
+const lookScratch = [];
+
+function pushShibaLooks() {
+  if (!world.shiba?.setLookTargets) return;
+  lookScratch.length = 0;
+  for (let i = 0; i < lookStatic.length; i++) lookScratch.push(lookStatic[i]);
+  world.herons?.forEach?.((b) => {
+    lookScratch.push({ x: b.x, y: b.y + 1.1, z: b.z, kind: 'heron' });
+  });
+  world.shiba.setLookTargets(lookScratch);
+}
 
 /** Converts a physical light intensity into a shader multiplier. See frame(). */
 const SHADER_LIGHT_SCALE = 0.26;
@@ -863,6 +898,7 @@ function frame() {
   // before the camera moves this frame. One frame of lag in the control frame is
   // imperceptible; the reverse order makes fast turns feel like ice.
   world.particles.update(t);
+  pushShibaLooks();
   world.shiba.update(t, dt, { camera });
 
   // Fragment wake: keep the expensive shader work inside a 15-unit disc, with

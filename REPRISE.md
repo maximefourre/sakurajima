@@ -2218,3 +2218,30 @@ cinq tirés et tous les autres rochers gardent leur transform.
   et `?q=ultra`. Piliers `h≈-1.29/-1.66` (low) et `-1.19/-1.67` (ultra),
   nukiY=5.17 ; 5 stacks tirés + extra `(177.8, 342.9)` ; goélands 6/6 low,
   16/16 ultra sur stack ou nuki.
+
+---
+
+## Session « lot 6 — shiba plus vivant » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md` § lot 6.
+Collision troncs et regard vers un pétale réel : hors lot.
+
+### Livré
+
+- `src/shiba.js` : aboiement (tête + mâchoire, 0.38 s), hook `onEvent('bark')`
+  comme les oiseaux. Déclenché par idle long (assise ≥ `idleBeforeBark`) ou
+  `notify('heron-flush')`. Pas de touche, pas de fichier audio.
+- Secouement existant recalé : horloge `wetTime` pendant barbotage/nage ;
+  au sec (`!isPond && surfaceAt === null`) après ≥ 1.2 s, une passe. Un
+  chien resté au sec ne se secoue pas.
+- Regard : `setLookTargets([{x,y,z,kind}])`. Idle + héron `< 18` ou
+  hokora / jizō / pin `< 10` → tête vers la cible 2–4 s (seedé). N'écrit
+  jamais `heading` — la course ne tourne pas le corps vers le lieu.
+- `src/herons.js` : `onFlush`, `lastFlush`, `forEach`.
+- `main.js` : cibles statiques (pin, jizō, mesh `cliff-hokora`) + hérons
+  chaque frame ; `herons.onFlush → shiba.notify('heron-flush')`.
+
+### Vérification
+
+- `node --check` sur les fichiers touchés.
+- `test/invariants.html?q=low` : **51 pass, 0 fail** (Chrome CDP).

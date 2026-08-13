@@ -38,6 +38,10 @@ export const SHIBA = {
   swimSpeed: 4.6,      // an energetic paddle, slower than walkSpeed
   wadeSlow: 0.55,      // speed factor at half swimDepth
   idleBeforeSit: 4.2,     // seconds of stillness before he sits down
+  idleBeforeBark: 9.5,    // long sit before a spontaneous woof
+  wetBeforeShake: 1.2,    // swim/wade seconds before a dry-land shake
+  lookHeron: 18,          // look at a heron inside this XZ radius
+  lookPoi: 10,            // hokora / jizō / pine
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
   /** Molette : amplitude du creux de sillage en nage. Se regle A CHAUD via
@@ -70,6 +74,7 @@ const GAITS = {
 const SHAKE_DURATION = 0.9;
 const SHAKE_FAILSAFE = 1.4;
 const SHAKE_DROPLETS = 6;
+const BARK_DURATION = 0.38;
 const BLINK_DURATION = 0.09;
 
 // Ground-reaction tuning: these two formulas are deliberately the only knobs.
@@ -236,6 +241,8 @@ export function createShiba({
   const rng = streamFor(seed, 'shiba');
   const shakeRng = streamFor(seed, 'shiba:shake-droplets');
   const blinkRng = streamFor(seed, 'shiba:blink');
+  const barkRng = streamFor(seed, 'shiba:bark');
+  const lookRng = streamFor(seed, 'shiba:look');
 
   // Le corps peut être fourni tout fait (`body`) : c'est le rig glTF de
   // shiba-gltf.js. Sinon on construit le chien procédural, qui reste le repli.
@@ -280,9 +287,14 @@ export function createShiba({
     gait: 0,           // accumulated stride phase in radians
     swimGait: 0,       // forced paddle cadence, independent of forward speed
     wetness: 0,        // retained water; filled while wading/swimming
+    wetTime: 0,        // seconds of this immersion (wade or swim)
     shake: 0,          // 0..1 final pose-stack weight, like sitting/swimBlend
     shakeElapsed: 0,   // local shake clock; also drives the hard failsafe
     shakeCrossing: 0,  // last emitted sin(s * 34) zero-crossing index
+    bark: 0,           // 0..1 one-shot woof weight
+    barkElapsed: 0,
+    look: 0,           // 0..1 head-look blend; never yaws the body
+    lookKind: null,
   };
 
   /* ── input ─────────────────────────────────────────────────── */
@@ -335,6 +347,41 @@ export function createShiba({
   /** Seeded irregular blink, separated from the idle-look random stream. */
   let blinkTimer = R.range(blinkRng, 2.4, 6.8);
   let blinkElapsed = -1;
+
+  let lookTargets = [];
+  let lookAim = null;
+  let lookHold = 0;
+  let lookCool = 0;
+  let lookHeadYaw = 0;
+  let lookHeadPitch = 0;
+  let nextIdleBark = R.range(barkRng, SHIBA.idleBeforeBark, SHIBA.idleBeforeBark + 4);
+  const _evPos = new THREE.Vector3();
+  const api = { onEvent: () => {} };
+
+  function emit(name) {
+    const fn = api.onEvent;
+    if (typeof fn === 'function') fn(name, _evPos.copy(position));
+  }
+
+  function startBark() {
+    if (state.shake > 0) return false;
+    state.bark = 1;
+    state.barkElapsed = 0;
+    emit('bark');
+    return true;
+  }
+
+  function pickLook() {
+    let best = null, bestD = Infinity;
+    for (let i = 0; i < lookTargets.length; i++) {
+      const t = lookTargets[i];
+      if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.z)) continue;
+      const d = Math.hypot(t.x - position.x, t.z - position.z);
+      const max = t.kind === 'heron' ? SHIBA.lookHeron : SHIBA.lookPoi;
+      if (d < max && d < bestD) { best = t; bestD = d; }
+    }
+    return best;
+  }
 
   /* ── terrain queries ───────────────────────────────────────── */
 
@@ -584,7 +631,8 @@ export function createShiba({
     // that never looks at them reads as furniture.
     lookUpTimer -= dt;
     const gustOnset = !!(wind && wind.state && wind.state.gustOnset);
-    if ((lookUpTimer <= 0 || gustOnset) && speedN < 0.05 && shake < 0.05) {
+    const looking = state.look > 0.05;
+    if ((lookUpTimer <= 0 || gustOnset) && speedN < 0.05 && shake < 0.05 && !looking) {
       lookUp = 1;
       lookUpTimer = R.range(rng, 6, 15);
     }
@@ -594,8 +642,13 @@ export function createShiba({
     headYaw = mix(headYaw, fullScan, sit);
     let headPitch = mix(-0.06 * speedN - lookUp * 0.62, -0.24, swim);
     headPitch = mix(headPitch, -0.05 - lookUp * 0.62, sit);
+    headYaw = mix(headYaw, lookHeadYaw, state.look);
+    headPitch = mix(headPitch, lookHeadPitch, state.look);
     let neckPitch = mix(0, -0.12, swim);
     neckPitch = mix(neckPitch, -0.28, sit);
+    const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
+    const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;
+    headPitch += barkEnv * 0.22;
     // Même contrat que poseLeg et poseBody : les cinq valeurs sont FINALES,
     // secouage compris. Un rig dont la tête est démesurée par rapport au cou
     // les réinterprète — lookUp lève le museau de 0.62 rad, ce qui lit comme un
@@ -662,8 +715,10 @@ export function createShiba({
     // A high-excitement pant is continuous and readable without audio. The jaw
     // closes during the shake so it cannot fight the final pose-stack layer.
     const pant = smoothstep(0.48, 0.82, state.excitement) * (1 - swim);
-    const jawOpen = pant * (0.14 + 0.06 * (0.5 + 0.5 * Math.sin(t * 6.4)));
+    const jawOpen = pant * (0.14 + 0.06 * (0.5 + 0.5 * Math.sin(t * 6.4)))
+      + barkEnv * 0.34;
     rig.jaw.rotation.x = mix(jawOpen, 0, shake);
+    if (barkEnv > 0) rig.head.rotation.x += barkEnv * 0.06;
 
     blinkTimer -= dt;
     if (blinkTimer <= 0 && blinkElapsed < 0) {
@@ -810,7 +865,6 @@ export function createShiba({
         : seaLevelLocal);
     const depthStill = still === null ? 0 : Math.max(0, still - ground);
     const wasWading = state.wading;
-    const wasInWater = state.wading || state.swimming;
     state.depth = depth;
     state.wading = depth > 0.04;
     if (state.wading && !wasWading) {
@@ -829,20 +883,28 @@ export function createShiba({
     state.swimBlend += clamp((state.swimming ? 1 : 0) - state.swimBlend, -dt * 3.5, dt * 4.5);
     state.swimBlend = clamp(state.swimBlend, 0, 1);
 
-    const inWater = state.wading || state.swimming;
-    if (inWater) state.wetness = clamp(state.wetness + dt * 0.6, 0, 1);
-
-    // Falling edge only: a slow dog that has retained enough water braces and
-    // shakes once. Faster exits keep their momentum and wait for a later edge.
-    if (!state.shake && wasInWater && !inWater
-      && state.speed < 2 && state.wetness > 0.45) {
-      state.shake = 1;
-      state.shakeElapsed = 0;
-      state.shakeCrossing = 0;
-      state.speed = 0;
-      state.moving = false;
-      state.vy = 0;
-      state.airborne = false;
+    const inPondNow = typeof water.isPond === 'function' && water.isPond(position.x, position.z);
+    const inSeaNow = s !== null && !inPondNow;
+    const feetWet = state.wading || state.swimming;
+    if (feetWet) {
+      state.wetTime += dt;
+      state.wetness = clamp(state.wetness + dt * 0.6, 0, 1);
+    }
+    // Shake only after a real immersion, and only once the dog is fully dry.
+    // wetTime is the swim/wade clock; a puddle dip under 1.2 s is ignored.
+    if (!inPondNow && !inSeaNow) {
+      if (!state.shake && state.wetTime >= SHIBA.wetBeforeShake) {
+        state.shake = 1;
+        state.shakeElapsed = 0;
+        state.shakeCrossing = 0;
+        state.speed = 0;
+        state.moving = false;
+        state.vy = 0;
+        state.airborne = false;
+        state.wetTime = 0;
+      } else if (!state.shake) {
+        state.wetTime = 0;
+      }
     }
 
     if (state.shake > 0) {
@@ -892,6 +954,65 @@ export function createShiba({
 
     /* — sit / stand — */
     state.idleTime = state.moving ? 0 : state.idleTime + dt;
+    if (state.sitting > 0.7 && state.bark <= 0 && state.shake <= 0 && !state.swimming
+      && state.idleTime >= nextIdleBark) {
+      if (startBark()) nextIdleBark = state.idleTime + R.range(barkRng, 10, 16);
+    } else if (state.moving || state.sitting < 0.5) {
+      nextIdleBark = Math.max(nextIdleBark, SHIBA.idleBeforeBark);
+    }
+
+    if (state.bark > 0) {
+      state.barkElapsed += Math.max(0, dt);
+      if (state.barkElapsed >= BARK_DURATION) {
+        state.bark = 0;
+        state.barkElapsed = 0;
+      }
+    }
+
+    // Look is head-only. Running must never inherit this as body yaw.
+    const canLook = !state.moving && !state.swimming && state.shake <= 0;
+    if (!canLook) {
+      lookHold = 0;
+    } else if (lookHold > 0) {
+      lookHold -= dt;
+      const picked = pickLook();
+      if (picked) lookAim = picked;
+      else lookHold = 0;
+      if (lookHold <= 0) lookCool = R.range(lookRng, 1.2, 2.6);
+    } else if (lookCool > 0) {
+      lookCool -= dt;
+    } else {
+      const picked = pickLook();
+      if (picked) {
+        lookAim = picked;
+        lookHold = R.range(lookRng, 2, 4);
+        state.lookKind = picked.kind || null;
+      }
+    }
+    const wantLook = canLook && lookHold > 0 && lookAim ? 1 : 0;
+    state.look += clamp(wantLook - state.look, -dt * 4, dt * 5);
+    if (state.look < 0.01 && wantLook === 0) {
+      state.look = 0;
+      state.lookKind = null;
+      lookAim = null;
+    }
+    if (lookAim && state.look > 0) {
+      const dx = lookAim.x - position.x;
+      const dz = lookAim.z - position.z;
+      const dy = (Number.isFinite(lookAim.y) ? lookAim.y : position.y + 1)
+        - (position.y + 0.85);
+      const az = Math.atan2(dx, dz);
+      let dYaw = az - state.heading;
+      while (dYaw > Math.PI) dYaw -= TAU;
+      while (dYaw < -Math.PI) dYaw += TAU;
+      lookHeadYaw = clamp(dYaw, -0.95, 0.95);
+      const horiz = Math.hypot(dx, dz) || 1;
+      lookHeadPitch = clamp(-Math.atan2(dy, horiz), -0.55, 0.35);
+    } else {
+      lookHeadYaw = 0;
+      lookHeadPitch = 0;
+    }
+
     const wantSit = !state.wading && state.idleTime > SHIBA.idleBeforeSit ? 1 : 0;
     state.sitting += clamp(wantSit - state.sitting, -dt * 3.0, dt * 1.35);
     state.sitting = clamp(state.sitting, 0, 1);
@@ -946,12 +1067,19 @@ export function createShiba({
     prints.mesh.dispose();
   }
 
-  return {
+  Object.assign(api, {
     group,
     position,          // live — read by the follow camera and by the birds
     state,
     update,
     dispose,
+    /** (name) — 'heron-flush' | 'bark' starts the woof. Shake is water-gated. */
+    notify(name) {
+      if (name === 'heron-flush' || name === 'bark') startBark();
+    },
+    setLookTargets(list) {
+      lookTargets = Array.isArray(list) ? list : [];
+    },
     jump() {
       if (!state.airborne && state.sitting < 0.3 && state.shake <= 0) {
         state.vy = 9.5;
@@ -986,10 +1114,17 @@ export function createShiba({
     soles: () => rig.legs.map((leg) => rig.sole(leg)),
     /** Banc seulement : pose nowT puis évalue la laisse live. */
     passableAt(x, z, t) { nowT = t; return passable(x, z); },
-    get heading() { return state.heading; },
-    get speed() { return state.speed; },
-    get speedN() { return Math.min(1, Math.max(0, state.speed / SHIBA.runSpeed)); },
-  };
+  });
+  // Object.assign copies getters by VALUE. heading/speed must stay live.
+  Object.defineProperties(api, {
+    heading: { get() { return state.heading; }, enumerable: true },
+    speed: { get() { return state.speed; }, enumerable: true },
+    speedN: {
+      get() { return Math.min(1, Math.max(0, state.speed / SHIBA.runSpeed)); },
+      enumerable: true,
+    },
+  });
+  return api;
 }
 
 export default createShiba;
