@@ -526,7 +526,10 @@ async function boot() {
     slopeAt: world.slopeAt,
     // Trees refuse the path corridor (half-width + 4 u ≈ 5.6 u from the axis).
     // Altitude > 2.6 keeps trees off the sand/dune band along the shore.
-    isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4) && world.heightAt(x, z) > 2.6,
+    // keepOut is the chashitsu yard (~6 u) — wrap it here, sakura ignores unknown opts.
+    isLand: (x, z) => !world.inWater(x, z) && !isOnPath(x, z, 4)
+      && world.heightAt(x, z) > 2.6
+      && !(world.poi && world.poi.keepOut(x, z)),
     windUniforms: forestWind,
   });
   scene.add(world.forest.group);
@@ -551,7 +554,8 @@ async function boot() {
     // apply. La sente n'est PLUS une exclusion dure : shortZone y garde une
     // herbe rase et clairsemée entre les passages (consigne joueur).
     exclude: (x, z) => world.inWater(x, z)
-      || (world.poi && world.poi.stoneYAt(x, z) !== 0),
+      || (world.poi && world.poi.stoneYAt(x, z) !== 0)
+      || (world.poi && world.poi.keepOut(x, z)),
     shortZone: (x, z) => isOnPath(x, z, 0.25),
     pathLiftAt: (x, z) => pathSurfaceLiftAt(world.heightAt, x, z),
     wind: world.wind,

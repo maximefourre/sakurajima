@@ -64,7 +64,8 @@ herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
 shiba.js    — gestes aboie / secoue / regard : `onEvent('bark')`,
               `setLookTargets([{x,y,z,kind}])`, `notify('heron-flush')`
 dragonflies.js — libellules GPU au-dessus des bassins (jour)
-poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin) + stoneYAt
+poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin, chashitsu) + stoneYAt
+chashitsu.js — pièce de thé abandonnée (lot 7), site lisière étangs, importée par poi.js
 crabs.js    — crabes de laisse (fuite, enfouissement)
 gulls.js    — goélands posés sur stacks / nuki du torii marin
 shiba-geom.js / shiba-gltf.js — corps procédural et rig glTF du chien
@@ -176,7 +177,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    disjoints, plus celui des lucioles, les trois signes sacrés, les pas
    japonais (`stoneYAt` fidèle), hérons en bas-fonds, libellules dans
    l'habitat bassin, mites à une lanterne, shiba secoué seulement après nage,
-   regard sans lacet du corps. **`ponds.attach()` est appelé TÔT**, juste
+   regard sans lacet du corps, chashitsu hors chemin/eau/pente.
+   **`ponds.attach()` est appelé TÔT**, juste
    après l'île, parce que l'habitat des lucioles en a besoin : il réécrit `PONDS`
    avec les valeurs MESURÉES, donc l'invariant 4 travaille sur des rayons
    mesurés et non authorés. Vérifié dans les deux ordres.
