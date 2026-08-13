@@ -2304,3 +2304,21 @@ de pont, pas de lanterne hors de la nouvelle route.
   0 orpheline. Rubans ultra : marge 0.0200, élévation max 0.2427
   (plage, plafond 0.55) ; `bambous` liftMax 0.2193. Bosquet 57/57 low,
   192/192 ultra, 0 sur ruban, 0 à l'ouest du carrefour.
+
+---
+
+## Reprise après blocage (13/08, soir)
+
+La session Grok `019ffbbb` (« Resume implementation plan after session
+crash ») a rendu les 8 lots puis s’est figée sur le résumé. Rien n’était
+perdu : `main` à `9e3086e`, arbre propre, 12 commits devant origin.
+
+Rejoué sur le `main` fusionné (pas seulement dans le worktree L8) :
+
+- `node --check` des modules POI + câblage : OK
+- `test/invariants.html?q=low` : **55 pass, 0 fail**
+- `test/invariants.html?q=ultra` : **55 pass, 0 fail**
+
+Pas de `git push`. Tour visuel headless : le voile reste sur
+« initialisation » (WebGL headless, même piège qu’en lot 1). La scène
+s’ouvre dans Chrome local `http://127.0.0.1:5173/index.html?q=low`.
