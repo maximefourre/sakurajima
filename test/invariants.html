@@ -52,7 +52,7 @@ window.addEventListener('unhandledrejection', e => {
   finish();
 });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
@@ -67,6 +67,8 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
+import { computeShorePineSite, placeRock } from '../src/poi.js';
+import { computeCrabSpawns } from '../src/crabs.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -332,6 +334,74 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     if (!ok) break;
   }
   check('largeur de ruban ≥ 0.78 nominale', ok, ok ? `${meshes.length} routes` : detail);
+}
+
+/* ── côte habitée (lot 1) : pures seulement, pas de createPOI/createCrabs ──
+ * Avant le premier await (glTF) : ces checks n'ont besoin que de heightAt,
+ * isOnPath et isInPond, déjà prêts ici. */
+{
+  const site = computeShorePineSite({
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: ponds.isInPond,
+  });
+  if (!site) {
+    check('pin de côte : site sur le sable, hors chemin', false,
+      'computeShorePineSite a rendu null');
+    check('rocher d’assise : au pied du pin, face mer', false,
+      'pas de pin, donc pas de rocher');
+  } else {
+    const route = PATHS.routes.find((r) => r.name === 'plage');
+    const [tx, tz] = route.points[route.points.length - 1];
+    const dist = Math.hypot(site.x - tx, site.z - tz);
+    const h = island.heightAt(site.x, site.z);
+    const onPath = isOnPath(site.x, site.z, POI.pathClear);
+    const inPond = ponds.isInPond(site.x, site.z);
+    const inSand = h > WORLD.seaLevel && h < POI.sandCeil;
+    check('pin de côte : terre ferme, hors chemin, bande sable',
+      !onPath && !inPond && inSand && dist <= POI.pineSearch,
+      `h=${h.toFixed(2)} dist=${dist.toFixed(2)} (plafond ${POI.pineSearch.toFixed(1)}) `
+      + `onPath=${onPath} inPond=${inPond}`);
+
+    const rock = placeRock(site, island.heightAt, isOnPath, ponds.isInPond);
+    if (!rock) {
+      check('rocher d’assise : au pied du pin, face mer', false, 'placeRock a rendu null');
+    } else {
+      const rh = island.heightAt(rock.x, rock.z);
+      const rOnPath = isOnPath(rock.x, rock.z, POI.pathClear);
+      const rPond = ponds.isInPond(rock.x, rock.z);
+      const rSand = rh > WORLD.seaLevel && rh < POI.sandCeil;
+      const ix = Math.sin(site.yaw), iz = Math.cos(site.yaw);
+      const seaward = (site.x - rock.x) * ix + (site.z - rock.z) * iz;
+      check('rocher d’assise : au pied du pin, face mer',
+        !rOnPath && !rPond && rSand && seaward > 0,
+        `h=${rh.toFixed(2)} seaward=${seaward.toFixed(2)} onPath=${rOnPath} inPond=${rPond}`);
+    }
+  }
+}
+
+{
+  const want = QUALITY[TIER].crabs;
+  const spawns = computeCrabSpawns({
+    heightAt: island.heightAt,
+    isInPond: ponds.isInPond,
+    count: want,
+    seed: SEED,
+  });
+  let ok = spawns.length === want;
+  let detail = ok ? '' : `compte ${spawns.length} au lieu de ${want}`;
+  for (const s of spawns) {
+    const h = island.heightAt(s.x, s.z);
+    const wet = ponds.isInPond(s.x, s.z);
+    if (h < CRABS.strandLo || h > CRABS.strandHi || wet) {
+      ok = false;
+      detail = `crabe@(${s.x.toFixed(1)},${s.z.toFixed(1)}) h=${h.toFixed(2)} inPond=${wet}`;
+      break;
+    }
+  }
+  check('crabes : laisse sèche, hors étangs', ok,
+    ok ? `${spawns.length}/${want} crabes, bande [${CRABS.strandLo}, ${CRABS.strandHi.toFixed(2)}]`
+      : detail);
 }
 
 /* ── Eau et chien ─────────────────────────────────────────────────────────

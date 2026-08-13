@@ -27,6 +27,8 @@ import { createClouds } from './clouds.js';
 import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
 import { loadShibaBody } from './shiba-gltf.js';
+import { createPOI } from './poi.js';
+import { createCrabs } from './crabs.js';
 import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
@@ -54,7 +56,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 13;
+const LOAD_STEPS = 14;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -165,6 +167,7 @@ const world = {
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
+  poi: null, crabs: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -435,7 +438,10 @@ async function boot() {
   // pathSurfaceLiftAt est le bombé pur du ruban : le dégagement anti-perforation
   // appartient aux triangles et ne se rejoue pas par requête ponctuelle. Son
   // écart à la surface visible est borné par un invariant (≤ 0.25, mesuré 0.098).
-  world.groundAt = (x, z) => world.heightAt(x, z) + pathSurfaceLiftAt(world.heightAt, x, z);
+  // stoneYAt s'y compose même si createPOI n'a pas encore tourné.
+  world.groundAt = (x, z) => world.heightAt(x, z)
+    + pathSurfaceLiftAt(world.heightAt, x, z)
+    + (world.poi ? world.poi.stoneYAt(x, z) : 0);
 
   await step('étangs et carpes');
   world.ponds.attach({ heightAt: world.heightAt });
@@ -443,6 +449,24 @@ async function boot() {
 
   /** Standing water (ponds). Every scatter system has to reject it. */
   world.inWater = (x, z) => world.ponds.isInPond(x, z);
+
+  await step('côte');
+  // Après initPath + ponds.attach, avant le shiba : blocked lit hitsSolid.
+  world.poi = createPOI({
+    seed: SEED,
+    heightAt: world.heightAt,
+    isOnPath,
+    isInPond: world.inWater,
+    slopeAt: world.slopeAt,
+    season: world.season,
+  });
+  scene.add(world.poi.group);
+  world.crabs = createCrabs({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    isInPond: world.inWater,
+  });
+  scene.add(world.crabs.mesh);
 
   await step(world.season === 'autumn' ? 'momiji' : 'cerisiers');
   const foliageDensity = world.season === 'autumn'
@@ -644,7 +668,8 @@ async function boot() {
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
     water,
-    blocked: (x, z) => world.island.hitsRock(x, z, 0.35),
+    blocked: (x, z) => world.island.hitsRock(x, z, 0.35)
+      || world.poi.hitsSolid(x, z, 0.35),
     particles: world.particles,
     wind: world.wind,
   });
@@ -795,6 +820,7 @@ function frame() {
   const wakeU = world.island.waterUniforms;
   const dog = world.shiba;
   const dogX = dog.position.x, dogZ = dog.position.z;
+  world.crabs?.update(t, dogX, dogZ);
   const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
     && world.heightAt(dogX, dogZ) < world.island.seaLevel;
   if (inSea) {

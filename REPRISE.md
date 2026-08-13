@@ -2068,3 +2068,36 @@ sur l'herbe) jonchait le sable et **flottait**. `isPetalSand` refuse
 - `island.hitsRock` + `shiba.blocked` : les gros blocs (r ≥ 0.85) arrêtent
   le chien. Galets ignorés.
 Invariants low : `35 pass, 0 fail`.
+
+---
+
+## Session « lot 1 — côte habitée » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md`.
+Spec : `docs/superpowers/specs/2026-08-13-lot1-cote-habitee-design.md`.
+Lots 2–8 non ouverts (`stoneYAt` retourne 0).
+
+### Livré
+
+- `src/poi.js` : un kuromatsu + un rocher d’assise juste au-delà du terminus
+  `plage`. Placement pur (`computeShorePineSite`) : marche vers le large,
+  premier point hors ruban, hors étang, dans la bande sable, à ≤ `12·L`.
+  `hitsSolid` (fût 0.45 + rocher 0.9) branché sur `shiba.blocked`.
+- `src/crabs.js` : 10 / 18 / 28 crabes sur la laisse des galets. Idle → fuite
+  si shiba `< 6 u` → enfouissement (scale Y → 0).
+- `config.js` : `QUALITY.*.crabs`, tables `POI` / `CRABS`. Pas d’`AREA_SOFT`.
+- `main.js` : `LOAD_STEPS` 14, étape `'côte'` après `initPath` + `ponds.attach`,
+  avant le shiba. `groundAt` compose `stoneYAt`.
+- Deux invariants purs (site du pin ; crabes dans la laisse).
+
+### Vérification
+
+- `node --check` sur `poi.js`, `crabs.js`, `main.js`, `config.js`.
+- `test/invariants.html?q=low` et `?q=ultra` : **37 pass, 0 fail** (Chrome
+  headless via CDP). Pin : `h≈0.95/0.90`, `dist=3.50` du terminus, hors
+  chemin. Crabes : 10/10 low, 28/28 ultra.
+- Boot `index.html?q=low` : `world.poi.sites` peuplé, 10 crabes, `stoneYAt===0`,
+  `hitsSolid` vrai sur le fût. Capture d’écran WebGL headless non obtenue
+  (SwiftShader a booté mais `Page.captureScreenshot` a pendu) — retest visuel
+  à faire sur la machine : suivre la route plage jusqu’au pin, midi, courir
+  vers les crabes.

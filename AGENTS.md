@@ -59,6 +59,8 @@ detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roc
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
 fireflies.js / butterflies.js / particles.js — faune, pétales, poussière
+poi.js      — landmarks authorés (kuromatsu, rocher d'assise) + stoneYAt
+crabs.js    — crabes de laisse (fuite, enfouissement)
 shiba.js / shiba-geom.js / shiba-gltf.js — chien (glTF + repli procédural)
 touch.js / boot.js — commandes tactiles, voile d'erreur
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu

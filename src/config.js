@@ -145,6 +145,7 @@ export const QUALITY = {
     rocks: Math.round(35 * AREA_SOFT),
     fireflies: Math.round(28.28 * AREA_SOFT),
     butterflies: Math.round(5 * AREA_SOFT),
+    crabs: 10,             // laisse locale — pas AREA_SOFT
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -161,6 +162,7 @@ export const QUALITY = {
     rocks: Math.round(74 * AREA_SOFT),
     fireflies: Math.round(74.23 * AREA_SOFT),
     butterflies: Math.round(12 * AREA_SOFT),
+    crabs: 18,
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -179,6 +181,7 @@ export const QUALITY = {
     rocks: Math.round(110 * AREA_SOFT),
     fireflies: Math.round(141.40 * AREA_SOFT),
     butterflies: Math.round(24 * AREA_SOFT),
+    crabs: 28,
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -437,4 +440,44 @@ export const BUTTERFLIES = Object.freeze({
   // — jour —
   // Miroir de fireflyActivity : allumés en plein jour, éteints la nuit.
   duskFade: 0.35,         // part du crépuscule où ils volent encore
+});
+
+/**
+ * Landmarks authorés de la côte (lot 1) et prises pour les lots suivants.
+ *
+ * N est un, donc rien ici ne scale en AREA. Les rayons de collision sont
+ * légèrement plus larges que le mesh : le chien ne doit pas s'enfoncer
+ * dans le fût ni le plateau.
+ */
+export const POI = Object.freeze({
+  pineSearch: 12 * LAND_SCALE, // marche max depuis le terminus `plage`
+  pineStep: 0.25,
+  pathClear: 0.25,             // extra isOnPath — même marge que l'herbe rase
+  sandCeil: WORLD.beachTop + 0.6,
+  pineLean: 0.22,              // radians, vers l'intérieur (vent de mer)
+  pineTrunkR: 0.45,
+  rockR: 0.9,
+  rockOffset: 1.85,            // vers le large, depuis le fût
+  rockPlateau: 1.4,
+  rockSink: 0.14,
+});
+
+/**
+ * Crabes de laisse. Même bande que les galets de details.js.
+ * N vit sur QUALITY.crabs (10 / 18 / 28) — trop peu et trop local pour AREA_SOFT.
+ */
+export const CRABS = Object.freeze({
+  fleeRadius: 6.0,
+  fleeSpeed: 2.8,
+  fleeSeconds: [0.85, 1.55],
+  burySeconds: 1.1,
+  strandLo: -0.55,
+  strandHi: WORLD.beachTop * 0.85,
+  minSep: 1.15,
+  homeRadius: 2.2,
+  shuffleSpeed: 0.55,
+  size: [0.88, 1.18],
+  sampleHalfX: 112 * LAND_SCALE,
+  sampleMinZ: -120 * LAND_SCALE,
+  sampleMaxZ: 104 * LAND_SCALE,
 });
