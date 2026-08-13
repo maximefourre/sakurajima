@@ -58,7 +58,7 @@ details.js  — fleurs sauvages, RÉSEAU DE CHEMINS (3 routes) + TORII + LANTERN
 detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
-fireflies.js / butterflies.js / particles.js — faune, pétales, poussière
+fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
 poi.js      — landmarks authorés (kuromatsu, rocher d'assise) + stoneYAt
 crabs.js    — crabes de laisse (fuite, enfouissement)
 shiba.js / shiba-geom.js / shiba-gltf.js — chien (glTF + repli procédural)

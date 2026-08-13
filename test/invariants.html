@@ -52,7 +52,7 @@ window.addEventListener('unhandledrejection', e => {
   finish();
 });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
@@ -69,6 +69,7 @@ import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fi
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 import { computeShorePineSite, placeRock } from '../src/poi.js';
 import { computeCrabSpawns } from '../src/crabs.js';
+import { computeMothSpots } from '../src/moths.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -401,6 +402,39 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   }
   check('crabes : laisse sèche, hors étangs', ok,
     ok ? `${spawns.length}/${want} crabes, bande [${CRABS.strandLo}, ${CRABS.strandHi.toFixed(2)}]`
+      : detail);
+}
+
+/* ── nuit des routes (lot 5) : pures, computeLanternSpots déjà importé ──
+ * Pas de createDetails : le helper pur rend le même habitat (routes +
+ * terrasse, hors hokora). Pas de N figé — le compte suit le nombre de
+ * lanternes du bake. */
+{
+  const empty = computeMothSpots({ lanternSpots: [], count: 40, seed: SEED });
+  check('mites : population nulle sans lanternes', empty.length === 0,
+    `${empty.length} mites pour un habitat vide`);
+
+  const lanterns = computeLanternSpots(island.heightAt, island.slopeAt);
+  const rate = QUALITY[TIER].moths ?? MOTHS.perLantern[TIER] ?? 0;
+  const want = Math.round(lanterns.length * rate);
+  const moths = computeMothSpots({ lanternSpots: lanterns, count: want, seed: SEED });
+  let ok = true, detail = '', worst = 0;
+  const limit = MOTHS.maxSpawnDist;
+  for (const m of moths) {
+    let best = Infinity;
+    for (const L of lanterns) {
+      const d = Math.hypot(m.x - L.x, m.z - L.z);
+      if (d < best) best = d;
+    }
+    if (best > worst) worst = best;
+    if (best > limit) {
+      ok = false;
+      detail = `mite@(${m.x.toFixed(1)},${m.z.toFixed(1)}) à ${best.toFixed(2)} u (plafond ${limit})`;
+      break;
+    }
+  }
+  check('mites : chaque spawn à moins de 2.6 u d’une lanterne', ok,
+    ok ? `${moths.length} mites, ${lanterns.length} lanternes, pire ${worst.toFixed(2)} u`
       : detail);
 }
 

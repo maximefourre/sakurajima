@@ -2101,3 +2101,30 @@ Lots 2–8 non ouverts (`stoneYAt` retourne 0).
   (SwiftShader a booté mais `Page.captureScreenshot` a pendu) — retest visuel
   à faire sur la machine : suivre la route plage jusqu’au pin, midi, courir
   vers les crabes.
+
+---
+
+## Session « lot 5 — nuit des routes (mites) » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md` § lot 5.
+Lots 2–4 et 6–8 non ouverts.
+
+### Livré
+
+- `src/moths.js` : GPU pur, patron lucioles (quads instanciés, additif,
+  brouillard atténué). Couleur chaude `0xffc878`. Dérive 1.4–2.2 u autour
+  de chaque lanterne. Actives sur `phase.emissive`. Habitat = `lanternSpots`
+  (trois routes + paire de terrasse). Zéro mite au hokora.
+- `computeMothSpots({ lanternSpots, count, seed })` : spawn ≤ 2.6 u d'une
+  lanterne ; population 0 si `lanternSpots` vide.
+- `config.js` : `QUALITY.*.moths` = 0.5 / 1 / 2 par lanterne, table `MOTHS`.
+- `main.js` : `LOAD_STEPS` 15, étape `'mites'` après `createDetails` (et
+  les papillons). `q` l'objet, jamais la chaîne. `moths.update(t, phase)`
+  brut.
+
+### Vérification
+
+- `node --check` sur `moths.js`, `main.js`, `config.js`.
+- `test/invariants.html` low / high / ultra : **40 pass, 0 fail**.
+  41 lanternes (routes + terrasse). Mites : 21 / 41 / 82
+  (`round(41 × 0.5/1/2)`). Pire spawn 0.55 u (plafond 2.6). Habitat vide → 0.

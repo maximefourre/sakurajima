@@ -23,6 +23,7 @@ import { createSky } from './sky.js';
 import { createBirds } from './birds.js';
 import { createFireflies } from './fireflies.js';
 import { createButterflies } from './butterflies.js';
+import { createMoths } from './moths.js';
 import { createClouds } from './clouds.js';
 import { createParticles } from './particles.js';
 import { createShiba } from './shiba.js';
@@ -33,7 +34,7 @@ import { createTouchControls } from './touch.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
-import { createDetails, isOnPath, initPath, pathSurfaceLiftAt, flowerSpots } from './details.js';
+import { createDetails, isOnPath, initPath, pathSurfaceLiftAt, flowerSpots, lanternSpots } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -56,7 +57,7 @@ let touchActive = coarsePointer;
 if (touchActive) document.documentElement.classList.add('touch');
 
 let loadStep = 0;
-const LOAD_STEPS = 14;
+const LOAD_STEPS = 15;
 /**
  * Advance the loading bar and yield so the browser can paint it.
  *
@@ -167,7 +168,7 @@ const world = {
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
-  poi: null, crabs: null,
+  poi: null, crabs: null, moths: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -623,6 +624,20 @@ async function boot() {
   });
   scene.add(world.butterflies.mesh);
 
+  await step('mites');
+  // APRES createDetails : `lanternSpots` est le meme binding vivant que
+  // `flowerSpots`. Construire plus haut — a cote des lucioles — donne une
+  // population de zero (ou une exception) sans habitat.
+  //
+  // Meme piege que pour les lucioles : `q`, l'OBJET de qualite, jamais
+  // `world.quality` qui est la CHAINE du tier.
+  world.moths = createMoths({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    lanternSpots,
+  });
+  scene.add(world.moths.mesh);
+
   await step('shiba');
   // Une seule question posée à l'eau. Le chien ne connaît plus ni les étangs ni
   // le niveau de la mer : il connaît une hauteur d'eau, ou rien. Les trois règles
@@ -802,6 +817,9 @@ function frame() {
   // `phase` brut et non `shaderPhase` : le materiau est additif et non eclaire,
   // il n'a aucun usage de keyIntensity normalise.
   world.fireflies.update(t, phase);
+  // `phase` brut : additif unlit, comme les lucioles. shaderPhase brulerait
+  // le halo (keyIntensity ~4.3) et n'a aucun usage ici.
+  world.moths.update(t, phase);
   // `shaderPhase` et NON `phase` : contrairement aux lucioles (additives, non
   // eclairees), les ailes sont eclairees par la cle. keyIntensity brut vaut
   // ~4.3 a midi — l'echelle d'une DirectionalLight — et brulerait les ailes en

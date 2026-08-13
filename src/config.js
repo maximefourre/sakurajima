@@ -146,6 +146,7 @@ export const QUALITY = {
     fireflies: Math.round(28.28 * AREA_SOFT),
     butterflies: Math.round(5 * AREA_SOFT),
     crabs: 10,             // laisse locale — pas AREA_SOFT
+    moths: 0.5,            // mites par lanterne (1 toutes les deux)
     shadowMap: 1024,
     bloom: false,
     dprCap: 1.0,
@@ -163,6 +164,7 @@ export const QUALITY = {
     fireflies: Math.round(74.23 * AREA_SOFT),
     butterflies: Math.round(12 * AREA_SOFT),
     crabs: 18,
+    moths: 1,              // une mite par lanterne
     shadowMap: 2048,
     bloom: true,
     dprCap: 1.5,
@@ -182,6 +184,7 @@ export const QUALITY = {
     fireflies: Math.round(141.40 * AREA_SOFT),
     butterflies: Math.round(24 * AREA_SOFT),
     crabs: 28,
+    moths: 2,              // halo vivant autour de chaque cage à feu
     shadowMap: 4096,
     bloom: true,
     dprCap: 2.0,
@@ -480,4 +483,26 @@ export const CRABS = Object.freeze({
   sampleHalfX: 112 * LAND_SCALE,
   sampleMinZ: -120 * LAND_SCALE,
   sampleMaxZ: 104 * LAND_SCALE,
+});
+
+/**
+ * Mites autour des lanternes de route (lot 5).
+ *
+ * N = lanternes × QUALITY.moths (0.5 / 1 / 2). Pas AREA_SOFT : l'habitat
+ * est le réseau de lanternes, pas l'île. Les bougies du hokora n'en ont
+ * pas — lanternSpots ne les porte déjà pas.
+ */
+export const MOTHS = Object.freeze({
+  perLantern: { low: 0.5, high: 1, ultra: 2 },
+  maxSpawnDist: 2.6,         // invariant : chaque spawn ≤ cette distance d'une lanterne
+  spawnRadius: 0.55,         // disque autour du pied, largement sous 2.6
+  hoverHeight: [1.35, 1.85], // autour de la cage à feu (glow à h+1.56)
+  driftRadius: [1.4, 2.2],   // halo serré, pas le vol traînant des hotaru
+  driftRate:   [0.35, 0.90], // plus vif qu'une luciole
+  driftLift:   0.20,         // quasi horizontal autour de la flamme
+  size: [0.10, 0.16],
+  color: 0xffc878,           // chaud — disjoint du jaune-vert des lucioles
+  overdrive: 1.40,
+  brightness: [0.45, 1.0],
+  flickerRate: [1.8, 3.6],
 });
