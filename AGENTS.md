@@ -59,7 +59,7 @@ detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roc
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
 fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
-poi.js      — landmarks authorés (kuromatsu, rocher d'assise) + stoneYAt
+poi.js      — landmarks authorés (kuromatsu, rocher, jizō, tsukubai, iwakura) + stoneYAt
 crabs.js    — crabes de laisse (fuite, enfouissement)
 shiba.js / shiba-geom.js / shiba-gltf.js — chien (glTF + repli procédural)
 touch.js / boot.js — commandes tactiles, voile d'erreur
@@ -167,7 +167,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    puis les cinq du chien et de l'eau : flottaison (le dos sort de l'eau),
    pattes posées sur le sol logique, `pondWaterYAt` cohérent et sans route
    mouillée, étangs nageables ET franchissables, bancs d'ondes koi/chien
-   disjoints, plus celui des lucioles. **`ponds.attach()` est appelé TÔT**, juste
+   disjoints, plus celui des lucioles, plus les trois signes sacrés (jizō hors
+   ruban, tsukubai hors étang/chemin, iwakura ≤ 2 u du récif). **`ponds.attach()` est appelé TÔT**, juste
    après l'île, parce que l'habitat des lucioles en a besoin : il réécrit `PONDS`
    avec les valeurs MESURÉES, donc l'invariant 4 travaille sur des rayons
    mesurés et non authorés. Vérifié dans les deux ordres.

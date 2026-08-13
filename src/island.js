@@ -480,6 +480,28 @@ const WATER_FRAG = /* glsl */ `
   }
 `;
 
+/**
+ * World XZ of the largest authored ridge-reef block (SPRING_ROCKS[0], s = 4.6).
+ * Same numbers as the placement loop — zero RNG, already LAND_SCALEd.
+ */
+export function springReefSite() {
+  const ox = -48 * LAND_SCALE, oz = -4 * LAND_SCALE;
+  const qx = -42 * LAND_SCALE, qz = 10 * LAND_SCALE;
+  let ux = qx - ox, uz = qz - oz;
+  const ul = Math.hypot(ux, uz) || 1;
+  ux /= ul;
+  uz /= ul;
+  const a = -7.0, b = 0.5;
+  return {
+    x: ox + ux * a + (-uz) * b,
+    z: oz + uz * a + ux * b,
+    s: 4.6,
+    ky: 1.15,
+    yaw: 0.8,
+    sink: 0.34,
+  };
+}
+
 /* ────────────────────────────────────────────────────────────────
    Factory
    ──────────────────────────────────────────────────────────────── */

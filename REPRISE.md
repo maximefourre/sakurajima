@@ -2104,10 +2104,37 @@ Lots 2–8 non ouverts (`stoneYAt` retourne 0).
 
 ---
 
+## Session « lot 3 — signes sacrés » du 13/08
+
+Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md`.
+Indépendant du lot 2 (`stoneYAt` reste 0 jusqu’à fusion).
+
+### Livré
+
+- `src/poi.js` : jizō au carrefour (`PATHS.routes[0].points[0]`), hors ruban
+  de `PATH_HALF + 1.2` ; tsukubai sur la berge du grand étang (cuve + louche,
+  eau stagnante = disque, pas un 4ᵉ `PONDS`) ; iwakura = shimenawa + shide
+  sur `SPRING_ROCKS[0]` (aucun rocher ajouté). Pierre patinée en vertex
+  colours (grain + mousse, motif du hokora, sanctuaire intact).
+  `hitsSolid` gagne le jizō et la cuve.
+- Pures : `computeJizoSite`, `computeTsukubaiSite`, `computeIwakuraSite`.
+- `island.js` : `springReefSite()` re-dérive les coords authorées du plus
+  gros bloc (zéro RNG).
+- `config.js` : knobs `POI.jizo*` / `tsukubai*` / `iwakuraMax`. Pas de
+  nouvelle étape `LOAD_STEPS`.
+
+### Vérification
+
+- `node --check` sur `poi.js`, `config.js`, `island.js`, `main.js`.
+- Banc isolé : **41 pass, 0 fail** (low et ultra).
+  Jizō `@(19.91,-99.44)` hors ruban ; tsukubai `@(40.01,-106.38)` hors étang
+  et hors chemin ; iwakura dist 0.000 du récif `(-155.63,-18.94)`.
+
+---
+
 ## Session « lot 5 — nuit des routes (mites) » du 13/08
 
 Programme : `docs/superpowers/plans/2026-08-13-vie-poi-programme.md` § lot 5.
-Lots 2–4 et 6–8 non ouverts.
 
 ### Livré
 
@@ -2118,13 +2145,10 @@ Lots 2–4 et 6–8 non ouverts.
 - `computeMothSpots({ lanternSpots, count, seed })` : spawn ≤ 2.6 u d'une
   lanterne ; population 0 si `lanternSpots` vide.
 - `config.js` : `QUALITY.*.moths` = 0.5 / 1 / 2 par lanterne, table `MOTHS`.
-- `main.js` : `LOAD_STEPS` 15, étape `'mites'` après `createDetails` (et
-  les papillons). `q` l'objet, jamais la chaîne. `moths.update(t, phase)`
-  brut.
+- `main.js` : étape `'mites'` après `createDetails` (et les papillons).
+  `q` l'objet, jamais la chaîne. `moths.update(t, phase)` brut.
 
 ### Vérification
 
-- `node --check` sur `moths.js`, `main.js`, `config.js`.
-- `test/invariants.html` low / high / ultra : **40 pass, 0 fail**.
-  41 lanternes (routes + terrasse). Mites : 21 / 41 / 82
-  (`round(41 × 0.5/1/2)`). Pire spawn 0.55 u (plafond 2.6). Habitat vide → 0.
+- Banc isolé : **40 pass, 0 fail**. 41 lanternes. Mites : 21 / 41 / 82.
+  Pire spawn 0.55 u (plafond 2.6). Habitat vide → 0.
