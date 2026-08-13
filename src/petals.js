@@ -72,7 +72,7 @@ const SAKURA_SHAPE_GLSL = /* glsl */ `
   }
 `;
 
-const AUTUMN_CARPET_MULTIPLIER = 2.5;
+const CARPET_MULTIPLIER = 2.5;
 const AUTUMN_CARPET_DISPERSED_FRACTION = 0.34;
 const CARPET_CANOPY_SPREAD = 1.12;
 /** Même plafond que grass.beachY (1.6) : WORLD.beachTop + bande de dune. */
@@ -504,9 +504,7 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
   let carpet = null, carpetGeo = null, carpetMat = null;
   let carpetPlaced = 0;
   const baseCarpetCount = (quality.fallenPetals | 0) || 0;
-  const CARPET_COUNT = autumn
-    ? Math.round(baseCarpetCount * AUTUMN_CARPET_MULTIPLIER)
-    : baseCarpetCount;
+  const CARPET_COUNT = Math.round(baseCarpetCount * CARPET_MULTIPLIER);
   if (CARPET_COUNT > 0 && canopies.length) {
     const crng = streamFor(seed, 'petals.carpet');
 

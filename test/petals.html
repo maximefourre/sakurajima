@@ -291,7 +291,7 @@ function finish() {
     petals ? `got ${petals.count}` : 'petals null');
 
   check('compte tapis',
-    !!petals && petals.carpetCount === CARPET,
+    !!petals && petals.carpetCount === Math.round(CARPET * 2.5),
     petals ? `got ${petals.carpetCount}` : 'petals null');
 
   check('kind retour',

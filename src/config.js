@@ -171,9 +171,8 @@ export const QUALITY = {
     grassBlades: Math.round(560000 * AREA_SOFT),
     grassRadius: Math.round(130 * LAND_SCALE),
     petals: Math.round(30000 * AREA_SOFT),
-    // ~311k au sol, ~778k en automne (×2.5). Le tapis est en chunks : loin
-    // de la caméra on ne soumet qu'un préfixe, donc le coût reste celui du
-    // voisinage (piège 10 : le poste est géométrique). Les arbres ne bougent pas.
+    // ~311k × 2.5 au sol (printemps et automne). Tapis en chunks : loin
+    // de la caméra on ne soumet qu'un préfixe. Les arbres ne bougent pas.
     fallenPetals: Math.round(55000 * AREA_SOFT),
     trees: Math.round(330 * AREA_SOFT),
     uniqueTrees: 28,
