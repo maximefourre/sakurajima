@@ -60,6 +60,7 @@ detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roc
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
 fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
+audio.js     — SFX call/flush/bark + lits d'ambiance (surf, bambou, cigales, grenouilles)
 herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
               (`onFlush` / `lastFlush` / `forEach` pour le regard du chien)
 shiba.js    — gestes aboie / secoue / regard : `onEvent('bark')`,
