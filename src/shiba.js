@@ -41,7 +41,8 @@ export const SHIBA = {
   idleBeforeBark: 9.5,    // long sit before a spontaneous woof
   wetBeforeShake: 1.2,    // swim/wade seconds before a dry-land shake
   lookHeron: 18,          // look at a heron inside this XZ radius
-  lookPoi: 10,            // hokora / jizō / pine
+  lookPoi: 10,            // hokora / jizō / pin
+  lookPetal: 6,           // pétale / feuille réellement en l'air
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
   /** Molette : amplitude du creux de sillage en nage. Se regle A CHAUD via
@@ -377,7 +378,9 @@ export function createShiba({
       const t = lookTargets[i];
       if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.z)) continue;
       const d = Math.hypot(t.x - position.x, t.z - position.z);
-      const max = t.kind === 'heron' ? SHIBA.lookHeron : SHIBA.lookPoi;
+      const max = t.kind === 'heron' ? SHIBA.lookHeron
+        : t.kind === 'petal' ? SHIBA.lookPetal
+        : SHIBA.lookPoi;
       if (d < max && d < bestD) { best = t; bestD = d; }
     }
     return best;

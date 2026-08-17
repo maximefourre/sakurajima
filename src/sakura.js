@@ -929,6 +929,7 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 		height: target,
 		canopyCenter,
 		canopyRadius,
+		trunkRadius,
 		groundSectors,
 		triangles: geometry.index.count / 3
 	};
@@ -1325,6 +1326,25 @@ function createFoliageMaterial( wind, season ) {
 // -----------------------------------------------------------------------------
 // 7. createSakuraForest
 // -----------------------------------------------------------------------------
+
+/** Disque du fût. Couronne ignorée : on marche sous les branches. */
+export function trunkHits( instances, prototypes, x, z, pad = 0 ) {
+
+	if ( ! instances || ! prototypes ) return false;
+	for ( let i = 0; i < instances.length; i ++ ) {
+
+		const r = instances[ i ];
+		const proto = prototypes[ r.protoIndex ];
+		if ( ! proto ) continue;
+		const rad = ( proto.trunkRadius || 0.2 ) * ( r.scale || 1 ) + pad;
+		const dx = x - r.position.x;
+		const dz = z - r.position.z;
+		if ( dx * dx + dz * dz < rad * rad ) return true;
+
+	}
+	return false;
+
+}
 
 export function createSakuraForest( options = {} ) {
 
@@ -2140,11 +2160,18 @@ export function createSakuraForest( options = {} ) {
 	let triTotal = 0;
 	for ( const r of placements ) triTotal += prototypes[ r.protoIndex ].triangles;
 
+	function hitsTrunk( x, z, pad = 0 ) {
+
+		return trunkHits( placements, prototypes, x, z, pad );
+
+	}
+
 	return {
 		group,
 		update,
 		setEnvironment,
 		getFoliageSamples,
+		hitsTrunk,
 		windUniforms: wind,
 		barkMaterial,
 		foliageMaterial,

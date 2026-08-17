@@ -84,6 +84,58 @@ export function isPetalSand(h) {
 }
 
 /** Parcourt toutes les feuilles du tapis (chunks ou mesh unique), pose bakée. */
+const _fract = (v) => v - Math.floor(v);
+
+/**
+ * CPU replica of the airborne glide (launch + spiral, no gust noise).
+ * Close enough for the shiba to look at a real falling petal.
+ */
+export function airbornePetalAt(i, t, pack) {
+  const { aOrigin, aSeedA, aSeedB, aMode } = pack;
+  if (!aOrigin || aMode[i] > 0.5) return null;
+  const ox = aOrigin[i * 4], gy = aOrigin[i * 4 + 1];
+  const oz = aOrigin[i * 4 + 2], spawnH = aOrigin[i * 4 + 3];
+  const phase = aSeedA[i * 4], lifeOff = aSeedA[i * 4 + 3];
+  const spiralR = aSeedB[i * 4], spiralS = aSeedB[i * 4 + 1];
+  const fallSpeed = pack.fallSpeed ?? 0.052;
+  const launchU = pack.launch ?? 6.5;
+  const wx = pack.windDir?.x ?? 0.82;
+  const wz = pack.windDir?.y ?? 0.57;
+  const life = _fract(t * fallSpeed + lifeOff);
+  const fallY = gy + spawnH * (1 - life ** 1.7);
+  const ja = (_fract(phase * 0.6366) - 0.5) * 1.3;
+  const cj = Math.cos(ja), sj = Math.sin(ja);
+  const ldx = wx * cj - wz * sj;
+  const ldz = wx * sj + wz * cj;
+  const launch = launchU * (0.55 + 0.35 * spiralR) * (1 - (1 - life) ** 3);
+  const grow = life <= 0.04 ? 0 : life >= 0.30 ? 1 : (life - 0.04) / 0.26;
+  const sa = t * spiralS + phase;
+  return {
+    x: ox + ldx * launch + Math.cos(sa) * spiralR * grow,
+    y: fallY,
+    z: oz + ldz * launch + Math.sin(sa) * spiralR * grow,
+    life,
+    kind: 'petal',
+  };
+}
+
+export function nearestAirbornePetal(pack, x, z, t, maxD = 6) {
+  if (!pack?.aOrigin) return null;
+  const n = pack.aMode.length;
+  const max2 = maxD * maxD;
+  let best = null, best2 = max2;
+  for (let i = 0; i < n; i++) {
+    const p = airbornePetalAt(i, t, pack);
+    if (!p || p.life < 0.10 || p.life > 0.88) continue;
+    const gy = pack.aOrigin[i * 4 + 1];
+    if (p.y < gy + 0.7 || p.y > gy + 8) continue;
+    const d2 = (p.x - x) ** 2 + (p.z - z) ** 2;
+    if (d2 < best2) { best2 = d2; best = p; }
+  }
+  return best;
+}
+
+/** Parcourt toutes les feuilles du tapis (chunks ou mesh unique), pose bakée. */
 export function forEachCarpetLeaf(carpet, fn) {
   if (!carpet) return;
   const list = carpet.isInstancedMesh ? [carpet] : (carpet.children || []);
@@ -983,8 +1035,20 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     carpetMat?.dispose();
   }
 
+  const pack = {
+    aOrigin, aSeedA, aSeedB, aMode,
+    fallSpeed: uniforms.uFallSpeed.value,
+    launch: uniforms.uLaunch.value,
+    windDir: wind?.uniforms?.uWindDir?.value ?? null,
+  };
+
+  function nearestAirborne(x, z, t, maxD = 6) {
+    return nearestAirbornePetal(pack, x, z, t, maxD);
+  }
+
   return {
     mesh, carpet, update, setPlayer, dispose,
+    nearestAirborne,
     count: COUNT,
     carpetCount: carpetPlaced,
     season: mode,

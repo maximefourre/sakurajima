@@ -736,7 +736,8 @@ async function boot() {
     normalAt: world.island.normalAt,
     water,
     blocked: (x, z) => world.island.hitsRock(x, z, 0.35, world.shiba?.position.y)
-      || world.poi.hitsSolid(x, z, 0.35),
+      || world.poi.hitsSolid(x, z, 0.35)
+      || !!(world.forest && world.forest.hitsTrunk(x, z, 0.32)),
     particles: world.particles,
     wind: world.wind,
   });
@@ -835,6 +836,12 @@ function pushShibaLooks() {
   world.herons?.forEach?.((b) => {
     lookScratch.push({ x: b.x, y: b.y + 1.1, z: b.z, kind: 'heron' });
   });
+  if (world.petals?.nearestAirborne && world.shiba) {
+    const p = world.petals.nearestAirborne(
+      world.shiba.position.x, world.shiba.position.z, clock.elapsedTime, 6,
+    );
+    if (p) lookScratch.push(p);
+  }
   world.shiba.setLookTargets(lookScratch);
 }
 

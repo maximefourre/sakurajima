@@ -62,7 +62,8 @@ import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
-import { createPetals, isPetalSand, forEachCarpetLeaf } from '../src/petals.js';
+import { createPetals, isPetalSand, forEachCarpetLeaf, airbornePetalAt, nearestAirbornePetal } from '../src/petals.js';
+import { trunkHits } from '../src/sakura.js';
 import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
@@ -131,6 +132,14 @@ ponds.attach({ heightAt: island.heightAt });
   check('CAMERA.far couvre maxDistance + bord océan réel',
     CAMERA.far >= CAMERA.maxDistance + rim,
     `far ${CAMERA.far} vs ${Math.round(CAMERA.maxDistance + rim)}`);
+  const dx = CAMERA.start.x - CAMERA.target.x;
+  const dz = CAMERA.start.z - CAMERA.target.z;
+  const dy = CAMERA.start.y - CAMERA.target.y;
+  const down = Math.atan2(dy, Math.hypot(dx, dz));
+  const halfFov = CAMERA.fov * Math.PI / 360;
+  check('ouverture : haut du cadre au-dessus de l’horizon',
+    down < halfFov - 0.07,
+    `lookDown ${(down * 180 / Math.PI).toFixed(1)}° halfFov ${(halfFov * 180 / Math.PI).toFixed(1)}°`);
 }
 
 /* ── 3. champ de nuages au-delà de l'orbite maximale ─────────────────────── */
@@ -1672,6 +1681,57 @@ function milieuAppuisGltf(r) {
     Math.abs(wrap(hIdle - h0)) < 0.08 && Math.abs(hRun) < 0.85 && lookIdle > 0.4,
     `idle Δheading ${wrap(hIdle - h0).toFixed(3)}, run heading ${hRun.toFixed(3)}, lookIdle ${lookIdle.toFixed(2)}`);
   never.dispose();
+}
+
+{
+  const proto = { trunkRadius: 0.30 };
+  const inst = [{ position: { x: 10, z: -4 }, scale: 2, protoIndex: 0 }];
+  const hit = trunkHits(inst, [proto], 10, -4, 0.32);
+  const miss = !trunkHits(inst, [proto], 10 + 0.30 * 2 + 0.32 + 0.2, -4, 0.32);
+  check('tronc : collision au fût, pas à la couronne',
+    hit && miss,
+    `r=${(0.30 * 2).toFixed(2)} hit=${hit} miss=${miss}`);
+}
+
+{
+  const n = 24;
+  const aOrigin = new Float32Array(n * 4);
+  const aSeedA = new Float32Array(n * 4);
+  const aSeedB = new Float32Array(n * 4);
+  const aMode = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    aOrigin[i * 4] = 3 + i * 0.4;
+    aOrigin[i * 4 + 1] = 2;
+    aOrigin[i * 4 + 2] = -1;
+    aOrigin[i * 4 + 3] = 5;
+    aSeedA[i * 4] = i * 0.3;
+    aSeedA[i * 4 + 3] = i / n;
+    aSeedB[i * 4] = 1.2;
+    aSeedB[i * 4 + 1] = 0.3;
+    aMode[i] = i === 0 ? 1 : 0;
+  }
+  const pack = { aOrigin, aSeedA, aSeedB, aMode };
+  const settled = airbornePetalAt(0, 4.0, pack);
+  const air = nearestAirbornePetal(pack, 4, -1, 4.0, 12);
+  check('pétale en l’air : le tapis est ignoré, un volant est trouvé',
+    settled === null && air && air.kind === 'petal' && air.y > 2.7,
+    air ? `y=${air.y.toFixed(2)} life=${air.life.toFixed(2)}` : 'aucun volant');
+
+  const dog = createShiba({
+    seed: SEED,
+    heightAt: () => 2,
+    water: { surfaceAt: () => null, isPond: () => false, impact() {}, setSwimmer() {} },
+  });
+  const hx = dog.state.heading;
+  dog.setLookTargets([{
+    x: dog.position.x + 2.2, y: dog.position.y + 2.4, z: dog.position.z + 0.8,
+    kind: 'petal',
+  }]);
+  for (let i = 0; i < 20; i++) dog.update(i * 0.05, 0.05, null);
+  check('regard vers un pétale : la tête tourne, pas le corps',
+    dog.state.look > 0.3 && Math.abs(dog.state.heading - hx) < 0.08,
+    `look=${dog.state.look.toFixed(2)} Δheading=${(dog.state.heading - hx).toFixed(3)}`);
+  dog.dispose();
 }
 
 /* ── lot 8. sentier est + bosquet de bambous ───────────────────────────────

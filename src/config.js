@@ -277,10 +277,11 @@ export const CAMERA = {
   // Depth precision is governed by `near`, not this value: going 5557→7091
   // changes far/(far-near) by <0.01%.
   far: Math.round((620 + 460 * 3.37) * LAND_SCALE) + 200,
-  // Framed to read as an island: far enough out that the coastline and the
-  // surrounding sea are both in shot, high enough to take in the whole landmass.
-  start: { x: 215 * LAND_SCALE * 0.86, y: 112 * LAND_SCALE * 0.86, z: 250 * LAND_SCALE * 0.86 },
-  target: { x: 0, y: 4, z: 10 * LAND_SCALE },
+  // Framed to read as an island. y was 112·L·0.86 : the 42° fov put the TOP
+  // of the frame on Preetham's white horizon haze (PLAN §3). Lower camera,
+  // slightly higher target → look ~13° down, sky band is real sky.
+  start: { x: 215 * LAND_SCALE * 0.86, y: 78 * LAND_SCALE * 0.86, z: 250 * LAND_SCALE * 0.86 },
+  target: { x: 0, y: 14, z: 10 * LAND_SCALE },
   minDistance: 14,
   maxDistance: 620 * LAND_SCALE,
   maxPolar: Math.PI * 0.495, // stop just above the horizon so you can't go under the island

@@ -2353,3 +2353,14 @@ cumulus boue sous le soleil bas.
 - `clouds.js` : clé de crépuscule refroidie vers ciel/brouillard.
 
 `test/atmosphere.html` : **41 pass, 0 fail**.
+
+---
+
+## Session « PLAN §3 + §4, sans saison » du 16/08
+
+- Cadrage d'ouverture : `start.y` 112→78 ·L·0.86, `target.y` 4→14. Le haut
+  du cadre passe au-dessus de l'horizon (plus la bande grise Preetham).
+- Troncs : `trunkRadius` sur le proto, `trunkHits` / `forest.hitsTrunk`,
+  câblé dans `shiba.blocked` (pad 0.32). On marche sous la couronne.
+- Regard : `nearestAirbornePetal` (glide CPU, pas le tapis). Kind `petal`,
+  rayon 6. Le corps ne tourne toujours pas.

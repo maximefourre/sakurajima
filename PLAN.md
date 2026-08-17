@@ -129,16 +129,14 @@ vers ciel/brouillard.
   lumière chaude (l'aube automne, lilas, est belle). Niveau goût, pas cassé.
 
 ### 3. La bande grise au zénith
-Quand la caméra pique franchement vers le bas, le haut du cadre ne montre plus
-que la bande de brume d'horizon de Preetham, qui est presque blanche. Ce n'est
-pas un bug, mais le cadrage d'ouverture devrait l'éviter.
+**SOLDÉ le 16/08.** Le cadrage d'ouverture (fov 42°, look ~19° vers le bas)
+mettait le haut du cadre sur la brume d'horizon Preetham. `CAMERA.start.y`
+78·L·0.86 et `target.y` 14 : look ~13°, le ciel du haut de cadre est du ciel.
 
 ### 4. Le shiba, second passage
-Il marche, court, s'assoit, barbote et laisse des empreintes. Manquent encore :
-il ne lève la tête vers les pétales (ou feuilles mortes, en automne) que sur une
-minuterie, pas parce qu'un pétale est réellement passé ; il n'aboie pas ; et il
-traverse les troncs. Un test de collision contre `forest.instances` serait peu
-coûteux — les positions et les rayons de couronne sont déjà exposés.
+Aboiement / secouement / regard lieux : lot 6. **SOLDÉ le 16/08** le reste :
+collision des fûts (`trunkHits` / `forest.hitsTrunk`, pas la couronne) ; regard
+vers un pétale **volant** (`nearestAirbornePetal`, rayon 6). Pas la 3ᵉ saison.
 
 ### 4bis. Une troisième saison ?
 Le contrat de saison est générique (résolveur pur, palettes à la construction,
