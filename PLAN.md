@@ -187,6 +187,18 @@ et il disparaît dans le pré depuis n'importe quelle caméra qui cadre aussi l'
 - Rayons crépusculaires : ShaderPass radial après le bloom, force golden+twilight.
 - Son : `src/audio.js` Web Audio, câblé sur `birds.onEvent` (`call`/`flush`) et `shiba.onEvent` (`bark`). Premier geste pour débloquer le contexte.
 
+### 7. Organique / vivant (17/08)
+**SOLDÉ le 17/08.** L'île était muette entre deux événements, les fleurs
+s'arrêtaient au couteau sur l'épaule des sentiers, et elles ignoraient le
+chien. Impostors / herbe / hérons / lanternes n'ont pas été rouverts.
+
+- Lit sonore spatial (`ambientWeights` + 4 lits). 0 GPU.
+- `pathLitterOk` : litière d'épaule, ruban nu. Pétales sur le chemin gardés.
+- Fleurs : `setPlayer` local, pas `wind.uniforms`.
+- Mousse rochers biaisée au nord (−Z).
+
+Lot 5 (wrack / snag / moucherons) non ouvert.
+
 ---
 
 ## Pièges déjà rencontrés (ne pas les repayer)

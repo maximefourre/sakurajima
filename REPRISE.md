@@ -2431,3 +2431,27 @@ disque. Cause : le cylindre-mur n'avait pas de dépénétration.
 **67 pass, 0 fail**.
 
 ---
+
+## Session « organique / vivant » du 17/08
+
+Plan : `.hermes/plans/2026-08-17_161657-environnement-organique-vivant.md`.
+Quatre lots, 0 quad ajouté. Inventaire d'abord : impostors, herbe
+`setPlayer`, tapis, hérons, lanternes, mousse *up* déjà là.
+
+- **Lot 1 — lit sonore.** `ambientWeights` pur + table `AMBIENCE`.
+  Quatre lits Web Audio (surf, bambou, cigales, grenouilles) après le
+  premier geste. Listener = shiba en follow, caméra en orbite.
+  `world.paused` coupe le master.
+- **Lot 2 — épaules.** `pathLitterOk` : ruban toujours nu, épaule
+  `PATHS.shoulder` parfois plantée. Pétales sur la terre battue
+  inchangés (consigne joueur) ; `onPath` de `createPetals` reste
+  un filtre mort côté reject.
+- **Lot 3 — fleurs ↔ shiba.** `uPlayer` **local** sur
+  `makeFoliageMaterial` (jamais `wind.uniforms`). `details.setPlayer`.
+- **Lot 4 — mousse nord.** `rockMossAmount` ; −Z = nord (`sky.js`
+  `celestialDir`).
+
+`node --check` audio/config/main/details/island.
+`INVARIANTS: 76 pass, 0 fail` low **et** ultra. Pas de chiffre fps.
+
+---

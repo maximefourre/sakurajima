@@ -36,7 +36,7 @@ import { createGulls } from './gulls.js';
 import { createBamboo, inBambooGrove } from './bamboo.js';
 import { createTouchControls } from './touch.js';
 import { createCloudShadow } from './cloud-shadow.js';
-import { createAudio } from './audio.js';
+import { createAudio, ambientWeights } from './audio.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
@@ -977,9 +977,35 @@ function frame() {
   // this frame's position, and unconditional: it applies in both camera modes —
   // in follow mode you swim through it, in orbit mode you watch him wade.
   world.grass.setPlayer?.(world.shiba.position, dt);
+  world.details.setPlayer?.(world.shiba.position);
   // Le tapis de pétales frémit au passage : vitesse normalisée du shiba.
   world.petals.setPlayer?.(world.shiba.position.x, world.shiba.position.z,
     world.shiba.speedN);
+
+  if (world.audio?.update) {
+    const listener = world.camMode === 'follow' && world.shiba
+      ? world.shiba.position
+      : camera.position;
+    const lx = listener.x, lz = listener.z;
+    let pondDist = 1e3;
+    const ponds = world.ponds?.PONDS;
+    if (ponds) {
+      for (let i = 0; i < ponds.length; i++) {
+        const p = ponds[i];
+        const d = Math.hypot(lx - p.x, lz - p.z) - p.radius;
+        if (d < pondDist) pondDist = d;
+      }
+    }
+    world.audio.update(ambientWeights({
+      height: world.heightAt(lx, lz),
+      seaLevel: world.island.seaLevel,
+      inGrove: inBambooGrove(lx, lz),
+      pondDist: Math.max(0, pondDist),
+      night: phase.night ?? 0,
+      twilight: phase.twilight ?? 0,
+      windStrength: world.wind.state?.strength ?? 0.4,
+    }), { paused: world.paused });
+  }
 
   if (world.camMode === 'follow') {
     updateFollowCamera(dt);

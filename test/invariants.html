@@ -56,8 +56,8 @@ import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
-import { createIsland, springReefSite, SEA_STACK_RANDOM } from '../src/island.js';
-import { createDetails, flowerSpots, initPath, isOnPath, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
+import { createIsland, springReefSite, SEA_STACK_RANDOM, rockMossAmount } from '../src/island.js';
+import { createDetails, flowerSpots, initPath, isOnPath, pathLitterOk, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
@@ -77,6 +77,7 @@ import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js'
 import { computeGullSpawns } from '../src/gulls.js';
 import { computeBambooSpawns, inBambooGrove } from '../src/bamboo.js';
 import { createCloudShadow } from '../src/cloud-shadow.js';
+import { ambientWeights } from '../src/audio.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -1810,6 +1811,97 @@ function milieuAppuisGltf(r) {
   check('bosquet de bambous à l’est du carrefour, hors ruban',
     spots.length >= Math.floor(want * 0.6) && onPath === 0 && west === 0 && offGrove === 0,
     `${spots.length}/${want}, ${onPath} sur ruban, ${west} à l’ouest, ${offGrove} hors bosquet`);
+}
+
+/* ── mousse des rochers, biais nord (−Z, même convention que sky.js) ─ */
+{
+  const northFace = rockMossAmount(0.9, 0, 0.4, -0.9, 0.5);
+  const southFace = rockMossAmount(0.9, 0, 0.4, 0.9, 0.5);
+  check('mousse rocher : face nord plus chargée que face sud',
+    northFace > southFace * 1.05,
+    `N=${northFace.toFixed(3)} S=${southFace.toFixed(3)}`);
+}
+
+/* ── épaules de sentier ─────────────────────────────────────────── */
+{
+  const [jx, jz] = PATHS.routes[0].points[0];
+  check('épaule : le ruban refuse toute litière',
+    pathLitterOk(jx, jz, 0) === false && pathLitterOk(jx, jz, 0.99) === false,
+    `carrefour (${jx.toFixed(1)},${jz.toFixed(1)})`);
+  check('épaule : hors chemin toujours accepté',
+    pathLitterOk(0, 400, 0.99) === true);
+
+  let shoulder = null;
+  const route = PATHS.routes.find((r) => r.name === 'plage') || PATHS.routes[2];
+  const a = route.points[3], b = route.points[4];
+  const mx = (a[0] + b[0]) * 0.5, mz = (a[1] + b[1]) * 0.5;
+  for (let ang = 0; ang < Math.PI * 2 && !shoulder; ang += Math.PI / 8) {
+    const cx = Math.cos(ang), cz = Math.sin(ang);
+    for (let t = 0.05; t < 8; t += 0.08) {
+      const x = mx + cx * t, z = mz + cz * t;
+      if (!isOnPath(x, z, 0) && isOnPath(x, z, PATHS.shoulder ?? 0.8)) {
+        shoulder = [x, z];
+        break;
+      }
+    }
+  }
+  check('épaule : bande parfois acceptée, souvent refusée',
+    !!shoulder
+      && pathLitterOk(shoulder[0], shoulder[1], 0) === true
+      && pathLitterOk(shoulder[0], shoulder[1], 0.99) === false,
+    shoulder ? `${shoulder[0].toFixed(2)},${shoulder[1].toFixed(2)}` : 'pas de bande');
+
+  let onRibbon = 0;
+  const nf = flowerSpots.length / 3;
+  for (let i = 0; i < nf; i++) {
+    if (isOnPath(flowerSpots[i * 3], flowerSpots[i * 3 + 2], 0)) onRibbon++;
+  }
+  check('fleurs : zéro sur le ruban',
+    onRibbon === 0,
+    `${onRibbon}/${nf}`);
+}
+
+/* ── lit sonore (poids purs, pas d’AudioContext) ─────────────────── */
+{
+  const sea = ambientWeights({
+    height: 0.3, seaLevel: 0, inGrove: false, pondDist: 80,
+    night: 0, twilight: 0, windStrength: 0.4,
+  });
+  check('ambiance : surf dominant sur la laisse',
+    sea.surf > 0.7 && sea.cicada < 0.25 && sea.frogs < 0.05 && sea.bamboo === 0,
+    `surf=${sea.surf.toFixed(2)} cicada=${sea.cicada.toFixed(2)}`);
+
+  const grove = ambientWeights({
+    height: 8, seaLevel: 0, inGrove: true, pondDist: 80,
+    night: 0, twilight: 0, windStrength: 1.1,
+  });
+  check('ambiance : bambou seulement dans le bosquet, poussé par le vent',
+    grove.bamboo > 0.6 && grove.surf < 0.25,
+    `bamboo=${grove.bamboo.toFixed(2)}`);
+
+  const inlandDay = ambientWeights({
+    height: 8, seaLevel: 0, inGrove: false, pondDist: 80,
+    night: 0, twilight: 0, windStrength: 0.4,
+  });
+  const inlandNight = ambientWeights({
+    height: 8, seaLevel: 0, inGrove: false, pondDist: 80,
+    night: 1, twilight: 0, windStrength: 0.4,
+  });
+  check('ambiance : cigales le jour à l’intérieur, muettes la nuit',
+    inlandDay.cicada > 0.35 && inlandNight.cicada < 0.05,
+    `day=${inlandDay.cicada.toFixed(2)} night=${inlandNight.cicada.toFixed(2)}`);
+
+  const pondDusk = ambientWeights({
+    height: 7, seaLevel: 0, inGrove: false, pondDist: 1.5,
+    night: 0.2, twilight: 0.8, windStrength: 0.2,
+  });
+  const pondFar = ambientWeights({
+    height: 7, seaLevel: 0, inGrove: false, pondDist: 40,
+    night: 0.2, twilight: 0.8, windStrength: 0.2,
+  });
+  check('ambiance : grenouilles au crépuscule près d’un étang, pas au large',
+    pondDusk.frogs > 0.45 && pondFar.frogs < 0.08,
+    `near=${pondDusk.frogs.toFixed(2)} far=${pondFar.frogs.toFixed(2)}`);
 }
 
 finish();

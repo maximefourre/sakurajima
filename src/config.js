@@ -232,6 +232,8 @@ export const DEFAULT_SEASON = 'spring';
 export const PATHS = {
   width: 4.8,         // élargi 3.2 → 4.8 (consigne joueur : chemin trop maigre)
   lanternEvery: 30,   // unités monde d'arc entre deux lanternes
+  shoulder: 0.8,      // extra isOnPath : bande où les fleurs peuvent déborder
+  shoulderAccept: 0.45,
   routes: [
     { name: 'torii',
       points: [
@@ -668,4 +670,19 @@ export const BAMBOO = Object.freeze({
   hMax: 34,                 // la bosse est culmine ~24–28 u
   minSep: 1.65,
   scale: Object.freeze([1.18, 1.58]),
+});
+
+/**
+ * Lits d'ambiance (surf / bambou / cigales / grenouilles).
+ * Poids purs dans audio.ambientWeights — zéro géométrie.
+ */
+export const AMBIENCE = Object.freeze({
+  surfNear: 0.4,
+  surfFar: 8.0,
+  surfFloor: 0.12,
+  groveWind: 1.4,
+  cicadaMinH: 2.6,
+  frogNear: 2.0,
+  frogFar: 18.0,
+  master: 0.10,
 });

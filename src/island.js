@@ -42,6 +42,16 @@ const TAU = Math.PI * 2;
 /** Random offshore stacks. The sea-torii islet is authored on top and is not counted here. */
 export const SEA_STACK_RANDOM = 5;
 
+/**
+ * Moss amount on a rock vertex. `up` is the unit-sphere Y (before squash).
+ * World −Z is north — same convention as sky.js celestialDir (east, up, −north).
+ */
+export function rockMossAmount(up, nx, ny, nz, noise01) {
+  const base = sstep(0.34, 0.86, up) * (0.35 + 0.65 * (0.5 + 0.5 * noise01));
+  const north = clamp(-nz, 0, 1);
+  return base * (0.62 + 0.70 * north);
+}
+
 /* ────────────────────────────────────────────────────────────────
    Art direction — the knobs a human actually wants
    ──────────────────────────────────────────────────────────────── */
@@ -1013,8 +1023,8 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       let s = mix(0.88, 1.07, strata) * mix(0.70, 1.06, cav);
 
       const up = clamp((ny * r) / Math.max(r, 1e-4), -1, 1);
-      const mossAmt = sstep(0.34, 0.86, up) * (0.35 + 0.65 * (0.5 + 0.5 *
-        noise3(v.x * 2.2 - 9.0, v.y * 2.2, v.z * 2.2 + 5.0)));
+      const mossAmt = rockMossAmount(up, nx, ny, nz,
+        noise3(v.x * 2.2 - 9.0, v.y * 2.2, v.z * 2.2 + 5.0));
 
       c.setRGB(s, s, s).lerp(moss, mossAmt * 0.5 * s);
       const o = i * 3;

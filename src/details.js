@@ -227,6 +227,16 @@ export function isOnPath(x, z, extra = 0.25) {
 }
 
 /**
+ * Fleurs / litière : jamais sur le ruban, parfois sur l'épaule.
+ * Les pétales tombés restent autorisés sur la terre battue (consigne joueur).
+ */
+export function pathLitterOk(x, z, rng01, extra = PATHS.shoulder) {
+  if (isOnPath(x, z, 0)) return false;
+  if (!isOnPath(x, z, extra)) return true;
+  return rng01 < PATHS.shoulderAccept;
+}
+
+/**
  * Proximité à l'axe d'une route, 0 (hors sente) → 1 (au coeur). Sert au sol
  * composite des MOVERS : le shiba marche SUR la surface de terre battue
  * (terrain + ~pathSurfaceLift·proximité), pas sur le terrain en dessous —
@@ -1449,8 +1459,8 @@ export function createDetails({
         if (slopeAt && slopeAt(x, z) > 0.34) continue;
         if (wet(x, z)) continue;
         // Pas de fleurs sur la terre battue — la sente porte une herbe rase
-        // (grass.js shortZone), pas des corolles intactes en plein passage.
-        if (isOnPath(x, z, 0.4)) continue;
+        // (grass.js shortZone). L'épaule peut mordre (pathLitterOk).
+        if (!pathLitterOk(x, z, rng())) continue;
 
         if (normalAt) normalAt(x, z, _n); else _n.set(0, 1, 0);
         _n.lerp(UP, 0.45).normalize();
@@ -1966,7 +1976,14 @@ export function createDetails({
     candleGlow?.dispose?.();
   }
 
-  return { group, update, dispose };
+  function setPlayer(pos) {
+    for (const mesh of flowerMeshes) {
+      const u = mesh.material?.userData?.playerUniforms?.uPlayer;
+      if (u) u.value.copy(pos);
+    }
+  }
+
+  return { group, update, setPlayer, dispose };
 }
 
 /* ── shared scratch, hoisted out of the placement and frame loops ── */
@@ -1991,6 +2008,13 @@ function makeFoliageMaterial(wind) {
     side: THREE.DoubleSide,
   });
 
+  const playerUniforms = {
+    uPlayer: { value: new THREE.Vector3(1e4, -1e4, 1e4) },
+    uPlayerRadius: { value: 2.4 },
+    uPlayerStrength: { value: 0.85 },
+  };
+  mat.userData.playerUniforms = playerUniforms;
+
   mat.onBeforeCompile = (shader) => {
     if (wind && wind.uniforms) {
       // BY REFERENCE. One wind.update() drives the meadow, the canopies, the
@@ -1998,6 +2022,8 @@ function makeFoliageMaterial(wind) {
       // waving on a clock of their own.
       for (const k in wind.uniforms) shader.uniforms[k] = wind.uniforms[k];
     }
+    // Local — never write uPlayer onto wind.uniforms (leaks into sakura/grass).
+    Object.assign(shader.uniforms, playerUniforms);
 
     const windBlock = wind && wind.WIND_GLSL ? wind.WIND_GLSL : `
       vec3 windForce(vec3 p) { return vec3(0.0); }
@@ -2009,7 +2035,7 @@ function makeFoliageMaterial(wind) {
     // already injects at exactly this anchor.
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
-      `#include <common>\nattribute float aBase;\n${windBlock}`
+      `#include <common>\nattribute float aBase;\nuniform vec3 uPlayer;\nuniform float uPlayerRadius;\nuniform float uPlayerStrength;\n${windBlock}`
     ).replace(
       '#include <begin_vertex>',
       /* glsl */ `
@@ -2020,6 +2046,10 @@ function makeFoliageMaterial(wind) {
           // across its own eight centimetres.
           vec3 root = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
           vec3 w = windForce(root);
+          vec2 pv = root.xz - uPlayer.xz;
+          float dP = length(pv);
+          float prox = 1.0 - smoothstep(0.25 * uPlayerRadius, uPlayerRadius, dP);
+          w.xz += pv * (prox / max(dP, 1e-4)) * uPlayerStrength;
           float bend = aBase * aBase;
           // Back into instance-local space: the instance matrix carries a
           // rotation, so a world-space push applied directly would lean every
@@ -2034,7 +2064,7 @@ function makeFoliageMaterial(wind) {
 
   // Materials that share a program key would otherwise reuse a cached program
   // compiled without the patch above.
-  mat.customProgramCacheKey = () => 'sk-foliage-wind';
+  mat.customProgramCacheKey = () => 'sakurajima-flower-player-v1';
   return mat;
 }
 
