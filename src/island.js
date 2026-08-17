@@ -449,6 +449,10 @@ const WATER_FRAG = /* glsl */ `
     // Weighted so the product lands near 1.0 with a high sun, which leaves the
     // midday sea exactly where it was.
     vec3 lit = body * (uSkyColor * 0.55 + uSunColor * (0.12 + 0.55 * sunUp * max(L.y, 0.0)));
+    // Far sea must already be fogColor before FogExp2 finishes the job,
+    // otherwise the disc stays pigment-warm against a night-blue dome.
+    float hzFade = smoothstep(380.0, 2100.0, camDst);
+    lit = mix(lit, uHorizonColor, hzFade * 0.62);
 
     vec3 col = mix(lit, sky, clamp(fres * uReflect, 0.0, 1.0));
     col += uSunColor * spec * uSunSpec * sunUp;
@@ -1307,7 +1311,8 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     if (phase.skyColor || phase.zenithColor) u.uSkyColor.value.copy(phase.skyColor || phase.zenithColor);
     if (phase.horizonColor || phase.fogColor) u.uHorizonColor.value.copy(phase.horizonColor || phase.fogColor);
 
-    const day = Number.isFinite(phase.daylight) ? phase.daylight
+    const day = Number.isFinite(phase.day) ? phase.day
+              : Number.isFinite(phase.daylight) ? phase.daylight
               : Number.isFinite(phase.dayFactor) ? phase.dayFactor
               : sstep(-0.14, 0.16, u.uSunDir.value.y);
 

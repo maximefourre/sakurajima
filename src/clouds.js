@@ -510,7 +510,11 @@ export function createClouds({ seed, wind, quality }) {
 
         vec3 amb = (uAmbSky * 0.38 + uAmbGround * 0.13) * (0.66 + 0.34 * baseDark) * msA;
         vec3 col = amb;
-        col += uKeyColor * (wrapLit * 0.86 * baseDark + rim * 0.72 + glow * 1.35 + underlit * 0.85) * msD;
+        // After sunset the key is still a hot orange for a few minutes while
+        // ambient has gone brown-green — that product is mud. Cool the
+        // underside toward sky/fog as twilight takes over; keep golden hour warm.
+        vec3 duskKey = mix(uKeyColor, mix(uAmbSky, uFogColor, 0.45), uTwilight * 0.72);
+        col += duskKey * (wrapLit * 0.86 * baseDark + rim * 0.72 + glow * 1.35 + underlit * 0.85) * msD;
 
         // At night the key light is far too dim to shape anything, so the clouds
         // work as occluders of the star field. This floor keeps them reading as

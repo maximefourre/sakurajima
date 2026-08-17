@@ -2338,3 +2338,18 @@ Cinq trouvailles joueur, causes et correctifs.
 | 5 | 20 fps ultra plage/forêt | 560k·AREA_SOFT ≈ 3.17 M de brins, `fadeEnd` 330 (la forêt reste soumise depuis la plage). | Ultra 420k ; fade 170/250. |
 
 Vérif : `node --check` ; `INVARIANTS: 59 pass, 0 fail` low **et** ultra.
+
+---
+
+## Session « couture mer/ciel + nuages crépuscule » du 16/08
+
+PLAN §1 et §2. `dayTime=0.80` : mer saumon / ciel déjà bleu ( rasoir ),
+cumulus boue sous le soleil bas.
+
+- `sky.js` : fog et hemi passent au bleu dès `u≈0.76` ; densité fog relevée
+  0.78–0.82 ; `uHorizonFogStrength` printemps seulement soleil sous l'horizon
+  (golden 0.72 reste 0 — contrat `atmosphere.html`).
+- `island.js` : lerp mer sur `phase.day` ; le lointain mixe vers `uHorizonColor`.
+- `clouds.js` : clé de crépuscule refroidie vers ciel/brouillard.
+
+`test/atmosphere.html` : **41 pass, 0 fail**.

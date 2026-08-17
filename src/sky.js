@@ -316,7 +316,8 @@ const K_HEMI_SKY = colorKeys([
   // eaten by the ACES toe and the night reads as grey-black instead of blue.
   [0.000, 0x1d3a78], [0.205, 0x24345f], [0.250, 0x6d7fa8], [0.290, 0x9fbbe4],
   [0.400, 0xb3d1f5], [0.500, 0xc0dcff], [0.620, 0xb6d0f2], [0.700, 0xd3b593],
-  [0.750, 0xb8836a], [0.790, 0x4a5988], [0.850, 0x24417e], [1.000, 0x1d3a78],
+  [0.750, 0xb8836a], [0.768, 0x6e6a8a], [0.790, 0x4a5988], [0.850, 0x24417e],
+  [1.000, 0x1d3a78],
 ]);
 const K_HEMI_GROUND = colorKeys([
   [0.000, 0x05070f], [0.205, 0x14161f], [0.250, 0x4a3328], [0.290, 0x6a5a3e],
@@ -337,8 +338,8 @@ const K_FOG_COLOR = colorKeys([
   // paints is most of the visible night sky at this camera's pitch.
   [0.000, 0x101c40], [0.160, 0x101a36], [0.210, 0x2b3f6e], [0.250, 0xd97f52],
   [0.280, 0xeeb287], [0.330, 0xd9dff0], [0.400, 0xcfe0f4], [0.500, 0xd3e6fa],
-  [0.620, 0xcfdcef], [0.700, 0xe8bb8b], [0.750, 0xe26f42], [0.775, 0xa05a58],
-  [0.800, 0x4f5c8c], [0.860, 0x1a2648], [1.000, 0x101c40],
+  [0.620, 0xcfdcef], [0.700, 0xe8bb8b], [0.750, 0xe26f42], [0.762, 0xb86a58],
+  [0.778, 0x6a5a78], [0.800, 0x3d4a78], [0.860, 0x1a2648], [1.000, 0x101c40],
 ]);
 // These were calibrated against a 240-unit island; the world is now 460 units
 // across, so the same look wants roughly half the density. It was briefly cut to
@@ -360,7 +361,7 @@ const K_FOG_DENSITY = [
   // without touching the tuned daytime.
   [0.000, 0.00147], [0.210, 0.00165], [0.250, 0.00230], [0.300, 0.00185],
   [0.450, 0.00110], [0.500, 0.00095], [0.700, 0.00120], [0.750, 0.00190],
-  [0.800, 0.00165], [0.900, 0.00168], [1.000, 0.00147],
+  [0.780, 0.00210], [0.820, 0.00185], [0.900, 0.00168], [1.000, 0.00147],
 ].map(([t, d]) => [t, d * FOG_SCALE]);
 
 /* ── camera response ──────────────────────────────────────────────────────────
@@ -1318,12 +1319,14 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
     }
     // Sky dome is unfogged (addon ShaderMaterial fog:false). Drive the low-
     // elevation band toward the SAME fogColor ocean already mixes to — not a
-    // second palette. Strength 0 spring + deep night.
+    // second palette. Autumn also covers golden hour. Spring only after the
+    // sun is down: Preetham goes blue while the sea was still salmon (PLAN §1).
     if (skyU.uHorizonFogColor) skyU.uHorizonFogColor.value.copy(_fogColor);
     if (skyU.uHorizonFogStrength) {
+      const below = 1 - smooth(sunY, -0.02, 0.05);
       skyU.uHorizonFogStrength.value = isAutumn
         ? Math.min(0.92, 0.55 * goldenW + 0.28 * twilightW)
-        : 0;
+        : Math.min(0.85, 0.78 * twilightW * below);
     }
 
     /* ── celestial layers ────────────────────────────────────────────────── */

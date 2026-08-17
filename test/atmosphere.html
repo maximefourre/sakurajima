@@ -130,6 +130,8 @@ const aNoon = sample(autumn, 0.50);
 const uNoon = sample(unknown, 0.50);
 const sGold = sample(spring, 0.72);
 const aGold = sample(autumn, 0.72);
+const sDusk = sample(spring, 0.80);
+const aDusk = sample(autumn, 0.80);
 const sNight = sample(spring, 0.97);
 const aNight = sample(autumn, 0.97);
 
@@ -236,6 +238,18 @@ check('autumn golden horizonFogColor === fogColor',
 check('spring golden horizonFogStrength 0',
   sGold.horizonFogStrength != null && near(sGold.horizonFogStrength, 0, 1e-6),
   `got ${sGold.horizonFogStrength}`);
+check('spring dusk (0.80) horizonFogStrength > 0',
+  sDusk.horizonFogStrength != null && sDusk.horizonFogStrength > 0.12,
+  `got ${sDusk.horizonFogStrength}`);
+check('spring dusk fog plus bleu que saumon',
+  sDusk.fog.b > sDusk.fog.r && sGold.fog.r > sGold.fog.b,
+  `gold ${hexOf(sGold.fog)} dusk ${hexOf(sDusk.fog)}`);
+check('spring dusk hemiSky plus bleu que golden',
+  sDusk.hemiSky.b > sDusk.hemiSky.r && sGold.hemiSky.r > sGold.hemiSky.b,
+  `gold ${hexOf(sGold.hemiSky)} dusk ${hexOf(sDusk.hemiSky)}`);
+check('autumn dusk horizonFogColor === fogColor',
+  aDusk.horizonFog && distColor(aDusk.horizonFog, aDusk.fog) < 2e-3,
+  aDusk.horizonFog ? `${hexOf(aDusk.horizonFog)} vs ${hexOf(aDusk.fog)}` : 'missing');
 check('nuit profonde autumn horizonFogStrength 0',
   aNight.horizonFogStrength != null && aNight.horizonFogStrength < 0.01,
   `got ${aNight.horizonFogStrength}`);

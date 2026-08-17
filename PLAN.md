@@ -105,18 +105,16 @@ Un chantier à la fois. Grok CLI toujours non authentifié.
 ## Reste à faire, par priorité
 
 ### 1. La couture mer/ciel au coucher du soleil (0.78–0.84)
-Constatée le 30/07 dans LES DEUX saisons : à `dayTime=0.80` la mer reste rose
-saumon uniforme contre un ciel déjà bleu nuit — ligne rasoir sur toute la
-largeur. À midi, golden hour et nuit noire, la fusion vers le fogColor partagé
-(`a920146`) tient ; c'est la fenêtre du coucher, où mer et ciel divergent le
-plus vite, que les courbes de `uHorizonFogStrength`/fog ne couvrent pas.
-Le correctif vit dans les courbes keyframées de `sky.js` + la courbe jour/nuit
-de l'eau dans `island.js` (piège n°4 : ne pas régler l'eau de l'extérieur).
+**SOLDÉ le 16/08.** Le dôme printemps n'avait pas de bande `uHorizonFog` (réservé
+à l'automne golden). Preetham passait au bleu dès le soleil sous l'horizon
+pendant que brouillard / pigment mer restaient saumon. Correctif : courbes
+fog/hemi accélérées après `u=0.75`, bande horizon printemps seulement soleil
+bas, mer tirée vers `fogColor` au loin, `phase.day` pour le lerp NIGHT/DAY.
 
 ### 2. Les nuages au crépuscule virent au marron sale
-Deux saisons. Sous un éclairage par en dessous au couchant, certains cumulus
-prennent une teinte boue au lieu d'un gris-rose. Les nuages de nuit (gris-bleu
-sous la lune) et de jour sont bons.
+**SOLDÉ le 16/08** (même passe). L'underlighting `uKeyColor` orange × ambient
+sol brun au `lowSun` donnait de la boue. La clé de crépuscule mélange désormais
+vers ciel/brouillard.
 
 ### 2bis. Constats de la passe du 30/07 qui n'appellent PAS de correctif
 - fps ultra printemps ≈40 (vue large et sol) — conforme au «~41 fps» documenté,
