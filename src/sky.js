@@ -1136,7 +1136,54 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
   };
 
   let bloomPass = null;
+  let godrayPass = null;
   let bloomPending = false;
+  const _sunClip = new THREE.Vector3();
+
+  const GODRAY_SHADER = {
+    uniforms: {
+      tDiffuse: { value: null },
+      uSunPos: { value: new THREE.Vector2(-1, -1) },
+      uStrength: { value: 0 },
+      uAspect: { value: 1 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D tDiffuse;
+      uniform vec2 uSunPos;
+      uniform float uStrength;
+      uniform float uAspect;
+      varying vec2 vUv;
+      void main() {
+        vec4 color = texture2D(tDiffuse, vUv);
+        if (uStrength < 0.008 || uSunPos.x < -0.05 || uSunPos.x > 1.05) {
+          gl_FragColor = color;
+          return;
+        }
+        vec2 toSun = uSunPos - vUv;
+        toSun.x *= uAspect;
+        vec2 stepv = (uSunPos - vUv) * 0.028;
+        vec2 uv = vUv;
+        float w = 1.0;
+        vec3 acc = vec3(0.0);
+        for (int i = 0; i < 20; i++) {
+          uv += stepv;
+          acc += texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb * w;
+          w *= 0.94;
+        }
+        vec3 rays = acc / 20.0;
+        float lum = dot(rays, vec3(0.30, 0.59, 0.11));
+        float gate = smoothstep(0.28, 0.72, lum);
+        gl_FragColor = vec4(color.rgb + rays * (uStrength * gate), color.a);
+      }
+    `,
+  };
 
   function initBloom() {
     if (api.composer || bloomPending) return;
@@ -1145,8 +1192,9 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
       import('three/addons/postprocessing/EffectComposer.js'),
       import('three/addons/postprocessing/RenderPass.js'),
       import('three/addons/postprocessing/UnrealBloomPass.js'),
+      import('three/addons/postprocessing/ShaderPass.js'),
       import('three/addons/postprocessing/OutputPass.js'),
-    ]).then(([ec, rp, ub, op]) => {
+    ]).then(([ec, rp, ub, sp, op]) => {
       const size = renderer.getSize(new THREE.Vector2());
       const composer = new ec.EffectComposer(renderer);
       composer.setPixelRatio(renderer.getPixelRatio());
@@ -1155,6 +1203,8 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
       // signature: (resolution: Vector2, strength, radius, threshold)
       bloomPass = new ub.UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.4, 0.6, 0.85);
       composer.addPass(bloomPass);
+      godrayPass = new sp.ShaderPass(GODRAY_SHADER);
+      composer.addPass(godrayPass);
       // OutputPass applies tone mapping + sRGB conversion at the END of the
       // chain, which is the whole reason bloom looks right here: the glow is
       // accumulated in linear HDR, not on top of already-tonemapped pixels.
@@ -1174,6 +1224,7 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
     for (const p of api.composer.passes) p.dispose?.();
     api.composer = null;
     bloomPass = null;
+    godrayPass = null;
   }
 
   if (quality.bloom !== false) initBloom();
@@ -1388,6 +1439,18 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
       bloomPass.strength = bloomS;
       bloomPass.radius = trackScalar(K_BLOOM_RADIUS, u);
       bloomPass.threshold = trackScalar(K_BLOOM_THRESHOLD, u);
+    }
+    if (godrayPass) {
+      _sunClip.copy(camera.position).addScaledVector(sunDirection, 4200);
+      _sunClip.project(camera);
+      const inFront = _sunClip.z < 1;
+      const sx = _sunClip.x * 0.5 + 0.5;
+      const sy = _sunClip.y * 0.5 + 0.5;
+      godrayPass.uniforms.uSunPos.value.set(inFront ? sx : -1, sy);
+      const size = renderer.getSize(new THREE.Vector2());
+      godrayPass.uniforms.uAspect.value = size.x / Math.max(size.y, 1);
+      const low = goldenW * 0.42 + twilightW * 0.28;
+      godrayPass.uniforms.uStrength.value = inFront ? low * sunGate : 0;
     }
 
     /* ── publish phase ───────────────────────────────────────────────────── */

@@ -2364,3 +2364,14 @@ cumulus boue sous le soleil bas.
   câblé dans `shiba.blocked` (pad 0.32). On marche sous la couronne.
 - Regard : `nearestAirbornePetal` (glide CPU, pas le tapis). Kind `petal`,
   rayon 6. Le corps ne tourne toujours pas.
+
+---
+
+## Session « PLAN §6 peaufinage » du 16/08
+
+Demandé explicitement après les §3–4 (le PLAN le marquait « repoussé »).
+
+- Pétales plus lisibles à la caméra suivie (taille, pas le compte).
+- Ombres de nuages procédurales (`cloud-shadow.js`) sur sol, rochers, herbe.
+- God rays : passe après bloom, seulement soleil bas et dans le cadre.
+- Cris d'oiseaux + aboiement en Web Audio, zéro fichier. Premier clic/touche.

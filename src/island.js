@@ -31,6 +31,7 @@
 import * as THREE from 'three';
 import { WORLD, LAND_SCALE, HEIGHT_SCALE, SEA_TORII } from './config.js';
 import { makeGrainBump } from './detailtex.js';
+import { CLOUD_SHADOW_GLSL } from './cloud-shadow.js';
 import {
   noise2, fbm2, ridged2,
   streamFor, smoothstep as sstep, clamp, mix,
@@ -520,7 +521,7 @@ export function springReefSite() {
  * @param {Function} [opts.carve]   (x, z, y) => y — ponds carve their basins in here
  * @param {Function} [opts.isInPond](x, z) => bool  — keeps boulders out of the ponds
  */
-export function createIsland({ seed = 1337, quality = null, carve = null, isInPond = null, season = 'spring' } = {}) {
+export function createIsland({ seed = 1337, quality = null, carve = null, isInPond = null, season = 'spring', cloudShadow = null } = {}) {
   const mode = season === 'autumn' ? 'autumn' : 'spring';
   const PAL = mode === 'autumn' ? PAL_AUTUMN : PAL_SPRING;
   const WATER_DAY = mode === 'autumn' ? WATER_DAY_AUTUMN : WATER_DAY_SPRING;
@@ -798,6 +799,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   // Sub-vertex grain. Vertex colours alone are ~0.75m resolution, which reads as
   // soft blobs up close; this puts texture back without a single fetched image.
   terrainMat.onBeforeCompile = (shader) => {
+    if (cloudShadow) Object.assign(shader.uniforms, cloudShadow);
     shader.vertexShader = 'varying vec3 vTerrW;\nvarying vec3 vTerrN;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>',
       '#include <begin_vertex>\n\tvTerrW = (modelMatrix * vec4(transformed, 1.0)).xyz;\n\tvTerrN = normal;'
@@ -805,6 +807,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
     shader.fragmentShader = /* glsl */ `
       varying vec3 vTerrW;
       varying vec3 vTerrN;
+      ${cloudShadow ? CLOUD_SHADOW_GLSL : ''}
       float th21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
       float tvn(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -833,10 +836,11 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
           float strata = smoothstep(0.15, 0.75, band * 0.5 + 0.5);
           diffuseColor.rgb *= mix(1.0, 0.80 + 0.28 * strata, steep);
         }
+        ${cloudShadow ? 'diffuseColor.rgb *= cloudShadowAt(vTerrW.xz);' : ''}
       }`
     );
   };
-  terrainMat.customProgramCacheKey = () => 'sakurajima-terrain-v2';
+  terrainMat.customProgramCacheKey = () => cloudShadow ? 'sakurajima-terrain-v3-cld' : 'sakurajima-terrain-v2';
 
   const terrain = new THREE.Mesh(geo, terrainMat);
   terrain.name = 'terrain';
@@ -1039,6 +1043,7 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
   // the six shared shapes weathers differently. Vertex colours carry the big
   // strata/moss story; this carries the close-up.
   rockMat.onBeforeCompile = (shader) => {
+    if (cloudShadow) Object.assign(shader.uniforms, cloudShadow);
     shader.vertexShader = 'varying vec3 vRockW;\n' + shader.vertexShader.replace(
       '#include <project_vertex>',
       /* glsl */ `
@@ -1070,10 +1075,14 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
         // sparse pale quartz veins
         float vein = rvn(q * 1.7 + 31.0);
         diffuseColor.rgb *= 1.0 + 0.14 * smoothstep(0.80, 0.92, vein);
+        ${cloudShadow ? 'diffuseColor.rgb *= cloudShadowAt(vRockW.xz);' : ''}
       }`
     );
+    if (cloudShadow) {
+      shader.fragmentShader = CLOUD_SHADOW_GLSL + shader.fragmentShader;
+    }
   };
-  rockMat.customProgramCacheKey = () => 'sakurajima-rock-v2';
+  rockMat.customProgramCacheKey = () => cloudShadow ? 'sakurajima-rock-v3-cld' : 'sakurajima-rock-v2';
 
   const ROCK_TOTAL = quality && quality.rocks ? quality.rocks : 100;
   const SEA_STACKS = SEA_STACK_RANDOM;

@@ -20,6 +20,7 @@
  */
 
 import * as THREE from 'three';
+import { CLOUD_SHADOW_GLSL } from './cloud-shadow.js';
 
 /* =====================================================================================
    Seeded PRNG + hand-rolled value noise (no addon dependency, fully deterministic)
@@ -389,6 +390,7 @@ uniform float uPlayerStrength;
 varying float vGrassH;
 varying vec3  vGrassTint;
 varying float vGrassGust;
+varying vec2  vGrassXZ;
 
 vec3  gGrassAxis  = vec3( 1.0, 0.0, 0.0 );
 float gGrassAngle = 0.0;
@@ -408,6 +410,7 @@ void grassSetup() {
 
 	// blade root in world space (instanceMatrix[3] is the translation column)
 	vec3 rootW = ( modelMatrix * vec4( instanceMatrix[ 3 ].xyz, 1.0 ) ).xyz;
+	vGrassXZ = rootW.xz;
 
 	// distance fade: blades shrink into the ground instead of popping
 	gGrassFade = 1.0 - smoothstep( uFadeStart, uFadeEnd, distance( rootW, cameraPosition ) );
@@ -509,6 +512,7 @@ const FRAGMENT_COMMON = /* glsl */`
 varying float vGrassH;
 varying vec3  vGrassTint;
 varying float vGrassGust;
+varying vec2  vGrassXZ;
 
 uniform vec3  uSunDirWorld;   // scene -> sun, normalised
 uniform vec3  uSunColor;
@@ -518,13 +522,14 @@ uniform float uAO;
 uniform vec3  uGroundTint;
 uniform vec3  uTipTint;
 uniform float uGustBrighten;
-`;
+` + CLOUD_SHADOW_GLSL;
 
 const FRAGMENT_TINT = /* glsl */`
 	float sgBase = smoothstep( 0.0, 0.5, vGrassH );
 	vec3  sgCol  = vGrassTint * mix( uGroundTint * uAO, vec3( 1.0 ), sgBase );
 	sgCol = mix( sgCol, sgCol * uTipTint, smoothstep( 0.35, 1.0, vGrassH ) );
 	sgCol *= 1.0 + uGustBrighten * ( vGrassGust - 0.5 );
+	sgCol *= cloudShadowAt( vGrassXZ );
 	diffuseColor.rgb *= sgCol;
 `;
 
@@ -587,6 +592,12 @@ export function createGrass( options = {} ) {
 	const palette = mode === 'autumn' ? PALETTE_AUTUMN : PALETTE_SPRING;
 	// DEFAULTS → mode palette → options so explicit colour overrides still win.
 	const CFG = Object.assign( {}, DEFAULTS, palette, options );
+	if ( ! CFG.cloudShadow ) {
+		CFG.cloudShadow = {
+			uCldOff: { value: new THREE.Vector2() },
+			uCldAmt: { value: 0 },
+		};
+	}
 
 	const heightAt = CFG.heightAt;
 	if ( typeof heightAt !== 'function' ) throw new Error( '[grass] createGrass requires heightAt(x, z) -> y' );
@@ -648,7 +659,7 @@ export function createGrass( options = {} ) {
 	material.onBeforeCompile = function ( shader ) {
 
 		// share the uniform OBJECTS by reference so update() reaches every recompile
-		Object.assign( shader.uniforms, uniforms, windUniforms );
+		Object.assign( shader.uniforms, uniforms, windUniforms, CFG.cloudShadow || {} );
 
 		let v = shader.vertexShader;
 		v = patch( v, '#include <common>', '#include <common>\n' + vertexCommon( windGLSL ), 'vertex common' );
@@ -690,7 +701,7 @@ export function createGrass( options = {} ) {
 
 	// CRITICAL: without a custom cache key three may hand this material a program
 	// compiled from *unpatched* MeshStandardMaterial source.
-	material.customProgramCacheKey = function () { return 'sakura-grass-v1'; };
+	material.customProgramCacheKey = function () { return CFG.cloudShadow ? 'sakura-grass-v2-cld' : 'sakura-grass-v1'; };
 
 	/* ---------------------------------------------------------------- generation */
 

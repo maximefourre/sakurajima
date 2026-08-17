@@ -76,6 +76,7 @@ import { computeHeronSpawns } from '../src/herons.js';
 import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
 import { computeGullSpawns } from '../src/gulls.js';
 import { computeBambooSpawns, inBambooGrove } from '../src/bamboo.js';
+import { createCloudShadow } from '../src/cloud-shadow.js';
 
 function check(name, cond, detail = '') {
   if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
@@ -140,6 +141,18 @@ ponds.attach({ heightAt: island.heightAt });
   check('ouverture : haut du cadre au-dessus de l’horizon',
     down < halfFov - 0.07,
     `lookDown ${(down * 180 / Math.PI).toFixed(1)}° halfFov ${(halfFov * 180 / Math.PI).toFixed(1)}°`);
+}
+
+{
+  const cld = createCloudShadow();
+  const wind = { uniforms: { uWindDir: { value: { x: 0.8, y: 0.6 } } } };
+  cld.update(10, { sunDirection: { y: 0.7 }, day: 1 }, wind);
+  const noon = cld.uniforms.uCldAmt.value;
+  cld.update(10, { sunDirection: { y: -0.2 }, day: 0 }, wind);
+  const night = cld.uniforms.uCldAmt.value;
+  check('ombres de nuages : jour oui, nuit non',
+    noon > 0.4 && night < 0.02,
+    `noon ${noon.toFixed(2)} night ${night.toFixed(2)}`);
 }
 
 /* ── 3. champ de nuages au-delà de l'orbite maximale ─────────────────────── */

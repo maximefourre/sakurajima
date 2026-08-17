@@ -179,12 +179,13 @@ et il disparaît dans le pré depuis n'importe quelle caméra qui cadre aussi l'
   son dos, et se maintient au-dessus du relief.
 - Les oiseaux reçoivent sa position via `birds.setRepeller()` à chaque frame.
 
-### 6. Peaufinage (explicitement repoussé)
-- Densité et taille des pétales à rejuger **dans la scène réelle**, pas dans le banc d'essai.
-- Cadrage de la caméra d'ouverture.
-- Ombres portées des nuages sur l'île.
-- Rayons crépusculaires.
-- Son (le module oiseaux expose déjà un hook `onEvent` pour les cris).
+### 6. Peaufinage
+**SOLDÉ le 16/08** (demandé après les §3–4).
+- Pétales : taille relevée (printemps 0.16–0.40, automne 0.22–0.48). Comptes inchangés (fps).
+- Cadrage d'ouverture : déjà §3.
+- Ombres de nuages : fbm XZ dérivé du vent, partagé terrain / rochers / herbe. Pas de 2ᵉ shadow map.
+- Rayons crépusculaires : ShaderPass radial après le bloom, force golden+twilight.
+- Son : `src/audio.js` Web Audio, câblé sur `birds.onEvent` (`call`/`flush`) et `shiba.onEvent` (`bark`). Premier geste pour débloquer le contexte.
 
 ---
 

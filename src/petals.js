@@ -269,9 +269,9 @@ export function createPetals({ seed, quality, season = 'spring', canopies = [], 
     // Size: spring uses the validated petal/corolla skew; autumn maple leaves
     // are larger but still consume exactly one skew draw.
     if (autumn) {
-      aSeedA[i * 4 + 2] = R.skew(rng, 0.18, 0.40, 1.8);
+      aSeedA[i * 4 + 2] = R.skew(rng, 0.22, 0.48, 1.6);
     } else {
-      aSeedA[i * 4 + 2] = R.skew(rng, 0.12, 0.34, 2.0) * (flower ? 1.5 : 1);
+      aSeedA[i * 4 + 2] = R.skew(rng, 0.16, 0.40, 1.7) * (flower ? 1.5 : 1);
     }
     aSeedA[i * 4 + 3] = rng();                        // lifetime offset
 

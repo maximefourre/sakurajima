@@ -35,6 +35,8 @@ import { createDragonflies } from './dragonflies.js';
 import { createGulls } from './gulls.js';
 import { createBamboo, inBambooGrove } from './bamboo.js';
 import { createTouchControls } from './touch.js';
+import { createCloudShadow } from './cloud-shadow.js';
+import { createAudio } from './audio.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
@@ -412,6 +414,8 @@ async function boot() {
 
   await step('vent');
   world.wind = createWind();
+  world.cloudShadow = createCloudShadow();
+  world.audio = createAudio();
 
   await step('relief de l’île');
   world.ponds = createPonds({ seed: SEED, wind: world.wind, quality: q, heightAt: null, season: world.season });
@@ -420,7 +424,10 @@ async function boot() {
   // construction rather than by coincidence. Carving after the fact would
   // leave the water floating over higher ground.
   const carve = (x, z, h) => world.ponds.carvePonds(x, z, h);
-  world.island = createIsland({ seed: SEED, quality: q, carve, season: world.season });
+  world.island = createIsland({
+    seed: SEED, quality: q, carve, season: world.season,
+    cloudShadow: world.cloudShadow.uniforms,
+  });
   scene.add(world.island.group);
 
   // island.js already bakes its heightfield onto a grid and interpolates it,
@@ -564,6 +571,7 @@ async function boot() {
     bounds: { radius: world.island.radius * 1.12 },
     heightAt: world.heightAt,
     slopeAt: world.slopeAt,
+    cloudShadow: world.cloudShadow.uniforms,
     // `exclude`, not `isInPond`: grass.js has no notion of water. Ponds are
     // carved into the heightfield, so their beds pass every test grass does
     // apply. La sente n'est PLUS une exclusion dure : shortZone y garde une
@@ -742,6 +750,10 @@ async function boot() {
     wind: world.wind,
   });
   scene.add(world.shiba.group);
+  if (world.audio) {
+    world.birds.onEvent = (name) => world.audio.handle(name);
+    world.shiba.onEvent = (name) => world.audio.handle(name);
+  }
 
   lookStatic.length = 0;
   {
@@ -858,6 +870,7 @@ function frame() {
 
   world.wind.update(t, dt);
   const phase = world.sky.update(world.dayTime, dt);
+  world.cloudShadow.update(t, phase, world.wind);
 
   // Each subsystem was designed independently, so their update() signatures
   // differ. This block is the single place that adapts the sky's `phase` object
