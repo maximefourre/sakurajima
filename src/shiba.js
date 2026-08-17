@@ -213,6 +213,12 @@ export function createShiba({
   particles = null,
   /** (x, z) => true si un rocher bloque. Absent = pas de collision roche. */
   blocked = null,
+  /**
+   * (x, z) => {x, z} — dépénétration d'un solide occupé (rocher).
+   * Absent : recherche en spirale. Sans l'un ou l'autre, un saut
+   * au-dessus d'un mur puis la chute laisse le chien prisonnier.
+   */
+  unstick = null,
   /** Corps préconstruit, au contrat de buildBody() — le rig glTF de
    *  shiba-gltf.js. `null` construit le chien procédural, qui est le repli. */
   body = null,
@@ -416,6 +422,37 @@ export function createShiba({
     if (passable(position.x + dx, position.z)) { position.x += dx; return true; }
     if (passable(position.x, position.z + dz)) { position.z += dz; return true; }
     return false;
+  }
+
+  /**
+   * `tryMove` refuse d'ENTRER dans un solide ; il ne sort pas d'un
+   * volume déjà occupé. Cas réel : saut au-dessus de `topY`, chute
+   * au centre, plus aucun pas XZ n'est passable.
+   */
+  function freeFromSolid() {
+    if (typeof blocked !== 'function') return;
+    if (!blocked(position.x, position.z)) return;
+    if (typeof unstick === 'function') {
+      const p = unstick(position.x, position.z);
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.z) && passable(p.x, p.z)) {
+        position.x = p.x;
+        position.z = p.z;
+        return;
+      }
+    }
+    for (let r = 0.35; r <= 16; r += 0.35) {
+      const n = 8 + ((r * 6) | 0);
+      for (let i = 0; i < n; i++) {
+        const a = state.heading + (i / n) * TAU;
+        const x = position.x + Math.sin(a) * r;
+        const z = position.z + Math.cos(a) * r;
+        if (passable(x, z)) {
+          position.x = x;
+          position.z = z;
+          return;
+        }
+      }
+    }
   }
 
   /**
@@ -857,6 +894,7 @@ export function createShiba({
         state.speed *= 0.4;
       }
     }
+    freeFromSolid();
 
     const ground = heightAt(position.x, position.z);
     // LA question, posée une fois par frame. profondeur = 0 signifie sec.

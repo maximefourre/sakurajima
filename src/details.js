@@ -636,7 +636,7 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
       // troncon pour livrer la FIN au meme effilochage — meme bruit, meme
       // grain, donc meme famille de contours. Zero geometrie ajoutee.
       const tap = 1;
-      const endK = (!route.closed && route.name === 'plage')
+      const endK = (!route.closed && (route.name === 'plage' || route.name === 'bambous'))
         ? smoothstep(1 - dissolveFrac, 1.0, t)
         : 0;
       // Etages du carrefour : chaque route garde son etage (empilement

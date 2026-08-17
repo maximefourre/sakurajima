@@ -1018,6 +1018,23 @@ try {
   check('hitsRock : gros bloc oui, à côté non',
     !!rk && hit && miss,
     rk ? `r=${rk.r.toFixed(2)} n=${walls.length}` : 'aucun gros rocher');
+  if (rk && typeof island.resolveRock === 'function') {
+    const out = island.resolveRock(rk.x, rk.z, 0.35);
+    const cleared = !island.hitsRock(out.x, out.z, 0.35);
+    const away = Math.hypot(out.x - rk.x, out.z - rk.z);
+    check('resolveRock : centre d’un mur éjecté',
+      cleared && away >= rk.r,
+      `d=${away.toFixed(2)} r=${rk.r.toFixed(2)}`);
+    const fly = island.resolveRock(rk.x, rk.z, 0.35, rk.topY + 0.3);
+    check('resolveRock : au-dessus du sommet, on traverse',
+      Math.hypot(fly.x - rk.x, fly.z - rk.z) < 1e-6,
+      `d=${Math.hypot(fly.x - rk.x, fly.z - rk.z).toFixed(4)}`);
+  } else {
+    check('resolveRock : centre d’un mur éjecté', false,
+      rk ? 'resolveRock absent' : 'aucun gros rocher');
+    check('resolveRock : au-dessus du sommet, on traverse', false,
+      rk ? 'resolveRock absent' : 'aucun gros rocher');
+  }
   const dog = createShiba({
     seed: SEED,
     heightAt: island.heightAt,
@@ -1026,10 +1043,20 @@ try {
     body: null,
   });
   const blocked = rk ? !dog.passableAt(rk.x, rk.z, 0) : false;
-  dog.dispose();
   check('chien refusé au centre d’un rocher',
     !!rk && blocked,
     rk ? `r=${rk.r.toFixed(2)}` : 'pas de rocher');
+  if (rk) {
+    dog.position.set(rk.x, island.heightAt(rk.x, rk.z), rk.z);
+    dog.update(0, 1 / 60);
+    const freed = !island.hitsRock(dog.position.x, dog.position.z, 0.35);
+    check('chien éjecté d’un rocher occupé',
+      freed,
+      `d=${Math.hypot(dog.position.x - rk.x, dog.position.z - rk.z).toFixed(2)}`);
+  } else {
+    check('chien éjecté d’un rocher occupé', false, 'pas de rocher');
+  }
+  dog.dispose();
 
   const step = steps[0];
   const climbY = step && island.rockYAt(step.x, step.z);
@@ -1757,11 +1784,12 @@ function milieuAppuisGltf(r) {
   const end = route ? route.points[route.points.length - 1] : [NaN, NaN];
   const bump = [56 * LAND_SCALE, -10 * LAND_SCALE];
   const startOk = route && Math.hypot(start[0] - jx, start[1] - jz) < 1e-6;
-  const endOk = route && Math.hypot(end[0] - bump[0], end[1] - bump[1]) < 8;
-  check('route bambous : du carrefour à la bosse est',
-    !!route && startOk && endOk && route.points.length >= 6,
+  const visitsBump = route && route.points.some(([x, z]) => Math.hypot(x - bump[0], z - bump[1]) < 8);
+  const throughGrove = route && (end[0] - bump[0]) > 10 * LAND_SCALE;
+  check('route bambous : du carrefour à travers la bosse est',
+    !!route && startOk && visitsBump && throughGrove && route.points.length >= 8,
     route
-      ? `${route.points.length} pts, fin→bosse ${Math.hypot(end[0] - bump[0], end[1] - bump[1]).toFixed(2)}`
+      ? `${route.points.length} pts, fin→bosse ${Math.hypot(end[0] - bump[0], end[1] - bump[1]).toFixed(2)}, Δx=${((end[0] - bump[0]) / LAND_SCALE).toFixed(1)}·L`
       : 'route absente');
 
   const want = QUALITY[TIER].bamboo;

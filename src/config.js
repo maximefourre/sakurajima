@@ -256,12 +256,12 @@ export const PATHS = {
         [49, 62], [50.5, 71.9],
       ] },
     { name: 'bambous',
-      // Carrefour → bosse est (56,-10). NNE puis est : au nord de la
-      // chashitsu / des étangs, au sud de la plage, hors berges carvées.
+      // Carrefour → bosse est (56,-10) → lisière est du bosquet. Traverser
+      // le bambou, ne pas mourir au centre (coupe au couteau, capture joueur).
       // Assez de stations pour que le Catmull ne coupe ni falaise ni bassin.
       points: [
         [6, -30], [11, -27], [18, -24], [26, -21], [34, -18],
-        [42, -15], [49, -12], [56, -10],
+        [42, -15], [49, -12], [56, -10], [63, -6], [69, -2],
       ] },
   ].map((r) => ({ ...r, points: r.points.map(([x, z]) => [x * LAND_SCALE, z * LAND_SCALE]) })),
 };

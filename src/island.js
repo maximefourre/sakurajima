@@ -1404,6 +1404,41 @@ export function createIsland({ seed = 1337, quality = null, carve = null, isInPo
       }
       return false;
     },
+    /**
+     * Dépénètre un point hors des cylindres-murs. Même filtre que
+     * `hitsRock` (galets / blocs bas ignorés ; `y > topY` traverse).
+     * Sans ça, un saut au-dessus du sommet laisse le chien AU CENTRE
+     * du cylindre : une fois retombé, `hitsRock` redevient vrai et
+     * `tryMove` refuse les quatre directions — prisonnier, seul le
+     * saut (y > topY) rouvre le disque.
+     */
+    resolveRock(x, z, pad = 0, y = null) {
+      let px = x, pz = z;
+      for (let pass = 0; pass < 4; pass++) {
+        let moved = false;
+        for (let i = 0; i < rockKeepOut.length; i++) {
+          const rk = rockKeepOut[i];
+          if (rk.r < 0.85) continue;
+          if (rk.block === false) continue;
+          if (y != null && Number.isFinite(rk.topY) && y > rk.topY + 0.2) continue;
+          const dx = px - rk.x, dz = pz - rk.z;
+          const rad = rk.r + pad + 1e-3;
+          const d2 = dx * dx + dz * dz;
+          if (d2 >= rad * rad) continue;
+          if (d2 < 1e-10) {
+            px = rk.x + rad;
+            pz = rk.z;
+          } else {
+            const k = rad / Math.sqrt(d2);
+            px = rk.x + dx * k;
+            pz = rk.z + dz * k;
+          }
+          moved = true;
+        }
+        if (!moved) break;
+      }
+      return { x: px, z: pz };
+    },
     /** Dessus d'un bloc franchissable, sinon 0. */
     rockYAt(x, z) {
       let best = 0;

@@ -746,6 +746,7 @@ async function boot() {
     blocked: (x, z) => world.island.hitsRock(x, z, 0.35, world.shiba?.position.y)
       || world.poi.hitsSolid(x, z, 0.35)
       || !!(world.forest && world.forest.hitsTrunk(x, z, 0.32)),
+    unstick: (x, z) => world.island.resolveRock(x, z, 0.35, world.shiba?.position.y),
     particles: world.particles,
     wind: world.wind,
   });

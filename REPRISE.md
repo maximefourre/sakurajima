@@ -2375,3 +2375,59 @@ Demandé explicitement après les §3–4 (le PLAN le marquait « repoussé »).
 - Ombres de nuages procédurales (`cloud-shadow.js`) sur sol, rochers, herbe.
 - God rays : passe après bloom, seulement soleil bas et dans le cadre.
 - Cris d'oiseaux + aboiement en Web Audio, zéro fichier. Premier clic/touche.
+
+---
+
+## Session « impostors de couronne » du 16/08
+
+Suite du chantier D (PLAN : impostors du lointain encore ouverts). Le
+proche reste une masse de vraies fleurs / feuilles maple ; au-delà de
+`LOD_FAR = 620` les quads individuels (sub-pixel à l'ouverture) ne sont
+plus soumis. La silhouette est portée par 5–8 ellipsoïdes billboardés
+par arbre, bakés sur les mêmes cellules 2×2×2 que le proxy d'ombre.
+
+- `src/sakura.js` : `buildCrownPuffs`, matériau + mesh `sakuraCrownImpostors`
+  (un draw, fade GPU `200→560`), `LOD_MIN_FRACTION = 0`, plus de
+  `1/√f` (ça repeignait le massif une fois le noyau en place).
+  `setEnvironment` allume les deux matériaux.
+- Bake Node (sans WebGL) : proto somei printemps 7 puffs / 7887 fleurs,
+  automne 8 / 2005 ; forêt 12 arbres → 84 impostors, les deux saisons.
+- `test/invariants.html?q=low` : **64 pass, 0 fail**.
+- Pas de nouveau chiffre fps : le banc GPU (piège 9) n'a pas tourné ici
+  (WebGL headless refuse le contexte). Mesurer à l'ouverture et au sol,
+  les deux saisons, avant de mettre AGENTS.md à jour.
+
+---
+
+## Session « pin + sentier bambous » du 17/08
+
+Deux captures joueur, ni l'une ni l'autre n'est un impostor sakura.
+
+- **Kuromatsu** : toujours le POI de la laisse (`poi.js`), mais le
+  `arm()` d'origine plaçait les nuages sur le fût (quaternion ≠ offset).
+  Réécrit : cylindres joint→pointe, pads aux extrémités. Invariant
+  houppier inchangé (bbox).
+- **Sentier `bambous`** : mourait au centre du bosquet, ruban en coupe
+  au couteau (le dissolve n'existait que pour `plage`). Prolongé jusqu'à
+  la lisière est `[69,-2]` ; `endK` comme la plage. Invariant : traverse
+  la bosse, Δx = 13·L. Bosquet toujours hors ruban (57/57).
+
+`INVARIANTS: 64 pass, 0 fail` (`?q=low`).
+
+---
+
+## Session « prisonnier d'un rocher » du 17/08
+
+Saut par-dessus un gros bloc (y > topY) puis chute au centre : `hitsRock`
+redevient vrai, `tryMove` refuse les 4 directions, seul le saut rouvre le
+disque. Cause : le cylindre-mur n'avait pas de dépénétration.
+
+- `island.resolveRock` : pousse hors des murs (même filtre que `hitsRock`).
+- `shiba.freeFromSolid` : chaque frame si `blocked` au pied ; `unstick`
+  puis spirale. Câblé dans `main.js`.
+- Invariants : éjection, traverse au-dessus de `topY`, chien libéré.
+
+`node --check` island/shiba/main. `test/invariants.html?q=low` :
+**67 pass, 0 fail**.
+
+---

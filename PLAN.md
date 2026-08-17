@@ -93,14 +93,14 @@ Un chantier à la fois. Grok CLI toujours non authentifié.
     automne 59 / 49.3. L'objectif « ≥ 55 fps au sol » n'est PAS atteint et ne
     l'était pas atteignable ainsi : au sol le feuillage proche est à `f = 1` par
     conception, c'est le prix de l'absence de perte visuelle.
-  - `LOD_MIN_FRACTION = 0.30`, arbitré par l'utilisateur sur comparaison A/B à
-    trois états (référence 50.1 M pétales / 0.45 / 0.30, même chargement, même
-    caméra). Le premier jugement « 0.30 lisse la canopée » avait été porté avec
-    `FOLIAGE_SHUFFLE_BLOCK = 256` ; à 64 l'écart se referme largement.
-  - Reste ouvert : impostors/billboards du lointain (gros chantier) ; chunking du
-    tapis ; resserrage des anneaux LOD herbe. Écarté : réduire le far plane
-    (l'horizon dégagé est un choix d'AD), baisser le DPR (ne rapporte rien,
-    piège 10).
+  - `LOD_MIN_FRACTION` est désormais `0` : les pétales du lointain tombent
+    à zéro et les impostors de couronne (quelques ellipsoïdes billboardés
+    par arbre, mêmes lobes que l'ombre) portent la silhouette. Le proche
+    (`< 140 u`) reste une masse de vraies fleurs/feuilles. `1/√f` n'est
+    plus appliqué — empiler ça sur un noyau solide repeignait le massif.
+  - Reste ouvert : resserrage des anneaux LOD herbe. Le tapis est déjà
+    découpé (`petals.js`). Écarté : réduire le far plane (l'horizon dégagé
+    est un choix d'AD), baisser le DPR (ne rapporte rien, piège 10).
 
 ## Reste à faire, par priorité
 

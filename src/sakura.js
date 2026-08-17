@@ -23,13 +23,17 @@ import {
 	MAPLE_SHAPE_GLSL,
 } from './seasonal-foliage.js';
 
-// Distance LOD keeps optical coverage approximately constant: retaining a
-// fraction f of the instances scales each surviving quad by 1 / sqrt( f ).
-// Do not replace this with a linear size compensation: covered area is
-// proportional to size squared.
+// Distance LOD: near crowns stay a mass of real petals/leaves. Past LOD_FAR
+// the individual quads are sub-pixel (~0.7 px at 900 u) while the crown itself
+// is still ~80 px — so we drop the quads entirely and the baked multi-lobe
+// impostors carry the silhouette. Mid-range cross-fades. Do NOT grow leftover
+// petals by 1/sqrt(f) once impostors exist: that was the old optical-coverage
+// trick, and stacking it on a solid core over-paints the grove.
 const LOD_NEAR = 140;
-const LOD_FAR = 700;
-const LOD_MIN_FRACTION = 0.30;
+const LOD_FAR = 620;
+const LOD_MIN_FRACTION = 0.0;
+const IMPOSTOR_NEAR = 200;
+const IMPOSTOR_FAR = 560;
 // Larger blocks preserve more rasterization locality but make prefix sampling
 // coarser; smaller blocks sample more finely but approach the measured locality loss.
 const FOLIAGE_SHUFFLE_BLOCK = 64;
@@ -913,12 +917,15 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 	const canopyRadius = canopyR * k;
 
 	// ---- canopy shadow-caster lobes -------------------------------------------
-	const lobeGeo = buildCanopyLobes( bo, n, canopyCenter, canopyRadius );
+	const cells = collectCanopyCells( bo, n, canopyCenter );
+	const lobeGeo = buildCanopyLobes( cells, bo, n, canopyCenter, canopyRadius );
+	const puffs = buildCrownPuffs( cells, bo, n, autumn ? null : bc, bk, canopyCenter, canopyRadius );
 
 	return {
 		archetype,
 		geometry,
 		lobeGeometry: lobeGeo,
+		puffs,
 		foliage: {
 			offsets: new Float32Array( bo ),
 			colors:  autumn ? null : new Float32Array( bc ),
@@ -936,12 +943,12 @@ export function makeTree( archetype = 'somei', rng = makeRng( 1 ), opts = {} ) {
 
 }
 
-// 2x2x2 spatial buckets over the blossom cloud -> a few soft shadow blobs
-function buildCanopyLobes( bo, n, center, radius ) {
-
-	if ( n < 24 || radius <= 0.01 ) return null;
+	// 2x2x2 spatial buckets over the blossom cloud. Shared by the depth-only
+	// shadow proxy and the far-field colour impostors so both agree on the mass.
+	function collectCanopyCells( bo, n, center ) {
 
 	const cells = new Map();
+	if ( n < 24 ) return cells;
 	for ( let i = 0; i < n; i ++ ) {
 
 		const x = bo[ i * 3 ], y = bo[ i * 3 + 1 ], z = bo[ i * 3 + 2 ];
@@ -954,12 +961,24 @@ function buildCanopyLobes( bo, n, center, radius ) {
 		c.n ++; c.x += x; c.y += y; c.z += z;
 
 	}
+	for ( const c of cells.values() ) {
+
+		if ( c.n > 0 ) { c.x /= c.n; c.y /= c.n; c.z /= c.n; }
+
+	}
+	return cells;
+
+	}
+
+	// 2x2x2 spatial buckets over the blossom cloud -> a few soft shadow blobs
+	function buildCanopyLobes( cells, bo, n, center, radius ) {
+
+	if ( n < 24 || radius <= 0.01 || cells.size === 0 ) return null;
 
 	const lobes = [];
 	for ( const c of cells.values() ) {
 
 		if ( c.n < n * 0.06 ) continue;
-		c.x /= c.n; c.y /= c.n; c.z /= c.n;
 		lobes.push( c );
 
 	}
@@ -1028,6 +1047,88 @@ function buildCanopyLobes( bo, n, center, radius ) {
 	merged.computeVertexNormals();
 	merged.computeBoundingSphere();
 	return merged;
+
+}
+
+// Far-field crown mass: a dark core plus the same 2x2x2 lobes as the shadow
+// proxy. Colours are prototype-local (spring flowers) or placeholders overwritten
+// from the placement palette (autumn). Radii stay in prototype space.
+function buildCrownPuffs( cells, bo, n, colors, kinds, center, radius ) {
+
+	const puffs = [];
+	const fallback = { cr: 0.92, cg: 0.70, cb: 0.76 };
+	if ( n < 8 || radius <= 0.01 ) {
+
+		puffs.push( {
+			x: center.x, y: center.y, z: center.z,
+			rx: Math.max( radius, 0.8 ) * 0.88,
+			ry: Math.max( radius, 0.8 ) * 0.64,
+			cr: fallback.cr, cg: fallback.cg, cb: fallback.cb,
+			phase: 0.31
+		} );
+		return puffs;
+
+	}
+
+	const accFor = new Map();
+	for ( const key of cells.keys() ) accFor.set( key, { n: 0, cn: 0, r: 0, g: 0, b: 0, r2: 0 } );
+
+	let gR = 0, gG = 0, gB = 0, gN = 0;
+	for ( let i = 0; i < n; i ++ ) {
+
+		const x = bo[ i * 3 ], y = bo[ i * 3 + 1 ], z = bo[ i * 3 + 2 ];
+		const kx = x < center.x ? 0 : 1;
+		const ky = y < center.y ? 0 : 1;
+		const kz = z < center.z ? 0 : 1;
+		const key = kx | ( ky << 1 ) | ( kz << 2 );
+		const cell = cells.get( key );
+		const acc = accFor.get( key );
+		const kind = kinds ? kinds[ i ] : 0;
+		const isLeaf = kind > 0.5 && kind < 1.5;
+		const cr = colors ? colors[ i * 3 ] : 0.72;
+		const cg = colors ? colors[ i * 3 + 1 ] : 0.30;
+		const cb = colors ? colors[ i * 3 + 2 ] : 0.24;
+		if ( acc && cell ) {
+
+			acc.n ++;
+			const dx = x - cell.x, dy = y - cell.y, dz = z - cell.z;
+			acc.r2 += dx * dx + dy * dy + dz * dz;
+			if ( ! isLeaf ) { acc.cn ++; acc.r += cr; acc.g += cg; acc.b += cb; }
+
+		}
+		if ( ! isLeaf ) { gN ++; gR += cr; gG += cg; gB += cb; }
+
+	}
+
+	const midR = gN ? gR / gN : fallback.cr;
+	const midG = gN ? gG / gN : fallback.cg;
+	const midB = gN ? gB / gN : fallback.cb;
+
+	puffs.push( {
+		x: center.x, y: center.y, z: center.z,
+		rx: radius * 0.58, ry: radius * 0.44,
+		cr: midR * 0.82, cg: midG * 0.78, cb: midB * 0.80,
+		phase: 0.17
+	} );
+
+	for ( const [ key, cell ] of cells ) {
+
+		if ( cell.n < n * 0.06 ) continue;
+		const acc = accFor.get( key );
+		const rms = acc && acc.n > 0 ? Math.sqrt( acc.r2 / acc.n ) : radius * 0.35;
+		const pr = Math.min( radius * 0.55, Math.max( radius * 0.22, rms * 1.05 ) );
+		const cn = acc && acc.cn > 0 ? acc.cn : 0;
+		puffs.push( {
+			x: cell.x, y: cell.y, z: cell.z,
+			rx: pr, ry: pr * 0.74,
+			cr: cn ? acc.r / cn : midR,
+			cg: cn ? acc.g / cn : midG,
+			cb: cn ? acc.b / cn : midB,
+			phase: ( key * 0.137 + 0.29 ) % 1
+		} );
+
+	}
+	return puffs;
 
 }
 
@@ -1319,6 +1420,161 @@ function createFoliageMaterial( wind, season ) {
 
 	mat.alphaToCoverage = true; // soft edges when the renderer has MSAA, free otherwise
 
+	return mat;
+
+}
+
+// Far crowns: a handful of billboarded ellipsoids per tree. Same lighting
+// contract as the petal shader so setEnvironment() can drive both. Distance
+// fade is GPU-side — 9k quads are cheaper than a CPU walk.
+const IMPOSTOR_VERT = /* glsl */`
+#include <common>
+#include <fog_pars_vertex>
+${WIND_GLSL}
+
+attribute vec4 aColorPhase; // linear RGB + phase
+
+uniform float uImpostorNear;
+uniform float uImpostorFar;
+
+varying vec2  vP;
+varying vec3  vTint;
+varying float vFade;
+varying float vPhase;
+
+void main() {
+
+	vec3 worldCenter = ( modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
+	float rx = length( ( modelMatrix * instanceMatrix * vec4( 1.0, 0.0, 0.0, 0.0 ) ).xyz );
+	float ry = length( ( modelMatrix * instanceMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
+
+	float wave = sakuraWindWave( worldCenter );
+	float gust = sakuraWindGust( worldCenter );
+	float amp  = uWindStrength * uBlossomSway * 0.32 * gust;
+	vec2  ax2  = sakuraWindAxis();
+	vec3  lat  = vec3( ax2.x, 0.0, ax2.y );
+	vec3  side = vec3( - ax2.y, 0.0, ax2.x );
+	worldCenter += lat  * ( wave * amp );
+	worldCenter += side * ( sin( uTime * uWindFreq * 1.7 + aColorPhase.w * 6.2831853 ) * amp * 0.28 );
+	worldCenter.y -= abs( wave ) * amp * 0.10;
+
+	float dist = length( worldCenter - cameraPosition );
+	float fade = smoothstep( uImpostorNear, uImpostorFar, dist );
+	vFade = fade;
+	vTint = aColorPhase.xyz;
+	vPhase = aColorPhase.w;
+	vP = position.xy * 2.0;
+
+	// Clip near instances cheaply: a discarded quad still costs a vertex, but
+	// not a fragment, and 9k verts is noise next to the petal cloud.
+	if ( fade < 0.02 ) {
+
+		gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );
+		vec4 mvPosition = vec4( 0.0 );
+		#include <fog_vertex>
+		return;
+
+	}
+
+	vec3 camR = vec3( viewMatrix[ 0 ][ 0 ], viewMatrix[ 1 ][ 0 ], viewMatrix[ 2 ][ 0 ] );
+	vec3 camU = vec3( viewMatrix[ 0 ][ 1 ], viewMatrix[ 1 ][ 1 ], viewMatrix[ 2 ][ 1 ] );
+	vec3 world = worldCenter + camR * ( vP.x * rx ) + camU * ( vP.y * ry );
+	vec4 mvPosition = viewMatrix * vec4( world, 1.0 );
+	gl_Position = projectionMatrix * mvPosition;
+	#include <fog_vertex>
+
+}
+`;
+
+const IMPOSTOR_FRAG = /* glsl */`
+#include <common>
+#include <fog_pars_fragment>
+
+uniform vec3  uSunDir;
+uniform vec3  uSunColor;
+uniform vec3  uAmbientSky;
+uniform vec3  uAmbientGround;
+uniform float uAlphaTest;
+uniform float uBacklight;
+
+varying vec2  vP;
+varying vec3  vTint;
+varying float vFade;
+varying float vPhase;
+
+float impHash( vec2 p ) {
+
+	return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+
+}
+
+void main() {
+
+	if ( vFade < 0.02 ) discard;
+
+	vec2 p = vP;
+	float r2 = dot( p, p );
+	if ( r2 > 1.15 ) discard;
+	float r = sqrt( max( r2, 0.0 ) );
+
+	// Cheap cauliflower: a few hashed lobes so the crown is not a hard ellipse.
+	float ang = atan( p.y, p.x );
+	float wob = 0.10 * sin( ang * 5.0 + vPhase * 6.2831853 )
+	          + 0.06 * sin( ang * 3.0 - vPhase * 9.4 )
+	          + 0.04 * ( impHash( vec2( floor( ang * 6.0 + vPhase * 8.0 ), vPhase ) ) - 0.5 );
+	float d = r + wob * ( 0.35 + 0.55 * r );
+	float density = 1.0 - smoothstep( 0.72, 1.0, d );
+	density *= 1.0 - smoothstep( 0.92, 1.05, r );
+	float alpha = density * vFade;
+	if ( alpha < uAlphaTest ) discard;
+
+	float nz = sqrt( max( 0.0, 1.0 - min( r2, 1.0 ) ) );
+	vec3 nView = normalize( vec3( p.x * 0.78, p.y * 0.78, nz * 0.9 + 0.30 ) );
+	vec3 sunView = normalize( ( viewMatrix * vec4( uSunDir, 0.0 ) ).xyz );
+	float ndl  = dot( nView, sunView );
+	float diff = smoothstep( - 0.55, 0.90, ndl );
+	float back = pow( clamp( - sunView.z, 0.0, 1.0 ), 1.5 )
+	           * pow( clamp( 1.0 - abs( ndl ), 0.0, 1.0 ), 1.1 );
+	float ao = mix( 0.72, 1.05, clamp( nView.y * 0.5 + 0.5, 0.0, 1.0 ) );
+	vec3 sky = mix( uAmbientGround, uAmbientSky, clamp( nView.y * 0.5 + 0.5, 0.0, 1.0 ) );
+	vec3 lit = vTint * ( sky * ao + uSunColor * ( diff * 0.95 * ao + back * uBacklight ) );
+
+	gl_FragColor = vec4( lit, alpha );
+	#include <tonemapping_fragment>
+	#include <colorspace_fragment>
+	#include <fog_fragment>
+
+}
+`;
+
+function createImpostorMaterial( wind, season ) {
+
+	const uniforms = Object.assign(
+		THREE.UniformsUtils.clone( THREE.UniformsLib.fog ),
+		{
+			uSunDir:        { value: new THREE.Vector3( 0.42, 0.72, 0.55 ).normalize() },
+			uSunColor:      { value: new THREE.Color( 1.65, 1.52, 1.34 ) },
+			uAmbientSky:    { value: new THREE.Color( 0.30, 0.38, 0.50 ) },
+			uAmbientGround: { value: new THREE.Color( 0.14, 0.15, 0.11 ) },
+			uAlphaTest:     { value: season === 'autumn' ? 0.22 : 0.20 },
+			uBacklight:     { value: 1.15 },
+			uImpostorNear:  { value: IMPOSTOR_NEAR },
+			uImpostorFar:   { value: IMPOSTOR_FAR }
+		},
+		wind
+	);
+
+	const mat = new THREE.ShaderMaterial( {
+		uniforms,
+		vertexShader: IMPOSTOR_VERT.replace( '${WIND_GLSL}', WIND_GLSL ),
+		fragmentShader: IMPOSTOR_FRAG,
+		side: THREE.DoubleSide,
+		transparent: false,
+		depthWrite: true,
+		depthTest: true,
+		fog: true
+	} );
+	mat.alphaToCoverage = true;
 	return mat;
 
 }
@@ -1982,17 +2238,91 @@ export function createSakuraForest( options = {} ) {
 			);
 			const fade = smoothstep( LOD_NEAR, LOD_FAR, distance );
 			const fraction = 1 - ( 1 - LOD_MIN_FRACTION ) * fade;
-			// Keep only the unavoidable one-instance steps: extra quantization would
-			// make transitions coarser, while each changed quad is sub-pixel here.
-			geometry.instanceCount = Math.max( 1, Math.round( n * fraction ) );
-			material.uniforms.uSizeScale.value = 1 / Math.sqrt( fraction );
-			// ShaderMaterial uniforms are otherwise uploaded only once for consecutive
-			// draws sharing this material. Re-arm the upload for every bucket draw.
-			material.uniformsNeedUpdate = true;
+			// Impostors now carry far coverage, so leftover petals keep their
+			// authored size. Growing them by 1/sqrt(f) on top of a solid core
+			// over-paints the grove (the old optical-coverage trick).
+			geometry.instanceCount = fraction <= 0.002 ? 0 : Math.max( 1, Math.round( n * fraction ) );
+			material.uniforms.uSizeScale.value = 1.0;
 
 		};
 		group.add( mesh );
 		foliageMeshes.push( mesh );
+
+	}
+
+	// ---- 5b. far-field crown impostors (one draw, GPU distance fade) ----------
+	let impostorMaterial = null;
+	let impostorMesh = null;
+	let impostorCount = 0;
+	{
+
+		let puffTotal = 0;
+		for ( let r = 0; r < placements.length; r ++ ) {
+
+			const proto = prototypes[ placements[ r ].protoIndex ];
+			puffTotal += ( proto.puffs && proto.puffs.length ) || 0;
+
+		}
+		if ( puffTotal > 0 ) {
+
+			impostorMaterial = createImpostorMaterial( wind, season );
+			const impGeo = new THREE.PlaneGeometry( 1, 1 );
+			impostorMesh = new THREE.InstancedMesh( impGeo, impostorMaterial, puffTotal );
+			impostorMesh.name = 'sakuraCrownImpostors';
+			impostorMesh.castShadow = false;
+			impostorMesh.receiveShadow = false;
+			impostorMesh.frustumCulled = false;
+			impostorMesh.renderOrder = 0;
+			impostorMesh.instanceMatrix.setUsage( THREE.StaticDrawUsage );
+			const colorPhase = new Float32Array( puffTotal * 4 );
+			const _impPos = new THREE.Vector3();
+			const _impQuat = new THREE.Quaternion();
+			const _impScl = new THREE.Vector3();
+			const _impTmp = new THREE.Vector3();
+			let w = 0;
+			for ( let r = 0; r < placements.length; r ++ ) {
+
+				const rec = placements[ r ];
+				const proto = prototypes[ rec.protoIndex ];
+				const list = proto.puffs || [];
+				const pal = autumn && isAutumnDominant( rec.dominant ) ? autumnLin[ rec.dominant ] : null;
+				for ( let i = 0; i < list.length; i ++ ) {
+
+					const p = list[ i ];
+					_impTmp.set( p.x, p.y, p.z ).applyQuaternion( rec.quaternion ).multiplyScalar( rec.scale ).add( rec.position );
+					_impPos.copy( _impTmp );
+					_impQuat.identity();
+					_impScl.set( p.rx * rec.scale, p.ry * rec.scale, 1 );
+					mat4.compose( _impPos, _impQuat, _impScl );
+					impostorMesh.setMatrixAt( w, mat4 );
+					let cr = p.cr, cg = p.cg, cb = p.cb;
+					if ( pal ) {
+
+						// Core puff (i===0) sits on the shadow stop; outer lobes
+						// walk the family ramp so a distant maple grove still reads
+						// as several trees, not one flat colour.
+						const stop = i === 0 ? pal.shadow : ( i & 1 ? pal.mid : pal.sun );
+						const lift = i === 0 ? 0.55 : 0.85;
+						cr = stop[ 0 ] * lift + pal.mid[ 0 ] * ( 1 - lift );
+						cg = stop[ 1 ] * lift + pal.mid[ 1 ] * ( 1 - lift );
+						cb = stop[ 2 ] * lift + pal.mid[ 2 ] * ( 1 - lift );
+
+					}
+					colorPhase[ w * 4 ] = cr;
+					colorPhase[ w * 4 + 1 ] = cg;
+					colorPhase[ w * 4 + 2 ] = cb;
+					colorPhase[ w * 4 + 3 ] = p.phase;
+					w ++;
+
+				}
+
+			}
+			impostorMesh.instanceMatrix.needsUpdate = true;
+			impGeo.setAttribute( 'aColorPhase', new THREE.InstancedBufferAttribute( colorPhase, 4 ) );
+			group.add( impostorMesh );
+			impostorCount = w;
+
+		}
 
 	}
 
@@ -2068,9 +2398,9 @@ export function createSakuraForest( options = {} ) {
 
 	const _c = new THREE.Color();
 
-	function setEnvironment( env = {} ) {
+	function paintEnv( u, env ) {
 
-		const u = foliageMaterial.uniforms;
+		if ( ! u ) return;
 
 		if ( env.sunDirection ) {
 
@@ -2109,7 +2439,14 @@ export function createSakuraForest( options = {} ) {
 
 		}
 
-		if ( env.backlight !== undefined ) u.uBacklight.value = env.backlight;
+		if ( env.backlight !== undefined && u.uBacklight ) u.uBacklight.value = env.backlight;
+
+	}
+
+	function setEnvironment( env = {} ) {
+
+		paintEnv( foliageMaterial.uniforms, env );
+		if ( impostorMaterial ) paintEnv( impostorMaterial.uniforms, env );
 
 	}
 
@@ -2154,6 +2491,13 @@ export function createSakuraForest( options = {} ) {
 		barkMaterial.dispose();
 		foliageMaterial.dispose();
 		if ( lobeMaterial ) lobeMaterial.dispose();
+		if ( impostorMesh ) {
+
+			impostorMesh.geometry.dispose();
+			impostorMesh.dispose();
+
+		}
+		if ( impostorMaterial ) impostorMaterial.dispose();
 
 	}
 
@@ -2195,9 +2539,10 @@ export function createSakuraForest( options = {} ) {
 			prototypes: prototypes.length,
 			trees: placements.length,
 			foliage: totalFoliage,
+			impostors: impostorCount,
 			dominantCounts,
 			barkTriangles: triTotal,
-			drawCalls: barkMeshes.length + foliageMeshes.length + lobeMeshes.length,
+			drawCalls: barkMeshes.length + foliageMeshes.length + lobeMeshes.length + ( impostorMesh ? 1 : 0 ),
 			placementAttempts: attempts
 		},
 		dispose

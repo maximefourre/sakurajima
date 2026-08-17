@@ -204,85 +204,89 @@ function mergeParts(parts) {
 }
 
 /**
- * One black pine: a crooked trunk leaning inland (local +Z), branches
- * reaching sideways, foliage as irregular clouds at the branch tips —
- * not a stack of discs on a pole.
+ * One black pine: a crooked trunk leaning inland (local +Z), real side
+ * branches, foliage pads at the TIPS. The first version parked the
+ * icosahedra on the bole — it read as a pole of discs (audit 13/08).
  */
 export function makeKuromatsuGeometry() {
   const parts = [];
-  const segs = [
-    { h: 1.15, r0: 0.42, r1: 0.34, w: 0.04 },
-    { h: 1.25, r0: 0.33, r1: 0.26, w: 0.06 },
-    { h: 1.20, r0: 0.25, r1: 0.18, w: 0.08 },
-    { h: 1.05, r0: 0.17, r1: 0.11, w: 0.07 },
-    { h: 0.85, r0: 0.10, r1: 0.045, w: 0.05 },
-  ];
-  const wSum = segs.reduce((s, g) => s + g.w, 0);
-  for (const s of segs) s.dA = POI.pineLean * (s.w / wSum);
+  const UP = new THREE.Vector3(0, 1, 0);
+  const _n = new THREE.Vector3();
+  const _q = new THREE.Quaternion();
 
-  let y = -0.42, z = 0, angle = 0.08;
-  const joints = [{ y, z, angle }];
-
-  for (const s of segs) {
-    const a0 = angle;
-    const a1 = angle + s.dA;
-    const mid = (a0 + a1) * 0.5;
-    const cyl = new THREE.CylinderGeometry(s.r1, s.r0, s.h, 8);
-    cyl.rotateX(mid);
-    cyl.translate(0, y + Math.cos(mid) * s.h * 0.5, z + Math.sin(mid) * s.h * 0.5);
-    paint(cyl, BARK, 0.10);
+  const addCyl = (ax, ay, az, bx, by, bz, rA, rB, hex, vary) => {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz) || 1e-6;
+    _n.set(dx / len, dy / len, dz / len);
+    const cyl = new THREE.CylinderGeometry(rB, rA, len, 7);
+    _q.setFromUnitVectors(UP, _n);
+    cyl.applyQuaternion(_q);
+    cyl.translate((ax + bx) * 0.5, (ay + by) * 0.5, (az + bz) * 0.5);
+    paint(cyl, hex, vary);
     parts.push(cyl);
-    y += Math.cos(a1) * s.h;
-    z += Math.sin(a1) * s.h;
-    angle = a1;
-    joints.push({ y, z, angle });
-  }
-
-  const flare = new THREE.CylinderGeometry(0.36, 0.52, 0.48, 8);
-  flare.translate(0, -0.28, 0.03);
-  paint(flare, BARK_DARK, 0.06);
-  parts.push(flare);
+  };
 
   const cloud = (cx, cy, cz, sx, sy, sz, tilt, spin, col) => {
     const leaf = new THREE.IcosahedronGeometry(1, 1);
     leaf.scale(sx, sy, sz);
     leaf.rotateZ(tilt);
     leaf.rotateY(spin);
-    leaf.rotateX(0.22);
+    leaf.rotateX(0.16);
     leaf.translate(cx, cy, cz);
-    paint(leaf, col, 0.16);
+    paint(leaf, col, 0.18);
     parts.push(leaf);
   };
 
-  const arm = (jy, jz, ja, yaw, pitch, len, r) => {
-    const wood = new THREE.CylinderGeometry(r * 0.42, r, len, 6);
-    wood.rotateZ(yaw);
-    wood.rotateX(pitch + ja * 0.25);
-    const hx = Math.sin(yaw) * Math.cos(pitch) * len * 0.5;
-    const hy = Math.cos(yaw) * Math.cos(pitch) * len * 0.5;
-    const hz = Math.sin(pitch) * len * 0.5;
-    wood.translate(hx, jy + hy * 0.15, jz + hz);
-    paint(wood, BARK, 0.08);
-    parts.push(wood);
-    return { x: hx * 2, y: jy + hy * 0.35, z: jz + hz * 2 };
-  };
+  // Joints in local space: +Z is inland (yaw applied on the mesh).
+  const joints = [
+    { x: 0.00, y: -0.35, z: 0.00, r: 0.46 },
+    { x: 0.05, y:  0.90, z: 0.22, r: 0.33 },
+    { x: 0.02, y:  2.15, z: 0.55, r: 0.23 },
+    { x: -0.08, y: 3.35, z: 0.92, r: 0.15 },
+    { x: 0.06, y:  4.40, z: 1.22, r: 0.085 },
+    { x: 0.02, y:  5.35, z: 1.50, r: 0.042 },
+  ];
+  for (let i = 0; i < joints.length - 1; i++) {
+    const a = joints[i], b = joints[i + 1];
+    addCyl(a.x, a.y, a.z, b.x, b.y, b.z, a.r, b.r, BARK, 0.10);
+  }
+  addCyl(0, -0.58, 0.02, 0.02, -0.02, 0.06, 0.58, 0.40, BARK_DARK, 0.06);
 
-  const b0 = arm(joints[1].y, joints[1].z, joints[1].angle, -1.15, 0.15, 1.55, 0.07);
-  const b1 = arm(joints[2].y, joints[2].z, joints[2].angle, 1.05, 0.05, 1.85, 0.065);
-  const b2 = arm(joints[2].y + 0.15, joints[2].z, joints[2].angle, -0.85, 0.35, 1.35, 0.05);
-  const b3 = arm(joints[3].y, joints[3].z, joints[3].angle, 0.95, 0.28, 1.45, 0.048);
-  const b4 = arm(joints[3].y, joints[3].z, joints[3].angle, -1.25, -0.05, 1.20, 0.042);
+  // yaw 0 = +X, π/2 = +Z. Pads live at the far end of each arm.
+  const pads = [
+    { i: 1, yaw: -1.20, pitch:  0.06, len: 2.25, sx: 1.40, sy: 0.40, sz: 1.12, col: NEEDLE },
+    { i: 1, yaw:  1.55, pitch:  0.10, len: 1.65, sx: 1.08, sy: 0.34, sz: 0.88, col: NEEDLE_DEEP },
+    { i: 2, yaw:  1.05, pitch:  0.04, len: 2.45, sx: 1.62, sy: 0.46, sz: 1.28, col: NEEDLE_LIT },
+    { i: 2, yaw: -0.92, pitch:  0.16, len: 1.85, sx: 1.18, sy: 0.36, sz: 0.96, col: NEEDLE },
+    { i: 3, yaw:  0.82, pitch:  0.10, len: 1.95, sx: 1.22, sy: 0.38, sz: 1.00, col: NEEDLE_LIT },
+    { i: 3, yaw: -1.38, pitch: -0.04, len: 1.55, sx: 0.98, sy: 0.32, sz: 0.80, col: NEEDLE_DEEP },
+    { i: 4, yaw:  0.28, pitch:  0.20, len: 1.20, sx: 0.90, sy: 0.34, sz: 0.74, col: NEEDLE },
+  ];
+
+  for (const p of pads) {
+    const j = joints[p.i];
+    const cp = Math.cos(p.pitch), sp = Math.sin(p.pitch);
+    const dx = Math.cos(p.yaw) * cp;
+    const dy = sp;
+    const dz = Math.sin(p.yaw) * cp;
+    const tx = j.x + dx * p.len;
+    const ty = j.y + dy * p.len;
+    const tz = j.z + dz * p.len;
+    addCyl(j.x, j.y, j.z, tx, ty, tz, Math.max(0.035, j.r * 0.36), 0.032, BARK, 0.08);
+    cloud(tx, ty + 0.10, tz, p.sx, p.sy, p.sz, p.yaw * 0.12, p.yaw, p.col);
+    cloud(
+      j.x + dx * p.len * 0.72,
+      j.y + dy * p.len * 0.72 + 0.22,
+      j.z + dz * p.len * 0.72,
+      p.sx * 0.58, p.sy * 0.72, p.sz * 0.58,
+      -p.yaw * 0.10, p.yaw + 0.85,
+      p.col === NEEDLE_LIT ? NEEDLE : NEEDLE_DEEP,
+    );
+  }
+
   const tip = joints[joints.length - 1];
-
-  cloud(b0.x, b0.y + 0.15, b0.z, 1.15, 0.55, 0.95, -0.25, 0.4, NEEDLE);
-  cloud(b0.x * 0.55, b0.y + 0.35, b0.z * 0.7, 0.85, 0.42, 0.70, -0.1, 1.1, NEEDLE_DEEP);
-  cloud(b1.x, b1.y + 0.20, b1.z, 1.45, 0.62, 1.15, 0.20, -0.3, NEEDLE_LIT);
-  cloud(b1.x * 0.6, b1.y + 0.45, b1.z * 0.55, 1.05, 0.48, 0.88, 0.12, 0.8, NEEDLE);
-  cloud(b2.x, b2.y + 0.10, b2.z, 0.95, 0.44, 0.78, -0.18, 0.2, NEEDLE);
-  cloud(b3.x, b3.y + 0.12, b3.z, 1.10, 0.50, 0.90, 0.15, -0.6, NEEDLE_LIT);
-  cloud(b4.x, b4.y + 0.08, b4.z, 0.88, 0.40, 0.72, -0.22, 0.5, NEEDLE_DEEP);
-  cloud(0.05, tip.y + 0.15, tip.z + 0.25, 0.95, 0.48, 0.80, 0.05, 0.15, NEEDLE_LIT);
-  cloud(-0.35, tip.y - 0.05, tip.z - 0.05, 0.70, 0.36, 0.58, -0.3, 1.4, NEEDLE);
+  cloud(tip.x + 0.10, tip.y + 0.16, tip.z + 0.22, 1.08, 0.44, 0.90, 0.08, 0.2, NEEDLE_LIT);
+  cloud(tip.x - 0.32, tip.y + 0.00, tip.z - 0.06, 0.74, 0.32, 0.60, -0.28, 1.15, NEEDLE);
 
   const merged = mergeParts(parts);
   merged.computeVertexNormals();
