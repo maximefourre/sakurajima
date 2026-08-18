@@ -1813,6 +1813,38 @@ function milieuAppuisGltf(r) {
   dog.dispose();
 }
 
+{
+  const posedYaw = (dog) => {
+    let y = null;
+    dog.group.traverse((o) => { if (o.name === 'skull' && o.parent) y = o.parent.rotation.y; });
+    return y;
+  };
+  const dog = createShiba({
+    seed: SEED,
+    heightAt: () => 2,
+    water: { surfaceAt: () => null, isPond: () => false, impact() {}, setSwimmer() {} },
+  });
+  const px = dog.position.x, pz = dog.position.z, py = dog.position.y;
+  const hd = dog.state.heading;
+  const at = (yaw) => ({
+    x: px + Math.sin(hd + yaw) * 5,
+    y: py + 1,
+    z: pz + Math.cos(hd + yaw) * 5,
+    kind: 'jizo',
+  });
+  dog.setLookTargets([at(1.15)]);
+  for (let i = 0; i < 24; i++) dog.update(i * 0.05, 0.05, null);
+  const yawL = posedYaw(dog);
+  const lookL = dog.state.look;
+  dog.setLookTargets([at(-1.15)]);
+  dog.update(2.0, 0.05, null);
+  const jump = Math.abs(posedYaw(dog) - yawL);
+  check('regard idle : la tête ne téléporte pas d’une épaule à l’autre',
+    lookL > 0.4 && yawL !== null && Math.abs(yawL) > 0.25 && jump < 0.18,
+    `look=${lookL.toFixed(2)} yawL=${yawL == null ? 'n/a' : yawL.toFixed(3)} Δ1frame=${jump.toFixed(3)}`);
+  dog.dispose();
+}
+
 /* ── lot 8. sentier est + bosquet de bambous ───────────────────────────────
  * Purs : PATHS + computeBambooSpawns. Les rubans 8–10 ci-dessus jugent déjà
  * les quatre routes (dont `bambous`) au même plafond 0.55. */

@@ -43,6 +43,9 @@ export const SHIBA = {
   lookHeron: 18,          // look at a heron inside this XZ radius
   lookPoi: 10,            // hokora / jizō / pin
   lookPetal: 6,           // pétale / feuille réellement en l'air
+  lookYawMax: 0.95,       // posed look yaw clamp
+  lookTrack: 2.2,         // max XZ jump that still counts as the same target
+  lookYawTau: 0.18,       // exp smooth on posed look yaw / pitch
   footprintLife: 26.0,    // seconds a paw print survives in the sand
   footprintCount: 96,
   /** Molette : amplitude du creux de sillage en nage. Se regle A CHAUD via
@@ -379,18 +382,59 @@ export function createShiba({
     return true;
   }
 
+  function lookRadius(kind) {
+    return kind === 'heron' ? SHIBA.lookHeron
+      : kind === 'petal' ? SHIBA.lookPetal
+      : SHIBA.lookPoi;
+  }
+
+  function inLookRange(t) {
+    if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.z)) return false;
+    return Math.hypot(t.x - position.x, t.z - position.z) < lookRadius(t.kind);
+  }
+
   function pickLook() {
     let best = null, bestD = Infinity;
     for (let i = 0; i < lookTargets.length; i++) {
       const t = lookTargets[i];
-      if (!t || !Number.isFinite(t.x) || !Number.isFinite(t.z)) continue;
+      if (!inLookRange(t)) continue;
       const d = Math.hypot(t.x - position.x, t.z - position.z);
-      const max = t.kind === 'heron' ? SHIBA.lookHeron
-        : t.kind === 'petal' ? SHIBA.lookPetal
-        : SHIBA.lookPoi;
-      if (d < max && d < bestD) { best = t; bestD = d; }
+      if (d < bestD) { best = t; bestD = d; }
     }
     return best;
+  }
+
+  /**
+   * Hold the current look. Nearest-of-all would teleport the skull whenever a
+   * falling petal (or a second heron) briefly wins the distance race — that
+   * reads as a frame swap, not a glance. Track the same object; freeze the
+   * last aim if it merely vanished.
+   */
+  function trackLook(prev) {
+    if (!prev) return pickLook();
+    if (prev.id != null) {
+      for (let i = 0; i < lookTargets.length; i++) {
+        const t = lookTargets[i];
+        if (t && t.id === prev.id && inLookRange(t)) return t;
+      }
+    }
+    let best = null, bestD = SHIBA.lookTrack;
+    for (let i = 0; i < lookTargets.length; i++) {
+      const t = lookTargets[i];
+      if (!t || t.kind !== prev.kind || !inLookRange(t)) continue;
+      const d = Math.hypot(t.x - prev.x, t.z - prev.z);
+      if (d < bestD) { best = t; bestD = d; }
+    }
+    if (best) return best;
+    return inLookRange(prev) ? prev : null;
+  }
+
+  function aimYaw(target) {
+    const az = Math.atan2(target.x - position.x, target.z - position.z);
+    let dYaw = az - state.heading;
+    while (dYaw > Math.PI) dYaw -= TAU;
+    while (dYaw < -Math.PI) dYaw += TAU;
+    return dYaw;
   }
 
   /* ── terrain queries ───────────────────────────────────────── */
@@ -1012,14 +1056,15 @@ export function createShiba({
     }
 
     // Look is head-only. Running must never inherit this as body yaw.
+    // The hold tracks ONE target: swapping to whoever is nearest each frame
+    // teleports the skull left/right (a falling petal winning the race).
     const canLook = !state.moving && !state.swimming && state.shake <= 0;
     if (!canLook) {
       lookHold = 0;
     } else if (lookHold > 0) {
       lookHold -= dt;
-      const picked = pickLook();
-      if (picked) lookAim = picked;
-      else lookHold = 0;
+      lookAim = trackLook(lookAim);
+      if (!lookAim) lookHold = 0;
       if (lookHold <= 0) lookCool = R.range(lookRng, 1.2, 2.6);
     } else if (lookCool > 0) {
       lookCool -= dt;
@@ -1038,22 +1083,17 @@ export function createShiba({
       state.lookKind = null;
       lookAim = null;
     }
+    let yawWant = 0, pitchWant = 0;
     if (lookAim && state.look > 0) {
-      const dx = lookAim.x - position.x;
-      const dz = lookAim.z - position.z;
+      yawWant = clamp(aimYaw(lookAim), -SHIBA.lookYawMax, SHIBA.lookYawMax);
       const dy = (Number.isFinite(lookAim.y) ? lookAim.y : position.y + 1)
         - (position.y + 0.85);
-      const az = Math.atan2(dx, dz);
-      let dYaw = az - state.heading;
-      while (dYaw > Math.PI) dYaw -= TAU;
-      while (dYaw < -Math.PI) dYaw += TAU;
-      lookHeadYaw = clamp(dYaw, -0.95, 0.95);
-      const horiz = Math.hypot(dx, dz) || 1;
-      lookHeadPitch = clamp(-Math.atan2(dy, horiz), -0.55, 0.35);
-    } else {
-      lookHeadYaw = 0;
-      lookHeadPitch = 0;
+      const horiz = Math.hypot(lookAim.x - position.x, lookAim.z - position.z) || 1;
+      pitchWant = clamp(-Math.atan2(dy, horiz), -0.55, 0.35);
     }
+    const kLook = dt > 0 ? 1 - Math.exp(-dt / SHIBA.lookYawTau) : 1;
+    lookHeadYaw += (yawWant - lookHeadYaw) * kLook;
+    lookHeadPitch += (pitchWant - lookHeadPitch) * kLook;
 
     const wantSit = !state.wading && state.idleTime > SHIBA.idleBeforeSit ? 1 : 0;
     state.sitting += clamp(wantSit - state.sitting, -dt * 3.0, dt * 1.35);
@@ -1156,6 +1196,11 @@ export function createShiba({
       state.barkElapsed = 0;
       state.look = 0;
       state.lookKind = null;
+      lookHold = 0;
+      lookCool = 0;
+      lookAim = null;
+      lookHeadYaw = 0;
+      lookHeadPitch = 0;
       waterSetSwimmer(position.x, position.z, false, 0, 0);
       rig.root.position.copy(position);
       if (normalAt) normalAt(position.x, position.z, _n);

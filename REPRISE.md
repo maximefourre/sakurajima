@@ -2558,4 +2558,24 @@ Même disque (`BAMBOO.radius` = 13·L). Plus de tiges, plus serrées.
 `test/invariants.html` : **78 pass, 0 fail** low **et** ultra
 (158/158 et 543/543, 0 hors bosquet).
 
+---
+
+## Session « tête idle qui téléporte » du 18/08
+
+À l'arrêt, le crâne sautait d'une épaule à l'autre comme un
+changement de frame. Cause : pendant `lookHold`, `pickLook()`
+reprenait **le plus proche chaque frame** (pétale / héron / jizō)
+et écrivait `lookHeadYaw` d'un coup. Un pétale qui gagnait la
+course à l'opposé = +0.95 → −0.95 en une frame (mesuré : jump 1.9).
+
+- `trackLook` : on suit le même objet (`id` pétale, sinon même
+  `kind` à < `lookTrack` 2.2 u). Sinon l'aim reste figé.
+- Yaw / pitch de regard lissés (`lookYawTau` 0.18).
+- `reset()` vide aussi hold / cool / aim.
+
+Invariant : swap L→R en une frame, `Δyaw < 0.18`.
+`node --check` shiba/petals. `test/invariants.html?q=low` :
+**79 pass, 0 fail** (Δ1frame=0.000).
+
+
 

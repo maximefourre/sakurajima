@@ -130,7 +130,7 @@ export function nearestAirbornePetal(pack, x, z, t, maxD = 6) {
     const gy = pack.aOrigin[i * 4 + 1];
     if (p.y < gy + 0.7 || p.y > gy + 8) continue;
     const d2 = (p.x - x) ** 2 + (p.z - z) ** 2;
-    if (d2 < best2) { best2 = d2; best = p; }
+    if (d2 < best2) { best2 = d2; best = p; best.id = i; }
   }
   return best;
 }
