@@ -2455,3 +2455,23 @@ Quatre lots, 0 quad ajouté. Inventaire d'abord : impostors, herbe
 `INVARIANTS: 76 pass, 0 fail` low **et** ultra. Pas de chiffre fps.
 
 ---
+
+## Session « aigrette sans ailes » du 18/08
+
+Capture joueur : héron au bord de l'étang, blob gris sur allumettes,
+« ils ont même pas d'ailes ». Confirmé : `makeHeronGeometry` enterrait
+deux sphères dans le thorax, et l'envol réutilisait le mesh debout.
+
+- `src/herons.js` : aigrette garzette (blanc, bec noir, pattes noires,
+  pieds jaunes, S-cou, aigrettes). Ailes pliées + rémiges au-delà de
+  la queue. Seconde géométrie vol, envergure ~2.2 u, cou rentré,
+  pattes en traîne. Deux `InstancedMesh`, scale 0 pour cacher.
+  Origine inchangée (entre les pieds, nez +Z). Spawn / flush / peck
+  inchangés.
+- `test/invariants.html` : silhouette debout H>1.05 + vol spanX>1.6.
+
+`node --check` herons.js. `test/invariants.html?q=low` :
+**77 pass, 0 fail** (Chrome). Pas de visuel GPU ici (WebGL headless).
+
+
+---

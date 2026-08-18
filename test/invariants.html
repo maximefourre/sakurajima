@@ -72,7 +72,7 @@ import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, 
 import { chashitsuPosts } from '../src/chashitsu.js';
 import { computeCrabSpawns } from '../src/crabs.js';
 import { computeMothSpots } from '../src/moths.js';
-import { computeHeronSpawns } from '../src/herons.js';
+import { computeHeronSpawns, makeHeronGeometry, makeHeronFlyGeometry } from '../src/herons.js';
 import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
 import { computeGullSpawns } from '../src/gulls.js';
 import { computeBambooSpawns, inBambooGrove } from '../src/bamboo.js';
@@ -599,6 +599,24 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   check('hérons : pattes dans les bas-fonds, hors koi', ok,
     ok ? `${spawns.length}/${want} hérons, profondeur [${HERONS.shallowMin}, ${HERONS.shallowMax}]`
       : detail);
+}
+
+{
+  const stand = makeHeronGeometry();
+  const fly = makeHeronFlyGeometry();
+  stand.computeBoundingBox();
+  fly.computeBoundingBox();
+  const sb = stand.boundingBox, fb = fly.boundingBox;
+  const standH = sb.max.y - sb.min.y;
+  const flySpan = fb.max.x - fb.min.x;
+  const standSpan = sb.max.x - sb.min.x;
+  const ok = standH > 1.05 && flySpan > 1.6 && standSpan > 0.22
+    && fb.max.x > 0.85 && fb.min.x < -0.85;
+  check('héron : ailes déployées en vol, silhouette debout', ok,
+    `debout H=${standH.toFixed(2)} span=${standSpan.toFixed(2)}  `
+    + `vol spanX=${flySpan.toFixed(2)} [${fb.min.x.toFixed(2)}, ${fb.max.x.toFixed(2)}]`);
+  stand.dispose();
+  fly.dispose();
 }
 
 {
