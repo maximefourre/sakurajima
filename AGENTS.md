@@ -42,7 +42,7 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
   d'une mesure faussée, cf. piège 9). Le poste dominant est le FEUILLAGE de la
   forêt — 88 % du temps de frame en vue large, 75 % au sol.
 - Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra,
-  Espace saut, `P` pause du temps.
+  Espace saut, `P` pause du temps, `Échap`/`Suppr` reset (midi + postcard).
 
 ## Architecture (qui fait quoi, qui dépend de qui)
 
@@ -110,7 +110,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   `details.js` : un ruban par route,
   `isOnPath(x, z, extra)` sur TOUTES les routes (demi-largeur = `PATH_HALF`,
   le max après remap fbm), lanternes GÉNÉRÉES le
-  long des routes (quinconce, sautées si pente > 0.9 ou sol trop bas — AUCUNE
+  long des routes (quinconce, sautées si pente > 0.9, sol trop bas, **ou
+  `isInPond`** — le seuil mer rate les bassins carvés — AUCUNE
   lanterne orpheline, consigne utilisateur), torii aux fractions `toriiAt` de
   la route 'torii'. `main.js` appelle `initPath()` AVANT `createGrass`, et
   les cerisiers excluent `isOnPath(x, z, 4)` (aucun arbre sur un chemin,
@@ -172,13 +173,13 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    `INVARIANTS: N pass, 0 fail` (N grandit avec les chantiers, seul le
    `0 fail` est immuable) — chemin sur terre ferme, far plane, nuages,
    étangs carvés, routes hors étangs, la route des torii grimpe à la falaise,
-   aucune lanterne orpheline, les trois de la terre battue (dégagée du
+   aucune lanterne orpheline **ni dans un étang**, les trois de la terre battue (dégagée du
    terrain, collée à ≤ 0.55 u, hauteur logique fidèle à la surface visible),
    puis les cinq du chien et de l'eau : flottaison (le dos sort de l'eau),
    pattes posées sur le sol logique, `pondWaterYAt` cohérent et sans route
    mouillée, étangs nageables ET franchissables, bancs d'ondes koi/chien
    disjoints, plus celui des lucioles, les trois signes sacrés, les pas
-   japonais (`stoneYAt` fidèle), hérons en bas-fonds, libellules dans
+   japonais (`stoneYAt` fidèle, dalles hors ruban), hérons en bas-fonds, libellules dans
    l'habitat bassin, mites à une lanterne, shiba secoué seulement après nage,
    regard sans lacet du corps, chashitsu hors chemin/eau/pente, bosquet de
    bambous à l'est du carrefour hors ruban.

@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DEFAULT_QUALITY_MOBILE, DAY_LENGTH, START_TIME, WIND, LAND_SCALE } from './config.js';
+import { SEED, WORLD, CAMERA, QUALITY, DEFAULT_QUALITY, DEFAULT_QUALITY_MOBILE, DAY_LENGTH, START_TIME, START_PAUSED, WIND, LAND_SCALE } from './config.js';
 import { SEASON_QUERY_PARAM, SEASON_STORAGE_KEY, isSeason, resolveSeason } from './season.js';
 import { seedNoise } from './noise.js';
 import { createWind } from './wind.js';
@@ -46,7 +46,7 @@ import { createDetails, isOnPath, initPath, pathSurfaceLiftAt, flowerSpots, lant
 const $ = (id) => document.getElementById(id);
 const veil = $('veil'), bar = $('bar').firstElementChild, status = $('status');
 const hud = $('hud'), panel = $('panel');
-const clockT = $('clock-t'), clockP = $('clock-p');
+const clockT = $('clock-t'), clockP = $('clock-p'), clockPause = $('clock-pause');
 const perfFps = $('perf-fps'), perfDraw = $('perf-draw'), perfTri = $('perf-tri');
 const coarsePointer = typeof matchMedia === 'function'
   && matchMedia('(pointer: coarse)').matches;
@@ -170,7 +170,7 @@ const world = {
   season: initialSeason,
   dayTime: START_TIME,
   daySpeed: 1,
-  paused: false,
+  paused: START_PAUSED,
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
@@ -785,6 +785,7 @@ async function boot() {
   veil.classList.add('gone');
   hud.classList.add('on');
   panel.classList.add('on');
+  updateClock();
 
   // The controls have to announce themselves. From the opening camera the dog is
   // a few pixels of orange on a 300-unit island, and a scene that looks like a
@@ -808,10 +809,7 @@ async function boot() {
         setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
         return world.camMode === 'follow';
       },
-      onPause: () => {
-        world.paused = !world.paused;
-        return world.paused;
-      },
+      onPause: () => setPaused(),
     });
     // Le mini-hint tactile et le bandeau clavier partagent le même geste de
     // sortie : dès que le joueur essaie le joystick, l'explication a servi.
@@ -1004,7 +1002,7 @@ function frame() {
       night: phase.night ?? 0,
       twilight: phase.twilight ?? 0,
       windStrength: world.wind.state?.strength ?? 0.4,
-    }), { paused: world.paused });
+    }));
   }
 
   if (world.camMode === 'follow') {
@@ -1047,6 +1045,52 @@ function timeLabel(dayTime) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 
+function setPaused(next = !world.paused) {
+  world.paused = !!next;
+  syncPauseUI();
+  return world.paused;
+}
+
+/** Postcard d'ouverture : midi figé, chien au carrefour, caméra orbit. */
+function resetViewAndTime() {
+  world.dayTime = START_TIME;
+  setPaused(START_PAUSED);
+  world.sky?.update(world.dayTime, 0);
+  updateClock();
+
+  world.shiba?.reset?.();
+
+  followPointers.clear();
+  follow.dragging = false;
+  follow.pinching = false;
+  follow.dragPointer = null;
+  follow.distance = 7.5;
+  follow.yawOffset = 0;
+  follow.pitchOffset = 0;
+  if (world.shiba) follow.yaw = world.shiba.heading;
+
+  world.camMode = 'orbit';
+  controls.enabled = true;
+  camera.position.set(CAMERA.start.x, CAMERA.start.y, CAMERA.start.z);
+  controls.target.set(CAMERA.target.x, CAMERA.target.y, CAMERA.target.z);
+  controls.autoRotate = true;
+  controls.update();
+  $('touch-camera')?.setAttribute('aria-pressed', 'false');
+}
+
+function syncPauseUI() {
+  if (clockPause) {
+    clockPause.hidden = !world.paused;
+    clockPause.title = world.paused ? 'temps en pause' : '';
+    clockPause.setAttribute('aria-label', world.paused ? 'temps en pause' : '');
+  }
+  const touch = $('touch-pause');
+  if (touch) {
+    touch.setAttribute('aria-pressed', String(world.paused));
+    touch.setAttribute('aria-label', world.paused ? 'Reprendre le temps' : 'Mettre le temps en pause');
+  }
+}
+
 function updateClock() {
   clockT.textContent = timeLabel(world.dayTime);
   let name = 'nuit';
@@ -1054,6 +1098,7 @@ function updateClock() {
   clockP.textContent = name;
   $('v-time').textContent = timeLabel(world.dayTime);
   $('s-time').value = world.dayTime;
+  syncPauseUI();
 }
 
 /* ── UI ──────────────────────────────────────────────────────── */
@@ -1118,8 +1163,12 @@ for (const b of $('s-season').children) {
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (e.code === 'Space') { e.preventDefault(); world.shiba?.jump?.(); }
-  if (e.code === 'KeyP') world.paused = !world.paused;
+  if (e.code === 'KeyP') setPaused();
   if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
+  if (e.code === 'Escape' || e.code === 'Delete') {
+    e.preventDefault();
+    resetViewAndTime();
+  }
   if (e.key === 'h' || e.key === 'H') {
     const hidden = hud.style.opacity === '0';
     hud.style.opacity = panel.style.opacity = hidden ? '' : '0';

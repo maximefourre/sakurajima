@@ -130,7 +130,7 @@ export function computeBambooSpawns({
 
   const rng = streamFor(seed, 'bamboo.spawn');
   const [jx] = PATHS.routes[0].points[0];
-  const maxTries = count * 80;
+  const maxTries = count * 140;
   const sep2 = BAMBOO.minSep * BAMBOO.minSep;
   const r = BAMBOO.radius;
 

@@ -102,11 +102,32 @@
   #hud.on { opacity: 1; }
 
   #clock { font-variant-numeric: tabular-nums; }
-  #clock .t {
+  #clock .t-row {
+    display: flex;
+    align-items: center;
+    gap: .48em;
     font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+  }
+  #clock .t {
+    font-size: 1em;
     letter-spacing: .06em;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-weight: 300;
+  }
+  #clock .pause {
+    display: inline-flex;
+    align-items: stretch;
+    gap: .16em;
+    height: .52em;
+    opacity: .42;
+    flex-shrink: 0;
+  }
+  #clock .pause[hidden] { display: none; }
+  #clock .pause i {
+    display: block;
+    width: 2px;
+    background: currentColor;
+    border-radius: 1px;
   }
   #clock .phase {
     font-size: .68rem; letter-spacing: .34em;
@@ -359,8 +380,11 @@
 
 <div id="hud">
   <div id="clock">
-    <div class="t" id="clock-t">06:00</div>
-    <div class="phase" id="clock-p">aube</div>
+    <div class="t-row">
+      <div class="t" id="clock-t">12:00</div>
+      <span class="pause" id="clock-pause" title="temps en pause" aria-label="temps en pause"><i></i><i></i></span>
+    </div>
+    <div class="phase" id="clock-p">midi</div>
   </div>
   <div id="perf">
     <div id="perf-fps">— fps</div>
@@ -374,8 +398,8 @@
 
   <div class="panel-body">
     <div class="row">
-      <label>heure <b id="v-time">06:00</b></label>
-      <input type="range" id="s-time" min="0" max="1" step="0.001" value="0.25">
+      <label>heure <b id="v-time">12:00</b></label>
+      <input type="range" id="s-time" min="0" max="1" step="0.001" value="0.5">
     </div>
 
     <div class="row">
@@ -408,7 +432,7 @@
     <div class="hint">
       <kbd>Z Q S D</kbd> / <kbd>W A S D</kbd> promener le shiba · <kbd>Maj</kbd> courir · <kbd>Espace</kbd> sauter<br>
       <kbd>C</kbd> caméra libre ↔ suivie · <kbd>glisser</kbd> orbiter · <kbd>molette</kbd> zoom<br>
-      <kbd>P</kbd> pause du temps · <kbd>H</kbd> masquer l'interface
+      <kbd>P</kbd> pause du temps · <kbd>Échap</kbd> / <kbd>Suppr</kbd> réinitialiser · <kbd>H</kbd> masquer l'interface
       <div class="credit">Modèle du shiba : « Shiba » par zixisun02 — CC-BY 4.0</div>
     </div>
   </div>
@@ -430,7 +454,7 @@
     <button class="touch-button" id="touch-jump" aria-label="Faire sauter le shiba">saut</button>
     <button class="touch-button" id="touch-run" aria-label="Maintenir pour courir" aria-pressed="false">courir</button>
     <button class="touch-button" id="touch-camera" aria-label="Changer de caméra" aria-pressed="false">caméra</button>
-    <button class="touch-button" id="touch-pause" aria-label="Mettre le temps en pause" aria-pressed="false">pause</button>
+    <button class="touch-button" id="touch-pause" aria-label="Reprendre le temps" aria-pressed="true">pause</button>
   </div>
   <div id="touch-hint">joystick : promener le shiba</div>
 </div>

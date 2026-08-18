@@ -221,7 +221,7 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
 
 /* ── 7. aucune lanterne orpheline ────────────────────────────────────────── */
 {
-  const spots = computeLanternSpots(island.heightAt, island.slopeAt);
+  const spots = computeLanternSpots(island.heightAt, island.slopeAt, ponds.isInPond);
   // extra = offset latéral 1.3 + slack d'arc 0.3. isOnPath ajoute PATH_HALF.
   const lanternExtra = 1.3 + 0.3;
   const orphans = spots.filter((s) => !isOnPath(s.x, s.z, lanternExtra));
@@ -230,6 +230,10 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   const onDirt = spots.filter((s) => isOnPath(s.x, s.z, 0));
   check('aucune lanterne sur la terre battue', onDirt.length === 0,
     `${spots.length} lanternes, ${onDirt.length} sur ruban`);
+  const inDrink = spots.filter((s) => ponds.isInPond(s.x, s.z)
+    || ponds.pondWaterYAt(s.x, s.z) != null);
+  check('aucune lanterne dans l’eau', inDrink.length === 0,
+    `${spots.length} lanternes, ${inDrink.length} mouillées`);
 }
 
 /* ── 8-10. terre battue : dégagée, collée, hauteur logique fidèle ───────── */
@@ -500,7 +504,7 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   check('mites : population nulle sans lanternes', empty.length === 0,
     `${empty.length} mites pour un habitat vide`);
 
-  const lanterns = computeLanternSpots(island.heightAt, island.slopeAt);
+  const lanterns = computeLanternSpots(island.heightAt, island.slopeAt, ponds.isInPond);
   const rate = QUALITY[TIER].moths ?? MOTHS.perLantern[TIER] ?? 0;
   const want = Math.round(lanterns.length * rate);
   const moths = computeMothSpots({ lanternSpots: lanterns, count: want, seed: SEED });
@@ -531,6 +535,7 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     pond,
     pondWaterYAt: ponds.pondWaterYAt,
     heightAt: island.heightAt,
+    isOnPath,
     seed: SEED,
   });
   const koiR = STONES.koiClear * pond.radius;
@@ -544,11 +549,14 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     const yAt = stoneYAt(s.x, s.z, slabs);
     const faith = Math.abs(yAt - s.y);
     const lift = wy == null ? Infinity : Math.abs(s.y - (wy + STONES.lift));
+    const h = island.heightAt(s.x, s.z);
     worstFaith = Math.max(worstFaith, faith, Number.isFinite(lift) ? lift : 0);
-    if (wy == null || r < koiR || faith > 0.08 || lift > 0.08) {
+    if (wy == null || r < koiR || faith > 0.08 || lift > 0.08 || !(h < wy)
+        || isOnPath(s.x, s.z, s.r)) {
       ok = false;
       detail = `dalle@(${s.x.toFixed(1)},${s.z.toFixed(1)}) wy=${wy} r=${r.toFixed(2)} `
-        + `koiR=${koiR.toFixed(2)} faith=${faith.toFixed(3)} lift=${lift.toFixed(3)}`;
+        + `koiR=${koiR.toFixed(2)} faith=${faith.toFixed(3)} lift=${lift.toFixed(3)}`
+        + ` h=${h.toFixed(2)} onPath=${isOnPath(s.x, s.z, s.r)}`;
       break;
     }
     if (i > 0) {
@@ -561,7 +569,7 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
       }
     }
   }
-  check('pas japonais : grand étang, hors koi, stoneYAt fidèle', ok,
+  check('pas japonais : grand étang, hors koi, hors ruban, stoneYAt fidèle', ok,
     ok ? `${slabs.length} dalles, foi max ${worstFaith.toFixed(3)} u`
       : detail);
 }
@@ -610,11 +618,23 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   const standH = sb.max.y - sb.min.y;
   const flySpan = fb.max.x - fb.min.x;
   const standSpan = sb.max.x - sb.min.x;
+  const spanAttr = fly.getAttribute('aSpan');
+  const pos = fly.getAttribute('position');
+  let maxSpan = 0, tipOut = false;
+  if (spanAttr && pos) {
+    for (let i = 0; i < spanAttr.count; i++) {
+      const s = spanAttr.getX(i);
+      maxSpan = Math.max(maxSpan, s);
+      if (s > 0.85 && Math.abs(pos.getX(i)) > 0.85) tipOut = true;
+    }
+  }
   const ok = standH > 1.05 && flySpan > 1.6 && standSpan > 0.22
-    && fb.max.x > 0.85 && fb.min.x < -0.85;
+    && fb.max.x > 0.85 && fb.min.x < -0.85
+    && maxSpan > 0.9 && tipOut;
   check('héron : ailes déployées en vol, silhouette debout', ok,
     `debout H=${standH.toFixed(2)} span=${standSpan.toFixed(2)}  `
-    + `vol spanX=${flySpan.toFixed(2)} [${fb.min.x.toFixed(2)}, ${fb.max.x.toFixed(2)}]`);
+    + `vol spanX=${flySpan.toFixed(2)} [${fb.min.x.toFixed(2)}, ${fb.max.x.toFixed(2)}] `
+    + `aSpan=${maxSpan.toFixed(2)} tip=${tipOut}`);
   stand.dispose();
   fly.dispose();
 }

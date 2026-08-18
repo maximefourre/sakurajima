@@ -650,15 +650,30 @@ function countForSpan(span) {
 }
 
 /**
+ * True if this XZ is actually flooded walkable water — not the bank, not
+ * the packed-earth ribbon that grazes the shore. A stone whose Y is
+ * pondWaterYAt + lift but whose XZ sits under the path reads as buried
+ * pavers; the 1.08·radius fudge used to plant the whole chord on the
+ * 'etangs' verge.
+ */
+function stoneCellOk(x, z, wy, rp, koiR, heightAt, isOnPath) {
+  if (wy == null || rp < koiR) return false;
+  if (typeof heightAt === 'function' && !(heightAt(x, z) < wy)) return false;
+  if (typeof isOnPath === 'function' && isOnPath(x, z, STONES.radius[1])) return false;
+  return true;
+}
+
+/**
  * 5–7 tobi-ishi across a sliver of PONDS[0], bank to bank, outside the
  * koi disc. Pure: no mesh, no module state. Y = pondWaterYAt + lift.
+ * Samples must be flooded and off the path ribbon — otherwise the chord
+ * hugs the 'etangs' verge and the slabs sink into the dirt.
  */
 export function computeSteppingStones({
-  pond, pondWaterYAt, heightAt, seed = SEED,
+  pond, pondWaterYAt, heightAt, isOnPath, seed = SEED,
 } = {}) {
   const out = [];
   if (!pond || typeof pondWaterYAt !== 'function') return out;
-  void heightAt;
 
   const rng = streamFor(seed, 'poi.stones');
   const koiR = STONES.koiClear * pond.radius;
@@ -684,7 +699,7 @@ export function computeSteppingStones({
         const wy = pondWaterYAt(x, z);
         samples.push({
           x, z, t, wy,
-          ok: wy != null && rp >= koiR && rp <= pond.radius * 1.08,
+          ok: stoneCellOk(x, z, wy, rp, koiR, heightAt, isOnPath),
         });
       }
       let run0 = -1;
@@ -746,7 +761,7 @@ export function computeSteppingStones({
             wy = pondWaterYAt(x, z);
           }
           const rp = Math.hypot(x - pond.x, z - pond.z);
-          if (wy == null || rp < koiR) continue;
+          if (!stoneCellOk(x, z, wy, rp, koiR, heightAt, isOnPath)) continue;
           out.push({
             x, z, y: wy + STONES.lift, r: radii[i],
             yaw: ang + R.range(rng, -0.3, 0.3),
@@ -774,7 +789,7 @@ export function computeSteppingStones({
       wy = pondWaterYAt(x, z);
     }
     const rp = Math.hypot(x - pond.x, z - pond.z);
-    if (wy == null || rp < koiR) continue;
+    if (!stoneCellOk(x, z, wy, rp, koiR, heightAt, isOnPath)) continue;
     out.push({
       x, z,
       y: wy + STONES.lift,
@@ -876,7 +891,7 @@ export function createPOI({
   const pondList = Array.isArray(ponds) ? ponds : (ponds?.PONDS ?? []);
   const big = pondList[0] || null;
   const stones = big && typeof pondWaterYAt === 'function'
-    ? computeSteppingStones({ pond: big, pondWaterYAt, heightAt, seed })
+    ? computeSteppingStones({ pond: big, pondWaterYAt, heightAt, isOnPath, seed })
     : [];
   _slabs = stones;
 

@@ -175,9 +175,8 @@ export function createAudio() {
     else if (name === 'bark') bark();
   }
 
-  function update(weights, { paused = false } = {}) {
+  function update(weights) {
     if (!unlocked || !beds || !ctx) return;
-    const mute = paused ? 0 : 1;
     const peak = {
       surf: 0.55,
       bamboo: 0.40,
@@ -186,7 +185,7 @@ export function createAudio() {
     };
     const now = ctx.currentTime;
     for (const k of Object.keys(beds)) {
-      const w = (weights?.[k] ?? 0) * mute;
+      const w = weights?.[k] ?? 0;
       beds[k].gain.setTargetAtTime(Math.max(0.0001, peak[k] * w), now, 0.08);
     }
   }

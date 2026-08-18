@@ -273,11 +273,12 @@ export function createShiba({
   /* ── state ─────────────────────────────────────────────────── */
   // Apparition SUR le chemin : le carrefour du réseau (config PATHS, point
   // commun des trois routes), museau tourné vers la montée aux torii.
-  const position = new THREE.Vector3(6 * LAND_SCALE, 0, -30 * LAND_SCALE);
+  const SPAWN = { x: 6 * LAND_SCALE, z: -30 * LAND_SCALE, heading: -1.2 };
+  const position = new THREE.Vector3(SPAWN.x, 0, SPAWN.z);
   position.y = heightAt(position.x, position.z);
 
   const state = {
-    heading: -1.2,
+    heading: SPAWN.heading,
     speed: 0,
     moving: false,
     running: false,
@@ -1126,6 +1127,43 @@ export function createShiba({
         state.vy = 9.5;
         state.airborne = true;
       }
+    },
+    /** Carrefour, museau aux torii, plus aucune pose en cours. */
+    reset() {
+      position.set(SPAWN.x, 0, SPAWN.z);
+      position.y = heightAt(position.x, position.z);
+      state.heading = SPAWN.heading;
+      state.speed = 0;
+      state.moving = false;
+      state.running = false;
+      state.wading = false;
+      state.swimming = false;
+      state.swimBlend = 0;
+      state.depth = 0;
+      state.sitting = 0;
+      state.excitement = 0;
+      state.vy = 0;
+      state.airborne = false;
+      state.idleTime = 0;
+      state.gait = 0;
+      state.swimGait = 0;
+      state.wetness = 0;
+      state.wetTime = 0;
+      state.shake = 0;
+      state.shakeElapsed = 0;
+      state.shakeCrossing = 0;
+      state.bark = 0;
+      state.barkElapsed = 0;
+      state.look = 0;
+      state.lookKind = null;
+      waterSetSwimmer(position.x, position.z, false, 0, 0);
+      rig.root.position.copy(position);
+      if (normalAt) normalAt(position.x, position.z, _n);
+      else _n.copy(UP);
+      _n.lerp(UP, 0.42).normalize();
+      _qAlign.setFromUnitVectors(UP, _n);
+      _qYaw.setFromAxisAngle(UP, state.heading);
+      rig.root.quaternion.copy(_qAlign).multiply(_qYaw);
     },
     /** Entrée analogique caméra-relative, fournie par l'UI tactile. */
     setStick(fwd, side, running) {

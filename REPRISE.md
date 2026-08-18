@@ -2441,7 +2441,7 @@ Quatre lots, 0 quad ajouté. Inventaire d'abord : impostors, herbe
 - **Lot 1 — lit sonore.** `ambientWeights` pur + table `AMBIENCE`.
   Quatre lits Web Audio (surf, bambou, cigales, grenouilles) après le
   premier geste. Listener = shiba en follow, caméra en orbite.
-  `world.paused` coupe le master.
+  Pause du cycle : le soleil s'arrête, les lits restent (session 18/08).
 - **Lot 2 — épaules.** `pathLitterOk` : ruban toujours nu, épaule
   `PATHS.shoulder` parfois plantée. Pétales sur la terre battue
   inchangés (consigne joueur) ; `onPath` de `createPetals` reste
@@ -2473,5 +2473,89 @@ deux sphères dans le thorax, et l'envol réutilisait le mesh debout.
 `node --check` herons.js. `test/invariants.html?q=low` :
 **77 pass, 0 fail** (Chrome). Pas de visuel GPU ici (WebGL headless).
 
+---
+
+## Session « midi figé » du 18/08
+
+Le cycle démarrait à l'aube (0.235) et avançait tout seul. Demande :
+ouvrir à midi, temps arrêté, marque visible à côté de l'heure.
+
+- `START_TIME = 0.5`, `START_PAUSED = true` (`config.js`). HUD et
+  slider HTML suivent (12:00 / midi).
+- `#clock-pause` : deux barres (II) à droite de l'heure, masquées
+  dès que le soleil reprend. `setPaused` unique pour `P` et le
+  bouton tactile — pas d'attente du tick HUD 0.4 s.
+- `world.paused` ne coupe plus les lits d'ambiance : la pause n'a
+  jamais arrêté vent / faune / shiba, et un boot figé aurait rendu
+  le lot audio muet.
+
+`node --check` config/main/audio.
 
 ---
+
+## Session « reset Échap / Suppr » du 18/08
+
+`Escape` et `Delete` ramènent la carte postale : `START_TIME` +
+`START_PAUSED`, chien au carrefour (`shiba.reset`), caméra
+`CAMERA.start` / `CAMERA.target` en orbite, auto-rotate repris.
+
+`node --check` main/shiba.
+
+---
+
+## Session « ailes figées » du 18/08
+
+Capture étang : aigrette en croix sombre, « ailes un peu bizarres et
+pas de mouvement ». Les plaques `BoxGeometry` du vol ne battaient
+pas — statue en X au-dessus de l'eau.
+
+- `src/herons.js` : trois panneaux profilés (`wingPlate`) + `aSpan`.
+  Battement GPU, charnière à l'épaule `(±0.11, 0.64, 0.04)` — jamais
+  autour des pieds. Phase / amplitude CPU (`aFlap`), plané court en
+  croisière, bob + léger roulis. Matériau vol séparé (`DoubleSide`).
+- `config.js` : `HERONS.flapHz` [3.1, 4.4].
+- Invariant silhouette : `aSpan` max > 0.9 et un bout à |x| > 0.85
+  (l'ancien slab statique échoue). Spawn / flush / peck / size
+  inchangés.
+
+`node --check` herons.js / config.js.
+`test/invariants.html?q=low` : **78 pass, 0 fail**
+(ailes vol `aSpan=1.00` tip=true, spanX=2.16).
+
+---
+
+## Session « pierre dans le sol, lanterne dans l'eau » du 18/08
+
+Capture le long de la boucle `etangs` : pas japonais enterrés dans le
+ruban, kasuga-doro plantée dans le bassin.
+
+- **Lanterne.** `computeLanternSpots` ne testait que `h < seaLevel+0.3`.
+  Un étang carvé reste au-dessus de la mer, donc le pied se posait sur
+  le fond du bassin. 3ᵉ argument `inWater` (`isInPond`, marge boue +1 u) ;
+  l'autre épaule est déjà essayée. `createDetails` passe `wet`.
+- **Pas japonais.** L'accordé acceptait `rp ≤ 1.08·radius` et ignorait
+  le ruban : toute la corde se calait sur la berge sous le chemin, Y =
+  `pondWaterYAt + lift` → dalles enfouies. `stoneCellOk` exige eau réelle
+  (`heightAt < wy`) et hors `isOnPath(..., r)`.
+- Invariants : aucune lanterne mouillée ; dalles hors ruban.
+
+`node --check` details.js / poi.js.
+`test/invariants.html` : **78 pass, 0 fail** low **et** ultra
+(48 lanternes, 0 mouillées ; 6 dalles low / 5 ultra).
+
+---
+
+## Session « bosquet plus dense, même superficie » du 18/08
+
+Même disque (`BAMBOO.radius` = 13·L). Plus de tiges, plus serrées.
+
+- `QUALITY.*.bamboo` : 10/20/34 → **28/56/96** × AREA_SOFT
+  (158 / 317 / 543).
+- `BAMBOO.minSep` 1.65 → 1.22. `maxTries` ×140.
+- Invariant inchangé (hors ruban, dans le disque).
+
+`node --check` config/bamboo.
+`test/invariants.html` : **78 pass, 0 fail** low **et** ultra
+(158/158 et 543/543, 0 hors bosquet).
+
+

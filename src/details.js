@@ -274,15 +274,17 @@ export function pathProximity(x, z) {
  * invariant bench can re-run the same placement without building meshes.
  *
  * One lantern every PATHS.lanternEvery world units of arc, alternating sides,
- * offset by (width/2 + 1.3). Skipped under water (h < seaLevel+0.3), on a
- * cliff face (local slope > 0.9), or on any route's dirt (`isOnPath(..., 0)`
- * — forks used to plant a lamp in the roadway).
+ * offset by (width/2 + 1.3). Skipped under the sea (h < seaLevel+0.3), in a
+ * pond (`inWater` — the sea-level test misses carved basins), on a cliff
+ * face (local slope > 0.9), or on any route's dirt (`isOnPath(..., 0)` —
+ * forks used to plant a lamp in the roadway).
  *
  * @param {Function} heightAt
  * @param {Function} [slopeAt]
+ * @param {Function} [inWater]  (x, z) => bool — ponds (isInPond)
  * @returns {{x: number, z: number}[]}
  */
-export function computeLanternSpots(heightAt, slopeAt = null) {
+export function computeLanternSpots(heightAt, slopeAt = null, inWater = null) {
   const spots = [];
   const halfW = PATHS.width * 0.5;
   const sideOff = halfW + 1.3;
@@ -311,6 +313,7 @@ export function computeLanternSpots(heightAt, slopeAt = null) {
         const h = heightAt(x, z);
         const sl = slopeAt ? slopeAt(x, z) : 0;
         if (h < WORLD.seaLevel + 0.3 || sl > 0.9) continue;
+        if (inWater && inWater(x, z)) continue;
         if (isOnPath(x, z, 0)) continue;
         spots.push({ x, z });
         break;
@@ -337,7 +340,8 @@ export function computeLanternSpots(heightAt, slopeAt = null) {
       const z = p.z + nz * sideOff * side;
       const h = heightAt(x, z);
       const sl = slopeAt ? slopeAt(x, z) : 0;
-      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9 && !isOnPath(x, z, 0)) {
+      if (h >= WORLD.seaLevel + 0.3 && sl <= 0.9
+          && !(inWater && inWater(x, z)) && !isOnPath(x, z, 0)) {
         spots.push({ x, z });
       }
     }
@@ -1494,7 +1498,7 @@ export function createDetails({
   {
     const rng = streamFor(seed, 'details.lanterns');
     // Generated ONLY along the path network (+ terrace pair). No orphan lamps.
-    const spots = computeLanternSpots(heightAt, slopeAt);
+    const spots = computeLanternSpots(heightAt, slopeAt, wet);
     lanternSpots = spots.map((s) => ({ x: s.x, z: s.z }));
     lanternCount = spots.length;
 

@@ -112,7 +112,10 @@ export const WIND = {
 export const DAY_LENGTH = 180;
 
 /** Time of day the scene opens on. 0 = midnight, 0.25 = 06:00, 0.5 = noon. */
-export const START_TIME = 0.235; // just before sunrise — best first impression
+export const START_TIME = 0.5; // noon — frozen until P, so the postcard stays put
+
+/** When true, the sun does not advance until the player presses P. */
+export const START_PAUSED = true;
 
 /**
  * Scatter budgets are quoted for a unit island and multiplied by LAND_SCALE^2,
@@ -146,7 +149,7 @@ export const QUALITY = {
     fireflies: Math.round(28.28 * AREA_SOFT),
     butterflies: Math.round(5 * AREA_SOFT),
     crabs: 10,             // laisse locale — pas AREA_SOFT
-    bamboo: Math.round(10 * AREA_SOFT), // bosquet local, instances plus grosses
+    bamboo: Math.round(28 * AREA_SOFT), // même disque, plus dense (pas plus large)
     moths: 0.5,            // mites par lanterne (1 toutes les deux)
     herons: 1,             // échassiers — N petit, pas AREA_SOFT
     dragonflies: Math.round(1.413936700 * AREA_SOFT), // ≈ 8
@@ -168,7 +171,7 @@ export const QUALITY = {
     fireflies: Math.round(74.23 * AREA_SOFT),
     butterflies: Math.round(12 * AREA_SOFT),
     crabs: 18,
-    bamboo: Math.round(20 * AREA_SOFT),
+    bamboo: Math.round(56 * AREA_SOFT),
     moths: 1,              // une mite par lanterne
     herons: 2,
     dragonflies: Math.round(3.181357575 * AREA_SOFT), // ≈ 18
@@ -192,7 +195,7 @@ export const QUALITY = {
     fireflies: Math.round(141.40 * AREA_SOFT),
     butterflies: Math.round(24 * AREA_SOFT),
     crabs: 28,
-    bamboo: Math.round(34 * AREA_SOFT),
+    bamboo: Math.round(96 * AREA_SOFT),
     moths: 2,              // halo vivant autour de chaque cage à feu
     herons: 3,
     dragonflies: Math.round(5.655746800 * AREA_SOFT), // ≈ 32
@@ -598,6 +601,7 @@ export const HERONS = Object.freeze({
   peckSeconds: [0.55, 0.85],
   idleSeconds: [1.8, 5.5],
   size: [0.92, 1.12],
+  flapHz: [3.1, 4.4],       // cruise, takeoff — aigrette, pas moineau
 });
 
 /**
@@ -658,7 +662,7 @@ export const GULLS = Object.freeze({
 /**
  * Bosquet de bambous (lot 8). Local — la bosse est déjà LAND_SCALEd
  * (`island.js` BUMPS[0]). Compte en AREA_SOFT via QUALITY.bamboo ;
- * instances un peu plus grandes. Ne pas remultiplier le centre.
+ * instances un peu plus grandes. Densité via le compte, jamais le rayon.
  */
 export const BAMBOO = Object.freeze({
   cx: 56 * LAND_SCALE,
@@ -668,7 +672,7 @@ export const BAMBOO = Object.freeze({
   slopeMax: 0.32,
   hMin: 2.4,
   hMax: 34,                 // la bosse est culmine ~24–28 u
-  minSep: 1.65,
+  minSep: 1.22,             // plus serré — même disque, plus de tiges
   scale: Object.freeze([1.18, 1.58]),
 });
 

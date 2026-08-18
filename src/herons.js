@@ -6,8 +6,10 @@
  * not scale with AREA_SOFT: the habitat is three basins, not the island.
  *
  * The standing tell is the S-neck + black stilt legs + yellow feet; the
- * flying tell is the tucked neck and a real wingspan. Same origin
- * (between the feet, nose +Z) so the instance matrix does not pop.
+ * flying tell is the tucked neck and a real wingspan that BEATS. Same
+ * origin (between the feet, nose +Z) so the instance matrix does not pop.
+ * Flap is GPU (aSpan + shoulder hinge) — never rotate the merged mesh
+ * around the feet, or the wings scythe the water.
  */
 
 import * as THREE from 'three';
@@ -31,6 +33,9 @@ function paint(geo, hex, vary = 0) {
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
   geo.deleteAttribute('uv');
+  if (!geo.getAttribute('aSpan')) {
+    geo.setAttribute('aSpan', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+  }
   return geo;
 }
 
@@ -80,6 +85,52 @@ function slab(w, h, d, x, y, z, hex, rx = 0, ry = 0, rz = 0) {
   if (ry) g.rotateY(ry);
   if (rz) g.rotateZ(rz);
   g.translate(x, y, z);
+  return paint(g, hex);
+}
+
+/**
+ * Thin tapered wing panel. x0 is inboard (shoulder), x1 the tip.
+ * Closed prism so the underside has a real -Y normal — a +Y plate is
+ * black from the pond. aSpan 0 at the body, 1 at the tip; the flap
+ * shader hinges around the shoulder, not the feet.
+ */
+function wingPlate({
+  s, x0, x1, y0, y1, zL0, zT0, zL1, zT1, th0, th1, hex, span0, span1,
+}) {
+  const ht0 = th0 * 0.5, ht1 = th1 * 0.5;
+  const P = [
+    [s * x0, y0 + ht0, zL0],
+    [s * x0, y0 + ht0, zT0],
+    [s * x1, y1 + ht1, zL1],
+    [s * x1, y1 + ht1, zT1],
+    [s * x0, y0 - ht0, zL0],
+    [s * x0, y0 - ht0, zT0],
+    [s * x1, y1 - ht1, zL1],
+    [s * x1, y1 - ht1, zT1],
+  ];
+  const Sp = [span0, span0, span1, span1, span0, span0, span1, span1];
+  const faces = [
+    [0, 2, 3, 1],
+    [4, 5, 7, 6],
+    [0, 4, 6, 2],
+    [1, 3, 7, 5],
+    [0, 1, 5, 4],
+    [2, 6, 7, 3],
+  ];
+  const pos = [], spn = [];
+  const emit = (i) => {
+    pos.push(P[i][0], P[i][1], P[i][2]);
+    spn.push(Sp[i]);
+  };
+  for (const f of faces) {
+    const q = s < 0 ? [f[0], f[3], f[2], f[1]] : f;
+    emit(q[0]); emit(q[1]); emit(q[2]);
+    emit(q[0]); emit(q[2]); emit(q[3]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aSpan', new THREE.Float32BufferAttribute(spn, 1));
+  g.computeVertexNormals();
   return paint(g, hex);
 }
 
@@ -167,14 +218,25 @@ export function makeHeronFlyGeometry() {
     addToes(parts, s * 0.026, 0.375, -0.52);
   }
 
-  // Two-panel wing + dark tip. Dihedral lifts the tip; +Y sweep sends it aft.
-  // Half-span ~1.07 so the bird reads as a cross, not a floating statue.
+  // Three tapered panels, half-span ~1.08. aSpan drives the GPU flap.
+  // Shoulder stays aSpan=0 so the hinge does not lift the ribcage.
   for (const s of [-1, 1]) {
-    const dih = s * -0.12;
-    parts.push(blob(0.055, 0.048, 0.08, s * 0.12, 0.64, 0.04, WHITE, 0.03, 7, 5));
-    parts.push(slab(0.46, 0.016, 0.22, s * 0.34, 0.64, 0.02, DOWN, 0, 0.16, dih));
-    parts.push(slab(0.42, 0.012, 0.16, s * 0.74, 0.68, -0.05, SHADE, 0, 0.22, s * -0.16));
-    parts.push(slab(0.16, 0.008, 0.09, s * 1.00, 0.70, -0.12, 0xb8bcb4, 0, 0.28, s * -0.18));
+    parts.push(blob(0.050, 0.044, 0.07, s * 0.11, 0.64, 0.04, WHITE, 0.03, 7, 5));
+    parts.push(wingPlate({
+      s, x0: 0.10, x1: 0.48, y0: 0.64, y1: 0.66,
+      zL0: 0.16, zT0: -0.12, zL1: 0.13, zT1: -0.14,
+      th0: 0.022, th1: 0.016, hex: WHITE, span0: 0.06, span1: 0.45,
+    }));
+    parts.push(wingPlate({
+      s, x0: 0.48, x1: 0.90, y0: 0.66, y1: 0.70,
+      zL0: 0.13, zT0: -0.14, zL1: 0.04, zT1: -0.16,
+      th0: 0.016, th1: 0.010, hex: DOWN, span0: 0.45, span1: 0.86,
+    }));
+    parts.push(wingPlate({
+      s, x0: 0.90, x1: 1.08, y0: 0.70, y1: 0.73,
+      zL0: 0.04, zT0: -0.16, zL1: -0.05, zT1: -0.13,
+      th0: 0.010, th1: 0.006, hex: SHADE, span0: 0.86, span1: 1.0,
+    }));
   }
 
   const merged = mergeParts(parts);
@@ -273,6 +335,73 @@ export function computeHeronSpawns({
   return out;
 }
 
+function patchFlyMaterial(mat) {
+  mat.side = THREE.DoubleSide;
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      `#include <common>
+attribute float aSpan;
+attribute vec2 aFlap;`
+    ).replace(
+      '#include <beginnormal_vertex>',
+      /* glsl */ `
+        #include <beginnormal_vertex>
+        {
+          float span = aSpan;
+          if (span > 0.001) {
+            float side = sign(position.x);
+            float phase = aFlap.x;
+            float amp = aFlap.y;
+            float lag = span * 0.75;
+            float a = sin(phase - lag) * amp * (0.18 + 0.82 * span);
+            a += 0.08 * span;
+            float ang = a * side;
+            float c = cos(ang), sn = sin(ang);
+            objectNormal = vec3(
+              objectNormal.x * c - objectNormal.y * sn,
+              objectNormal.x * sn + objectNormal.y * c,
+              objectNormal.z);
+            float tw = -cos(phase - lag) * amp * 0.22 * span;
+            float ct = cos(tw), st = sin(tw);
+            objectNormal = vec3(
+              objectNormal.x,
+              objectNormal.y * ct - objectNormal.z * st,
+              objectNormal.y * st + objectNormal.z * ct);
+          }
+        }
+      `
+    ).replace(
+      '#include <begin_vertex>',
+      /* glsl */ `
+        #include <begin_vertex>
+        {
+          float span = aSpan;
+          if (span > 0.001) {
+            float side = sign(transformed.x);
+            float phase = aFlap.x;
+            float amp = aFlap.y;
+            float lag = span * 0.75;
+            float a = sin(phase - lag) * amp * (0.18 + 0.82 * span);
+            a += 0.08 * span;
+            float ang = a * side;
+            float c = cos(ang), sn = sin(ang);
+            vec3 sh = vec3(side * 0.11, 0.64, 0.04);
+            vec3 q = transformed - sh;
+            transformed = vec3(q.x * c - q.y * sn, q.x * sn + q.y * c, q.z) + sh;
+            float tw = -cos(phase - lag) * amp * 0.22 * span;
+            float ct = cos(tw), st = sin(tw);
+            q = transformed - sh;
+            transformed = vec3(q.x, q.y * ct - q.z * st, q.y * st + q.z * ct) + sh;
+          }
+        }
+      `
+    );
+  };
+  mat.customProgramCacheKey = () => 'heron-fly-flap-v1';
+  return mat;
+}
+
 export function createHerons({
   seed = SEED, quality, heightAt, ponds, isInPond, pondWaterYAt,
 } = {}) {
@@ -288,14 +417,18 @@ export function createHerons({
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.68, metalness: 0,
   });
+  const flyMat = patchFlyMaterial(material.clone());
   const cap = Math.max(n, 1);
+  const flapArr = new Float32Array(cap * 2);
+  const aFlap = new THREE.InstancedBufferAttribute(flapArr, 2);
+  flyGeo.setAttribute('aFlap', aFlap);
   const mesh = new THREE.InstancedMesh(standGeo, material, cap);
   mesh.name = 'herons';
   mesh.count = n;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.frustumCulled = false;
-  const flyMesh = new THREE.InstancedMesh(flyGeo, material, cap);
+  const flyMesh = new THREE.InstancedMesh(flyGeo, flyMat, cap);
   flyMesh.name = 'herons-fly';
   flyMesh.count = n;
   flyMesh.castShadow = true;
@@ -325,6 +458,12 @@ export function createHerons({
     peck: 0,
     flyY: 0,
     seed: R.range(rng, 0, 40),
+    flapPhase: rng() * TAU,
+    flapAmp: 0,
+    bank: 0,
+    prevYaw: s.yaw,
+    glideT: R.range(rng, 0.6, 1.6),
+    gliding: false,
   }));
 
   const _m = new THREE.Matrix4();
@@ -340,9 +479,16 @@ export function createHerons({
     const hip = 0.55;
     const flying = b.state === TAKEOFF || b.state === FLY
       || (b.state === LAND && b.y - b.destY > 0.4);
-    _e.set(flying ? -0.16 : 0, b.yaw, 0);
+    const bob = flying
+      ? Math.sin(b.flapPhase) * 0.055 * b.flapAmp
+      : 0.01 * Math.sin(b.seed);
+    _e.set(
+      flying ? -0.14 + Math.sin(b.flapPhase) * 0.035 * b.flapAmp : 0,
+      b.yaw,
+      b.bank,
+    );
     _q.setFromEuler(_e);
-    _p.set(b.x, b.y + 0.01 * Math.sin(b.seed), b.z);
+    _p.set(b.x, b.y + bob, b.z);
     _s.set(b.scale, b.scale, b.scale);
     _m.compose(_p, _q, _s);
     if (!flying && b.peck > 0.01) {
@@ -416,6 +562,8 @@ export function createHerons({
     b.destYaw = dest.yaw;
     b.flyY = R.range(rng, HERONS.cruiseY[0], HERONS.cruiseY[1]);
     b.peck = 0;
+    b.gliding = false;
+    b.glideT = R.range(rng, 0.9, 1.6);
     lastFlush = { x: b.x, y: b.y, z: b.z };
     const fn = api.onFlush;
     if (typeof fn === 'function') fn(lastFlush);
@@ -487,16 +635,46 @@ export function createHerons({
         }
       }
 
+      const flying = b.state === TAKEOFF || b.state === FLY
+        || (b.state === LAND && b.y - b.destY > 0.4);
+      const turn = Math.atan2(Math.sin(b.yaw - b.prevYaw), Math.cos(b.yaw - b.prevYaw));
+      b.prevYaw = b.yaw;
+      if (flying) {
+        const wantBank = Math.max(-0.42, Math.min(0.42, -turn / Math.max(dt, 1e-4) * 0.10));
+        b.bank += (wantBank - b.bank) * Math.min(1, dt * 4);
+        const takeoff = b.state === TAKEOFF;
+        const landing = b.state === LAND;
+        const hz = takeoff ? HERONS.flapHz[1] : landing ? HERONS.flapHz[0] * 0.75 : HERONS.flapHz[0];
+        let ampT = takeoff ? 0.95 : landing ? 0.38 : 0.62;
+        if (b.state === FLY) {
+          b.glideT -= dt;
+          if (b.glideT <= 0) {
+            b.gliding = !b.gliding;
+            b.glideT = b.gliding ? R.range(rng, 0.35, 0.85) : R.range(rng, 0.9, 1.9);
+          }
+          if (b.gliding) ampT = 0.10;
+        }
+        b.flapAmp += (ampT - b.flapAmp) * Math.min(1, dt * 5);
+        b.flapPhase = (b.flapPhase + hz * TAU * dt) % TAU;
+      } else {
+        b.bank += (0 - b.bank) * Math.min(1, dt * 6);
+        b.flapAmp += (0 - b.flapAmp) * Math.min(1, dt * 8);
+      }
+      flapArr[i * 2] = b.flapPhase;
+      flapArr[i * 2 + 1] = b.flapAmp;
+
       write(i);
     }
     mesh.instanceMatrix.needsUpdate = true;
     flyMesh.instanceMatrix.needsUpdate = true;
+    aFlap.needsUpdate = true;
   }
 
   function dispose() {
     standGeo.dispose();
     flyGeo.dispose();
     material.dispose();
+    flyMat.dispose();
     mesh.removeFromParent();
     flyMesh.removeFromParent();
     group.removeFromParent();
