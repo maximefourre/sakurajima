@@ -183,10 +183,10 @@ const P_CELL = 12;
 buildPathNetwork();
 
 /**
- * Rebuild the full path-network index and return the end of the 'torii' route
- * (overlook terrace). Call before createGrass so exclusion follows the network.
- * No arguments — the network is fully authored in PATHS.
- * @returns {{x: number, z: number}}
+ * Rebuild the full path-network index and, if heightAt is provided, the
+ * overlook terrace. Call before createGrass so exclusion follows the network.
+ * @param {{ heightAt?: function, heightGrid?: object, slopeAt?: function }} [opts]
+ * @returns {{x: number, z: number}} end of the 'torii' route
  */
 export function initPath(opts = {}) {
   buildPathNetwork();

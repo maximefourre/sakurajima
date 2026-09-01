@@ -2,8 +2,8 @@
  * petals.js — falling cherry blossom petals.
  *
  * All motion happens in the vertex shader. The CPU sets one uniform per frame
- * (the time) and touches nothing else, so 12 000 petals cost one draw call and
- * essentially zero JS.
+ * (the time) and touches nothing else, so QUALITY.petals × AREA_SOFT petals
+ * (one draw call for the airborne field) and essentially zero JS.
  *
  * What separates petals from snow — the four things that had to be right:
  *

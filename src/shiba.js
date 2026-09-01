@@ -1,14 +1,9 @@
 /**
  * shiba.js — the playable Shiba Inu.
  *
- * A procedural dog: no glTF, no rig, no textures, in keeping with the rest of the
- * scene. The whole animal is tapered tubes swept along hand-authored centrelines
- * and painted per-vertex, hung off a hierarchy of Object3Ds that a few sine waves
- * drive. That sounds crude for a character, but a shiba is carried almost entirely
- * by silhouette and by two colours — a curled tail on the back, small forward-set
- * triangular ears, a blunt muzzle, and the cream *urajiro* running under the jaw,
- * chest, belly and tail against a red coat. Get those and it is unmistakable at
- * fifty metres; miss them and no amount of skinning will save it.
+ * Playable dog. Runtime body is the Sketchfab glTF (shiba-gltf.js) when the
+ * asset loads; buildBody() in shiba-geom.js is the fallback. Same pose
+ * contract either way.
  *
  * Scale is a deliberate lie. A real shiba stands 0.4 units at the withers in this
  * world, which is shorter than a blade of grass (0.55) and invisible from any

@@ -17,7 +17,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PATHS, WORLD, POI, STONES, SEED, CAMERA, SEA_TORII } from './config.js';
 import { streamFor, fbm2, R } from './noise.js';
 import { springReefSite } from './island.js';
-import { makeToriiGeometry } from './details.js';
+import { makeToriiGeometry, PATH_HALF } from './details.js';
 import { makeWoodBump } from './detailtex.js';
 import { computeChashitsuSite, createChashitsu, chashitsuKeepOut } from './chashitsu.js';
 
@@ -32,10 +32,6 @@ const STONE = 0x8a8680;
 const STONE_DARK = 0x716d69;
 const STONE_MOSS = 0x5d6b33;
 const STONE_LICHEN = 0xc8c2a2;
-
-// Same formula as details.PATH_HALF — importing details would couple this
-// module to the 2 k-line path/flower file for one constant.
-const PATH_HALF = PATHS.width * 0.5 * 1.28;
 
 /** Last slabs bound by createPOI. Tests pass an explicit list as the 3rd arg. */
 let _slabs = [];
