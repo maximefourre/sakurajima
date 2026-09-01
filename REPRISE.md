@@ -2644,16 +2644,17 @@ Chantier H (câblage `main.js` + crédit CC-BY + banc), après merge A–G
 ## Session « audit 01/09 chantier J — fps honnêtes » du 01/09/2026
 
 Deux passages ultra, canvas **2490×2008**, `readPixels`, caméra orbit.
-Le `drift=` n'était pas dans le log ; les deux runs collent (±0.6 fps) —
-pris comme contrat live. Budgets et `DEFAULT_QUALITY` inchangés.
+Avec ou sans garde `drift ≈ 0` sur 3 s, les fps collent (±0.6) : autoRotate
+était déjà off. Contrat live. Budgets et `DEFAULT_QUALITY` inchangés.
 
 | Saison | Ouverture | Sol |
 |---|---:|---:|
 | printemps | 53.8 | 29.1 |
 | automne | 54.5 | 42.7 |
 
-(Premier run, non loggué drift : 54.4 / 29.2 et 54.2 / 42.7.)
+(Run sans drift loggué : 54.4 / 29.2 et 54.2 / 42.7.)
 Étalon 31/07 à 3600×1896 : 33.7 / 24.6 et 59 / 49.3 — pas comparable.
+Le piège 9 reste : un banc **en follow** ou avec autoRotate ferait dériver.
 
 
 
