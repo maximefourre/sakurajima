@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { HERONS, SEED } from './config.js';
+import { HERONS, SEED, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 const IDLE = 0, PECK = 1, TAKEOFF = 2, FLY = 3, LAND = 4;
@@ -405,7 +405,7 @@ attribute vec2 aFlap;`
 export function createHerons({
   seed = SEED, quality, heightAt, ponds, isInPond, pondWaterYAt,
 } = {}) {
-  const count = quality?.herons ?? 0;
+  const count = qualityCount(quality, 'herons');
   const list = Array.isArray(ponds) ? ponds : [];
   const spawns = computeHeronSpawns({
     seed, heightAt, ponds: list, isInPond, count, pondWaterYAt,
