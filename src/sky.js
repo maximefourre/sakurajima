@@ -39,7 +39,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 
-import { SEED, LAND_SCALE } from './config.js';
+import { SEED, WORLD } from './config.js';
 import { streamFor } from './noise.js';
 
 const clamp = THREE.MathUtils.clamp;
@@ -73,8 +73,8 @@ export const SKY_TUNE = {
   // every shadow) as soon as the island outgrows it. Hence derived, not fixed.
   // Fallback = même formule que shadowEnvelope() sans arg. Un oubli
   // d'islandRadius ne doit plus produire un near négatif.
-  sunDistance: Math.round(1.30 * 125 * LAND_SCALE + 10 + 220),
-  islandRadius: 1.30 * 125 * LAND_SCALE + 10,
+  sunDistance: Math.round(1.30 * WORLD.size * 0.385 + 10 + 220),
+  islandRadius: 1.30 * WORLD.size * 0.385 + 10,
   // Note: at this footprint 4096 texels over 2×islandRadius ≈ 0.19 units/texel.
   shadowMapSize: 2048,   // overridden by quality.shadowMap
   shadowBias: -0.00018,  // tiny. normalBias does the real work — see notes below.
@@ -460,7 +460,7 @@ const HASH_GLSL = /* glsl */ `
 
 /** R / D d'ombre. Near = D − R − 80 reste 140. */
 export function shadowEnvelope(islandR) {
-  const R = islandR ?? (1.30 * 125 * LAND_SCALE + 10);
+  const R = islandR ?? (1.30 * WORLD.size * 0.385 + 10);
   return { R, D: Math.round(R + 220) };
 }
 
@@ -680,7 +680,7 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
   starField.name = 'starField';
   celestial.add(starField);
 
-  const STAR_N = Math.max(256, quality.stars || SKY_TUNE.starCount);
+  const STAR_N = Math.max(256, SKY_TUNE.starCount);
   const starGeo = new THREE.BufferGeometry();
   {
     const pos = new Float32Array(STAR_N * 3);
@@ -925,8 +925,8 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
    *  instantly visible. A fixed box costs a little resolution and buys total
    *  temporal stability.
    *
-   *  Extent: shadowEnvelope(island.radius * 1.30 + 10) — côte + rochers,
-   *  plus l'ancienne boîte ±125·L calée sur WORLD.size 240.
+   *  Extent: shadowEnvelope(island.radius * 1.30 + 10) — côte + rochers.
+   *  Fallback sans arg = 1.30 * WORLD.size * 0.385 + 10 (même ISLAND_R que island.js).
    *
    *  Near/far are wrapped tight around the island as seen from the light. Loose
    *  near/far is the #1 cause of acne, because `bias` is expressed in the shadow
