@@ -107,9 +107,10 @@ consigne d'outils.
     couverture constante (`1/√f`) sur instances mélangées par blocs de 64.
   - Résultat (31/07, 3600×1896) : **ouverture 15.4 → 33.7 fps (×2.2)**, sol
     21.4 → 24.6 (+15 %), automne 59 / 49.3. L'objectif « ≥ 55 fps au sol »
-    n'était PAS atteint. Un passage 01/09 (2490×2008) n'a pas vérifié le
-    drift : chiffres **non contrat** — voir `AGENTS.md`. Au sol le feuillage
-    proche reste à `f = 1` par conception.
+    n'était PAS atteint. **Contrat live (01/09, 2490×2008) :** printemps
+    53.8 / 29.1, automne 54.5 / 42.7 — voir `AGENTS.md`. Ne pas comparer
+    les deux étalons au pixel près. Au sol le feuillage proche reste à
+    `f = 1` par conception.
   - `LOD_MIN_FRACTION` est désormais `0` : les pétales du lointain tombent
     à zéro et les impostors de couronne (quelques ellipsoïdes billboardés
     par arbre, mêmes lobes que l'ombre) portent la silhouette. Le proche

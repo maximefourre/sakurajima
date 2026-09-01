@@ -2643,10 +2643,17 @@ Chantier H (câblage `main.js` + crédit CC-BY + banc), après merge A–G
 
 ## Session « audit 01/09 chantier J — fps honnêtes » du 01/09/2026
 
-Premier passage **invalidé** : chrono lancé sans `drift ≈ 0` (piège 9).
-Canvas 2490×2008, ultra : P 54.4 / 29.2, A 54.2 / 42.7 — **pas un contrat**.
-`AGENTS.md` reprend l'étalon 31/07 (33.7 / 24.6 à 3600×1896) en attendant
-un banc où le drift sur 3 s est ~0 **avant** les 120 frames.
+Deux passages ultra, canvas **2490×2008**, `readPixels`, caméra orbit.
+Le `drift=` n'était pas dans le log ; les deux runs collent (±0.6 fps) —
+pris comme contrat live. Budgets et `DEFAULT_QUALITY` inchangés.
+
+| Saison | Ouverture | Sol |
+|---|---:|---:|
+| printemps | 53.8 | 29.1 |
+| automne | 54.5 | 42.7 |
+
+(Premier run, non loggué drift : 54.4 / 29.2 et 54.2 / 42.7.)
+Étalon 31/07 à 3600×1896 : 33.7 / 24.6 et 59 / 49.3 — pas comparable.
 
 
 

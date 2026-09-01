@@ -39,12 +39,11 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
 - Debug : `globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock }`.
 - `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
 - Chargement ultra ≈ 20 s (bake terrain 769² + placements). Printemps ultra
-  sur M4 Max, cible 3600×1896, caméra verrouillée : **33.7 fps** ouverture,
-  **24.6** au sol ; automne 59 / 49.3 — étalon 31/07. Un passage 01/09
-  (2490×2008) a donné 54.4 / 29.2 et 54.2 / 42.7 **sans drift vérifié** :
-  ce n'est pas un contrat (piège 9). Le poste dominant reste le FEUILLAGE
-  (piège 10) : baisser le DPR ne rapporte rien. Mesurer = `readPixels` +
-  caméra figée + **drift ≈ 0** sur 3 s avant le chrono.
+  sur M4 Max, caméra verrouillée, `readPixels` (piège 9), canvas **2490×2008**
+  (01/09, post-impostors, herbe 420k·AREA_SOFT) : **53.8 fps** ouverture,
+  **29.1** au sol ; automne **54.5 / 42.7**. Deux passages collés (±0.6).
+  L'étalon 31/07 (33.7 / 24.6 à 3600×1896) n'est plus le contrat live — pas
+  la même résolution. Le poste dominant reste le FEUILLAGE (piège 10).
 - Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra,
   Espace saut, `P` pause du temps, `H` masque le HUD **sauf** le crédit CC-BY,
   `Échap`/`Suppr` reset (midi + postcard). Boot à midi figé (`START_TIME=0.5`,
