@@ -38,13 +38,19 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
 
 - Debug : `globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock }`.
 - `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
-- Chargement ultra ≈ 20 s (bake terrain 769² + placements). Printemps ultra sur
-  M4 Max, cible 3600×1896, caméra verrouillée : **33.7 fps** au cadrage
-  d'ouverture, **24.6** au sol ; automne 59 / 49.3 (le « ~41 fps » d'avant venait
-  d'une mesure faussée, cf. piège 9). Le poste dominant est le FEUILLAGE de la
-  forêt — 88 % du temps de frame en vue large, 75 % au sol.
+- Chargement ultra ≈ 20 s (bake terrain 769² + placements). Printemps ultra
+  sur M4 Max, cible 3600×1896, caméra verrouillée : **33.7 fps** ouverture,
+  **24.6** au sol ; automne 59 / 49.3 — chiffres **antérieurs** aux impostors
+  de couronne et au recul herbe 560k→420k (re-bench : plan 01/09 chantier J).
+  Le poste dominant est le FEUILLAGE (piège 10) : baisser le DPR ne rapporte
+  rien. Mesurer = piège 9 (`readPixels` + caméra figée).
 - Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra,
-  Espace saut, `P` pause du temps, `Échap`/`Suppr` reset (midi + postcard).
+  Espace saut, `P` pause du temps, `H` masque le HUD **sauf** le crédit CC-BY,
+  `Échap`/`Suppr` reset (midi + postcard). Boot à midi figé (`START_TIME=0.5`,
+  `START_PAUSED=true`) jusqu'à `P`.
+- Vercel : `outputDirectory: "."`, `.vercelignore` enlève `*.md`, `docs/`,
+  `designs/`, `tools/`, `serve.py`. **`test/` est public** (QA, voulu).
+  `assets/shiba/LICENSE.txt` reste (CC-BY).
 
 ## Architecture (qui fait quoi, qui dépend de qui)
 
@@ -61,6 +67,7 @@ bamboo.js   — bosquet instancié à l'est (fût + feuillage, vent partagé)
 detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
 sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
 clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
+cloud-shadow.js — fbm XZ dérivé du vent, uniforms partagés terrain/rochers/herbe
 fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
 audio.js     — SFX call/flush/bark + lits d'ambiance (surf, bambou, cigales, grenouilles)
 herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
@@ -76,6 +83,13 @@ shiba-geom.js / shiba-gltf.js — corps procédural et rig glTF du chien
 touch.js / boot.js — commandes tactiles, voile d'erreur
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu
 ```
+
+Deux GLSL de vent, volontairement. `wind.js` (train de rafales, uWindDir vec2)
+pilote herbe, pétales, fleurs, oiseaux. `sakura.js` exporte un WIND_GLSL
+sinusoïdal (uWindDir vec3) consommé par les couronnes ET `bamboo.js`.
+`main.js` possède `forestWind` : adaptateur vec2→vec3 rafraîchi chaque frame.
+Ne PAS passer `createWind().uniforms` à `createSakuraForest` (no-op silencieux).
+Ne PAS unifier les deux modèles sans demande explicite.
 
 Le cœur : main.js compose `carve = ponds(h)` dans le heightfield de l'île.
 **`island.heightAt` est la source de vérité unique** — mesh et samplers
@@ -198,7 +212,8 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
    ligne rasoir, ombres présentes jusqu'à la côte (si absentes → near-plane,
    piège sky.js). Herbe : plancher 0.55 **à la caméra suivie, sur la prairie**
    (là où des brins existent). L'ouverture postcard peut n'être que de
-   l'albedo — `fadeEnd` 330, coût géométrique, piège 10. Nuit (0.97) : lune
+   l'albedo — `fadeEnd` 250 (330 soumettait encore la forêt depuis la plage,
+   ~20 fps, piège 10). Nuit (0.97) : lune
    basse au sud avec halo, étoiles dans la bande 0–20°, terre lisible,
    lanternes allumées le long des quatre routes. Vue sol : chemins de terre
    granuleux, herbe **rase** dessus (`shortZone`), torii debout sur la montée,

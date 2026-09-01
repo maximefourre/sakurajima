@@ -2594,5 +2594,28 @@ Plus d'abonnement Claude ni Codex. Convention d'équipe réécrite :
 Les journaux ADV / REPRISE d'avant restent l'histoire. Ne pas relancer
 `codex-rescue` ni Fable/Opus.
 
+---
+
+## Session « audit 01/09 — docs » du 01/09/2026
+
+Chantier A du plan `docs/superpowers/plans/2026-09-01-correctifs-audit.md`
+(docs-contrats, zéro logique de scène). Contrats alignés sur le code,
+**sauf** les fps (chantier J, piège 9) :
+
+- `AGENTS.md` : fadeEnd **250** (plus 330) ; `H` masque le HUD sauf crédit
+  CC-BY ; boot midi figé (`START_TIME=0.5`, `START_PAUSED=true`) jusqu'à `P` ;
+  `cloud-shadow.js` + paragraphe **deux vents** (`wind.js` vec2 vs
+  `sakura.WIND_GLSL` vec3, adaptateur `forestWind`) ; deploy Vercel
+  (`test/` public voulu). Chiffres 33.7 / 24.6 marqués **antérieurs** aux
+  impostors et au recul herbe 560k→420k.
+- `PLAN.md` : `noise.js` n'est plus la hauteur (c'est `island.heightAt`) ;
+  pétales = `QUALITY.petals` × `AREA_SOFT` (≈ 170 k air ultra) ; table Fait
+  complétée (audio, poi, chashitsu, faune, cloud-shadow, particles, touch,
+  boot, shiba-gltf/geom) ; §2bis sans le « ≈40 fps » ; wrack/snag/moucherons
+  distincts du lot 5 mites.
+- `ADVERSARIAL_REVIEW_CLAUDE.md` : bannière rivière/pont historique
+  (code supprimé le 29/07).
+- Plans 12/08 et 13/08 marqués livrés ; ne pas relancer.
+
 
 

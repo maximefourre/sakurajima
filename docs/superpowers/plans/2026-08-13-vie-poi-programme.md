@@ -1,5 +1,9 @@
 # Vie + POI — programme en 8 lots
 
+**STATUT : LOTS 1–8 LIVRÉS** (côte → hérons → signes → torii marin →
+mites → gestes shiba → chashitsu → bambous). Le « lot 1 en cours (13/08) »
+est périmé. Ne pas relancer.
+
 > Programme, pas un seul chantier. Chaque lot est livrable, photographable,
 > committé seul.
 >

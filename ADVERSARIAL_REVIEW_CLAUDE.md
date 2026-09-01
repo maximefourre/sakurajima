@@ -1,5 +1,9 @@
 # Revue adversariale de l’implémentation Claude
 
+> **Historique rivière / pont.** Les findings ADV-2026-07-28 qui citent
+> `src/river.js`, `buildBridge`, `isInRiver` décrivent du code **supprimé
+> le 29/07**. Ne pas les « rouvrir ». L'île n'a plus de rivière ni de pont.
+
 ## ADV-2026-08-12-PLAN — plan de correctifs audit
 
 | Champ | Valeur |

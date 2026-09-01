@@ -1,5 +1,8 @@
 # Correctifs audit 12/08 — plan d'implémentation
 
+**STATUT : IMPLÉMENTÉ** (branche `fix/audit-2026-08-12`, merge `a0cec36`).
+Les cases `[ ]` ci-dessous sont historiques. Ne pas relancer.
+
 > **Pour agents implémenteurs :** ce plan s'exécute **un chantier à la fois**.
 > Chaque étape est cochable (`- [ ]`). Interdiction de sous-traiter (un Codex
 > laissé libre re-délègue et n'écrit rien — `AGENTS.md`). Ne pas sauter les

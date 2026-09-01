@@ -29,9 +29,9 @@ N imprimé), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`
 
 | Module | État | Notes |
 |---|---|---|
-| `src/noise.js` | ✅ écrit à la main | PRNG mulberry32 + flux indépendants par sous-système, bruit gradient, fbm, ridged, domain warp. **Source de vérité unique** pour la hauteur du terrain. Validé numériquement sous node. |
+| `src/noise.js` | ✅ écrit à la main | PRNG mulberry32 + flux indépendants par sous-système, bruit gradient, fbm, ridged, domain warp. Pas la hauteur : c'est `island.heightAt`. Validé numériquement sous node. |
 | `src/wind.js` | ✅ écrit à la main | Modèle en **train de rafales** : accalmies réelles, bourrasques qui montent et retombent, cap en marche aléatoire avec embardées, fronts qui traversent l'île. Implémentations JS et GLSL jumelles. |
-| `src/petals.js` | ✅ écrit à la main | ~12k pétales instanciés, animation 100 % vertex shader, culbute sur axe précessant, silhouette échancrée procédurale, demi-Lambert pour la translucidité. **Validé en navigateur**, shader compile. |
+| `src/petals.js` | ✅ écrit à la main | `QUALITY.petals` × `AREA_SOFT` (≈ 170 k air ultra), animation 100 % vertex shader, culbute sur axe précessant, silhouette échancrée procédurale, demi-Lambert pour la translucidité. **Validé en navigateur**, shader compile. |
 | `src/config.js` | ✅ | Toutes les constantes d'art direction + presets qualité low/high/ultra. |
 | `index.html` | ✅ | Voile de chargement, HUD horloge/perf, panneau de réglages, capture des erreurs fatales. |
 | `serve.py` | ✅ | Serveur de dev `no-store` + `charset=utf-8`. |
@@ -48,6 +48,21 @@ N imprimé), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`
 | `src/birds.js` | ✅ | Vol en boids, perchoir nocturne, `setRepeller` pour le shiba. |
 | `src/clouds.js` | ✅ | Cumulus proches à parallaxe, dérivant avec le vent partagé. |
 | `src/shiba.js` | ✅ | Le personnage jouable. Voir §5. |
+| `src/audio.js` | ✅ | SFX call/flush/bark + lits d'ambiance (surf, bambou, cigales, grenouilles), Web Audio sans fichier. |
+| `src/poi.js` | ✅ | Landmarks authorés (côte, pas japonais, signes, torii marin, chashitsu) + `stoneYAt`. |
+| `src/chashitsu.js` | ✅ | Pièce de thé abandonnée (lot 7), site lisière étangs, importée par `poi.js`. |
+| `src/fireflies.js` | ✅ | Lucioles GPU des trois étangs, synchro par bassin. |
+| `src/butterflies.js` | ✅ | Papillons diurnes (deux espèces), versant jour des hotaru. |
+| `src/moths.js` | ✅ | Mites autour des lanternes de route (lot 5 livré). |
+| `src/herons.js` | ✅ | Hérons échassiers des bas-fonds, envol si shiba proche. |
+| `src/dragonflies.js` | ✅ | Libellules GPU au-dessus des bassins (jour). |
+| `src/crabs.js` | ✅ | Crabes de laisse (fuite, enfouissement), N petit hors `AREA_SOFT`. |
+| `src/gulls.js` | ✅ | Goélands posés sur stacks / nuki du torii marin. |
+| `src/cloud-shadow.js` | ✅ | fbm XZ dérivé du vent, uniforms partagés terrain / rochers / herbe. |
+| `src/particles.js` | ✅ | Poussière / splashes GPU (pools anneau, shader de grains). |
+| `src/touch.js` | ✅ | Commandes tactiles analogiques (stick, course, saut / caméra / pause). |
+| `src/boot.js` | ✅ | Chargement de la scène + voile d'erreur fatale. |
+| `src/shiba-gltf.js` / `src/shiba-geom.js` | ✅ | Corps procédural et rig glTF (asset CC-BY, squelette mesuré). |
 
 ---
 
@@ -118,8 +133,6 @@ sol brun au `lowSun` donnait de la boue. La clé de crépuscule mélange désorm
 vers ciel/brouillard.
 
 ### 2bis. Constats de la passe du 30/07 qui n'appellent PAS de correctif
-- fps ultra printemps ≈40 (vue large et sol) — conforme au «~41 fps» documenté,
-  les 48 M de fleurs n'ont rien coûté de plus.
 - Oiseaux : le perchoir nocturne fonctionne ; si on téléporte `dayTime` en
   pleine nuit ils mettent ~1 min simulée à converger — artefact de test, pas
   un bug.
@@ -198,7 +211,7 @@ chien. Impostors / herbe / hérons / lanternes n'ont pas été rouverts.
 - Fleurs : `setPlayer` local, pas `wind.uniforms`.
 - Mousse rochers biaisée au nord (−Z).
 
-Lot 5 (wrack / snag / moucherons) non ouvert.
+wrack / snag / moucherons (PLAN §7, distinct du lot 5 mites déjà livré) — non ouvert.
 
 ---
 
