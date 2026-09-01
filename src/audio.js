@@ -84,6 +84,11 @@ function makeBed(ctx, dest, { type, freq, q = 1, rate = 0, depth = 0 }) {
   return gain;
 }
 
+/** Destination des SFX : le master s'il existe, sinon le contexte (unlock). */
+export function sfxOut(ctx, masterNode) {
+  return masterNode || ctx.destination;
+}
+
 export function createAudio() {
   let ctx = null;
   let unlocked = false;
@@ -136,7 +141,7 @@ export function createAudio() {
     o.frequency.setValueAtTime(f0, t);
     o.frequency.exponentialRampToValueAtTime(f0 * 0.62, t + 0.09);
     o.connect(g);
-    g.connect(c.destination);
+    g.connect(sfxOut(c, master));
     o.start(t);
     o.stop(t + 0.14);
   }
@@ -155,7 +160,7 @@ export function createAudio() {
     o.frequency.setValueAtTime(180, t);
     o.frequency.exponentialRampToValueAtTime(110, t + 0.14);
     o.connect(g);
-    g.connect(c.destination);
+    g.connect(sfxOut(c, master));
     o.start(t);
     o.stop(t + 0.20);
     const n = c.createBufferSource();
@@ -165,7 +170,7 @@ export function createAudio() {
     n.buffer = buf;
     const ng = envGain(c, t, 0.045, 0.004, 0.10);
     n.connect(ng);
-    ng.connect(c.destination);
+    ng.connect(sfxOut(c, master));
     n.start(t);
   }
 
