@@ -146,11 +146,12 @@ LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
   dalle. `pathSurfaceLiftAt` — surface de marche du shiba et de la caméra — ne
   peut pas rejouer ce dégagement par requête ponctuelle : c'est un bombé pur,
   dont l'écart à la surface visible est BORNÉ par un invariant (≤ 0.25).
-- **`createSakuraForest` et `createGrass` ignorent en silence les options
-  inconnues.** sakura veut `isLand`, `windUniforms`, `quality` **numérique**
-  (un objet → budget NaN → arbres sans branches). grass veut `count`, `bounds`,
-  `exclude` / `shortZone` (pas `quality`). Sur la sente l'herbe est **rase**
-  (`shortZone` → `isOnPath`), plus une exclusion dure.
+- **`createSakuraForest` : `quality` doit être un nombre** (0.6 / 0.9 / 1.25) —
+  un objet `QUALITY` **throw**. **`createGrass` throw si on lui passe `quality`**
+  (il veut `count`, `bounds`, `exclude` / `shortZone`). Les faunes
+  (`qualityCount`) throw si on leur passe la string `'ultra'` au lieu du row
+  `QUALITY.ultra`. Sur la sente l'herbe est **rase** (`shortZone` → `isOnPath`),
+  plus une exclusion dure.
 - La falaise ouest vit dans `analyticHeight` (secteur angulaire plein-ouest,
   rim + chute) — pas un mesh séparé, tout suit (couleurs, pente, herbe).
 
