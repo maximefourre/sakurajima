@@ -2577,5 +2577,22 @@ Invariant : swap L→R en une frame, `Δyaw < 0.18`.
 `node --check` shiba/petals. `test/invariants.html?q=low` :
 **79 pass, 0 fail** (Δ1frame=0.000).
 
+---
+
+## Session « Grok seul » du 01/09/2026
+
+Plus d'abonnement Claude ni Codex. Convention d'équipe réécrite :
+
+- `AGENTS.md` : Grok (session + sous-agents `general-purpose` / `grok-delegate`)
+  planifie, implémente, review. Interdiction de sous-traiter **conservée**
+  (piège du 02/08). ADV = second Grok, fichier `ADVERSARIAL_REVIEW_CLAUDE.md`
+  gardé (nom historique).
+- `CLAUDE.md` / `PLAN.md` : pointeur « agent live = Grok ».
+- Plan d'audit `docs/superpowers/plans/2026-09-01-correctifs-audit.md` :
+  plus de briefs Codex.
+
+Les journaux ADV / REPRISE d'avant restent l'histoire. Ne pas relancer
+`codex-rescue` ni Fable/Opus.
+
 
 

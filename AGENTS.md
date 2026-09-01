@@ -8,24 +8,26 @@ pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
 
 ## Rôles de l'équipe d'agents (convention utilisateur)
 
-- **Claude (Fable ou Opus) — session principale** : planifie, orchestre,
-  review — ne code pas lui-même les gros chantiers. Ne PAS dépenser le
-  modèle principal en implémentation déléguée.
-- **Codex sol, effort high — IMPLÉMENTATION** : sous-agent `codex-rescue` du
-  plugin Codex. ÉCRIT le code, un chantier à la fois, d'après un brief précis
-  de Claude (fichiers, ancrages, contraintes AGENTS). Le brief doit lui
-  interdire explicitement de sous-traiter : laissé libre, il re-délègue et
-  attend un sous-agent qui ne répond jamais (40 min perdues le 02/08, zéro
-  octet écrit).
-- **Codex sol, effort high — REVIEW ADVERSARIALE** après chaque passe
-  substantielle — via le skill du plugin Claude Code `codex:adversarial-review`,
-  PAS en appelant le CLI codex à la main (consigne utilisateur).
-  Le rapport va dans `ADVERSARIAL_REVIEW_CLAUDE.md`
-  (versionner l'id `ADV-...`), avec table de suivi remplie par Claude au
-  traitement.
-- Après chaque chantier d'implémentation : `git diff` relu par Claude,
-  `node --check`, `test/invariants.html` (tous les invariants pass),
-  vérification visuelle navigateur, PUIS commit.
+**Depuis le 01/09/2026 : Grok seul.** Plus d'abonnement Claude ni Codex —
+ne pas les appeler, ne pas attendre un plugin `codex-rescue` / Fable / Opus.
+
+- **Grok (Grok Build / session principale)** : planifie, implémente, review.
+  C'est le seul modèle autorisé. Il écrit le code lui-même. Les sous-agents
+  d'implémentation, s'il y en a, sont aussi Grok (`general-purpose` ou
+  `grok-delegate`), un chantier à la fois, brief précis (fichiers, ancrages,
+  contraintes AGENTS).
+- **INTERDICTION de sous-traiter** pour tout sous-agent d'implémentation :
+  laissé libre, il re-délègue et attend une réponse qui n'arrive pas
+  (40 min perdues le 02/08 avec Codex, zéro octet écrit — le piège reste).
+- **Review adversariale** après chaque passe substantielle : second passage
+  Grok (skill `review` ou sous-agent lecture seule), **pas** Codex. Le
+  rapport va dans `ADVERSARIAL_REVIEW_CLAUDE.md` (nom de fichier historique,
+  ids `ADV-...`) ; la table de suivi se remplit au traitement.
+- Après chaque chantier : `git diff` relu, `node --check`,
+  `test/invariants.html` (tous les invariants pass), vérification visuelle
+  navigateur, PUIS commit.
+- Les journaux / plans / ADV d'avant le 01/09 qui parlent de Claude ou
+  Codex sont **historiques**. Ne pas relancer ces outils.
 
 ## Lancer
 

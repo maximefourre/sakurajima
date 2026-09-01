@@ -8,6 +8,7 @@ choix persistant, tout est recolorié à la construction.
 
 **Machine cible :** Apple M4 Max, 32 cœurs GPU → budgets calibrés généreusement.
 **three.js 0.185.1** vendorisé dans `vendor/three/` (importmap local), aucun build step.
+**Agent live (depuis le 01/09/2026) : Grok seul.** Plus Claude, plus Codex — voir `AGENTS.md`.
 
 ---
 
@@ -52,10 +53,10 @@ N imprimé), `test/petals.html`, `test/season.html`, `test/ground-palettes.html`
 
 ## Chantiers ouverts du 30/07 (feedback joueur, captures à l'appui)
 
-Implémentation déléguée à **Codex gpt-5.6-sol** (sous-agent `codex-rescue` du
-plugin — vérifié prêt et authentifié le 30/07) pour économiser le quota du
-modèle principal ; brief précis + review Claude entre chaque chantier.
-Un chantier à la fois. Grok CLI toujours non authentifié.
+Implémentation **à l'époque** déléguée à Codex gpt-5.6-sol (sous-agent
+`codex-rescue`) + review Claude. **Périmé depuis le 01/09/2026** : Grok seul
+(`AGENTS.md`). Les lignes ci-dessous sont le journal des soldes, pas une
+consigne d'outils.
 
 - **C — Chemins** — **SOLDÉ le 31/07** (`756e0b2`, puis `ae2bd1c`). Perforations
   et carrefour réglés dès `756e0b2` ; il a fallu deux tentatives de plus pour
