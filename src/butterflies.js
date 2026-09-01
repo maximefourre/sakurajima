@@ -12,7 +12,7 @@
  */
 
 import * as THREE from 'three';
-import { BUTTERFLIES, WORLD } from './config.js';
+import { BUTTERFLIES, WORLD, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 /**
@@ -130,7 +130,7 @@ function paletteFor(season) {
 export function createButterflies({
   seed = 1, quality, season = 'spring', heightAt, flowerSpots,
 } = {}) {
-  const count = quality?.butterflies ?? 0;
+  const count = qualityCount(quality, 'butterflies');
   // ADV-2026-08-01-BFLY : `flowerSpots` est un binding ES vivant que seul
   // createDetails remplit. Construire les papillons AVANT lui donnait un mesh
   // parfaitement valide de compte ZÉRO, sans la moindre erreur — une rupture de

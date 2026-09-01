@@ -7,7 +7,7 @@
  */
 
 import * as THREE from 'three';
-import { DRAGONFLIES } from './config.js';
+import { DRAGONFLIES, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 /**
@@ -64,7 +64,7 @@ export function dragonflyActivity(phase) {
 export function createDragonflies({
   seed = 1, quality, heightAt, ponds, isInPond,
 } = {}) {
-  const count = quality?.dragonflies ?? 0;
+  const count = qualityCount(quality, 'dragonflies');
   const spots = computeDragonflySpots({ ponds, heightAt, isInPond, count, seed });
   const n = spots.length;
 

@@ -140,7 +140,6 @@ export const QUALITY = {
   low: {
     label: 'low',
     grassBlades: Math.round(45000 * AREA_SOFT),
-    grassRadius: Math.round(70 * LAND_SCALE),
     petals: Math.round(4800 * AREA_SOFT),
     fallenPetals: Math.round(7000 * AREA_SOFT),
     trees: Math.round(56 * AREA_SOFT),
@@ -162,7 +161,6 @@ export const QUALITY = {
   high: {
     label: 'high',
     grassBlades: Math.round(200000 * AREA_SOFT),
-    grassRadius: Math.round(105 * LAND_SCALE),
     petals: Math.round(15000 * AREA_SOFT),
     fallenPetals: Math.round(21000 * AREA_SOFT),
     trees: Math.round(190 * AREA_SOFT),
@@ -184,7 +182,6 @@ export const QUALITY = {
   ultra: {
     label: 'ultra',
     grassBlades: Math.round(420000 * AREA_SOFT),
-    grassRadius: Math.round(130 * LAND_SCALE),
     petals: Math.round(30000 * AREA_SOFT),
     // ~311k au sol au printemps, ×2.5 en automne (le tapis doit joncher
     // plus que le hanami). Chunks : loin de la caméra, un préfixe seulement.
@@ -206,6 +203,24 @@ export const QUALITY = {
     anisotropy: 8,
   },
 };
+
+/**
+ * Lit quality[key] (un row QUALITY). Une string 'ultra' ou un objet
+ * inconnu produisait count=0 sans erreur (lucioles, crabes, …).
+ * @param {object} quality
+ * @param {string} key
+ * @returns {number}
+ */
+export function qualityCount(quality, key) {
+  if (quality == null || typeof quality !== 'object' || Array.isArray(quality)) {
+    throw new Error(`[sakurajima] ${key}: expected QUALITY object, got ${typeof quality}`);
+  }
+  const n = quality[key];
+  if (typeof n !== 'number' || !Number.isFinite(n)) {
+    throw new Error(`[sakurajima] quality.${key} is not a number`);
+  }
+  return n;
+}
 
 export const DEFAULT_QUALITY = 'ultra';
 

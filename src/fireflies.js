@@ -17,7 +17,7 @@
  */
 
 import * as THREE from 'three';
-import { FIREFLIES } from './config.js';
+import { FIREFLIES, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 /**
@@ -131,7 +131,7 @@ export function fireflyActivity(phase) {
  * conformement a la doctrine « changement de qualite = reload » d'AGENTS.md.
  */
 export function createFireflies({ seed = 1, quality, heightAt, ponds, isInPond } = {}) {
-  const count = quality?.fireflies ?? 0;
+  const count = qualityCount(quality, 'fireflies');
   const spots = computeFireflySpots({ ponds, heightAt, isInPond, count, seed });
   const n = spots.length;
 

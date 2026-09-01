@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CRABS, SEED } from './config.js';
+import { CRABS, SEED, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 const IDLE = 0, FLEE = 1, BURY = 2, HIDDEN = 3;
@@ -127,7 +127,7 @@ export function computeCrabSpawns({ heightAt, isInPond, count, seed = SEED } = {
 }
 
 export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
-  const count = quality?.crabs ?? 0;
+  const count = qualityCount(quality, 'crabs');
   const spawns = computeCrabSpawns({ heightAt, isInPond, count, seed });
   const n = spawns.length;
 

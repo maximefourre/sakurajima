@@ -458,7 +458,7 @@ void grassSetup() {
 	// that lags him so a run leaves a brief wake. The push is a rotation vector
 	// exactly like the wind term, so tips move more than roots for free, and a
 	// vertical squash makes it read as parting rather than shearing. The vertical
-	// falloff also keeps grass under the bridge still when he crosses above it.
+	// falloff also keeps herbe sous un surplomb (le chien au-dessus) still when he crosses above it.
 	{
 		float vFall = 1.0 - smoothstep( 2.0, 4.0, abs( rootW.y - uPlayer.y ) );
 
@@ -587,6 +587,10 @@ function normBounds( b ) {
    ===================================================================================== */
 
 export function createGrass( options = {} ) {
+
+	if ( Object.prototype.hasOwnProperty.call( options, 'quality' ) ) {
+		throw new Error( '[grass] createGrass ignores quality; pass count, bounds, exclude, shortZone' );
+	}
 
 	const mode = options.season === 'autumn' ? 'autumn' : 'spring';
 	const palette = mode === 'autumn' ? PALETTE_AUTUMN : PALETTE_SPRING;
@@ -731,6 +735,7 @@ export function createGrass( options = {} ) {
 	const maxAttempts = N * CFG.maxAttemptsPerBlade;
 	let placed = 0;
 	let attempts = 0;
+	const placements = [];
 
 	while ( placed < N && attempts < maxAttempts ) {
 
@@ -810,6 +815,9 @@ export function createGrass( options = {} ) {
 
 		// taller grass inside thick clumps; rase sur la sente (shortK)
 		aHS[ i ] = THREE.MathUtils.clamp( 0.62 + 0.55 * p + 0.42 * ( rand() - 0.5 ), 0.6, 1.6 ) * shortK;
+		if ( CFG.recordPlacements ) {
+			placements.push( { x, z, heightScale: aHS[ i ], short: shortK < 1 } );
+		}
 		aWD[ i ] = 0.78 + 0.50 * rand();
 		aPH[ i ] = rand() * Math.PI * 2;
 		aST[ i ] = 0.65 + 0.80 * rand();
@@ -1087,6 +1095,7 @@ export function createGrass( options = {} ) {
 		windUniforms,
 		chunks,
 		count: placed,
+		placements: CFG.recordPlacements ? placements : null,
 		get visibleCount() { return visibleBlades; }
 	};
 

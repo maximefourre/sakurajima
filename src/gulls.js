@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { GULLS, SEED } from './config.js';
+import { GULLS, SEED, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 const PERCH = 0, PREEN = 1, FLY = 2;
@@ -149,7 +149,7 @@ export function computeGullSpawns({
 export function createGulls({
   seed = SEED, quality, stacks = [], torii = null,
 } = {}) {
-  const count = quality?.gulls ?? 0;
+  const count = qualityCount(quality, 'gulls');
   const spawns = computeGullSpawns({ stacks, torii, count, seed });
   const n = spawns.length;
 

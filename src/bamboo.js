@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { BAMBOO, PATHS, SEED } from './config.js';
+import { BAMBOO, PATHS, SEED, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 import { WIND_GLSL } from './sakura.js';
 
@@ -223,7 +223,7 @@ function makeBambooMaterial(wind) {
 export function createBamboo({
   seed = SEED, quality, heightAt, isOnPath, isInPond, slopeAt, windUniforms,
 } = {}) {
-  const count = quality?.bamboo ?? 0;
+  const count = qualityCount(quality, 'bamboo');
   const spots = computeBambooSpawns({
     heightAt, isOnPath, isInPond, slopeAt, count, seed,
   });

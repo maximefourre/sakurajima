@@ -12,7 +12,7 @@
  */
 
 import * as THREE from 'three';
-import { MOTHS } from './config.js';
+import { MOTHS, qualityCount } from './config.js';
 import { streamFor, R } from './noise.js';
 
 const TAU = Math.PI * 2;
@@ -96,7 +96,7 @@ export function createMoths({ seed = 1, quality, heightAt, lanternSpots } = {}) 
   }
 
   const habitat = habitatOf(lanternSpots);
-  const rate = quality?.moths ?? MOTHS.perLantern[quality?.label] ?? 0;
+  const rate = qualityCount(quality, 'moths');
   const count = Math.round(habitat.length * rate);
   const spots = computeMothSpots({ lanternSpots: habitat, count, seed, heightAt });
   const n = spots.length;

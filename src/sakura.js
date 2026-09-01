@@ -7,8 +7,8 @@
 //   import { createSakuraForest, makeTree, createWindUniforms, WIND_GLSL } from './sakura.js';
 //
 // Exports
-//   createWindUniforms(opts)          -> shared wind uniform bundle (give this to grass too)
-//   WIND_GLSL                         -> the shared wind GLSL (grass/petals should reuse it)
+//   createWindUniforms(opts)          -> shared wind uniform bundle
+//   WIND_GLSL                         -> WIND_GLSL des couronnes ; herbe/pétales consomment `wind.js`. Bambous importent CE bloc. Câbler via `forestWind` (main.js).
 //   makeTree(archetype, rng, opts)    -> one unique tree prototype
 //   createSakuraForest(opts)          -> { group, update, setEnvironment, ... }
 // =============================================================================
@@ -1640,10 +1640,16 @@ export function createSakuraForest( options = {} ) {
 		// instead of everywhere being a uniform sprinkle.
 		groveScale: 0.015,
 		groveContrast: 0.85,
-		keepFoliageSamples: true,
+		keepFoliageSamples: false,
 		prototypeCounts: { somei: 4, shidare: 3, windswept: 3, ancient: 3, young: 3 },
 		weights: { somei: 0.46, shidare: 0.18, windswept: 0.10, ancient: 0.14, young: 0.12 }
 	}, options );
+
+	if ( typeof o.quality !== 'number' || ! Number.isFinite( o.quality ) ) {
+		throw new Error(
+			'[sakura] quality must be a number (0.6 / 0.9 / 1.25), not a QUALITY object'
+		);
+	}
 
 	const season = o.season === 'autumn' ? 'autumn' : 'spring';
 	const autumn = season === 'autumn';
