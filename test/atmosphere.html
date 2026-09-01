@@ -38,7 +38,8 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 import * as THREE from 'three';
-import { createSky } from '../src/sky.js';
+import { createSky, shadowEnvelope } from '../src/sky.js';
+import { WORLD, LAND_SCALE } from '../src/config.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -120,6 +121,16 @@ function sample(skyBundle, dayTime) {
 }
 
 say('modules chargés', 'ok');
+
+{
+  const omit = shadowEnvelope(undefined);
+  const live = shadowEnvelope(1.30 * WORLD.size * 0.385 + 10);
+  const old = 1.30 * 125 * LAND_SCALE + 10;
+  const nearOmit = omit.D - omit.R - 80;
+  check('shadowEnvelope sans arg : même R que l’île, near > 0',
+    Math.abs(omit.R - live.R) < 1e-6 && nearOmit > 0 && Math.abs(omit.R - old) > 1,
+    `R=${omit.R.toFixed(1)} old=${old.toFixed(1)} near=${nearOmit.toFixed(1)}`);
+}
 
 const spring = buildSky('spring');
 const autumn = buildSky('autumn');
