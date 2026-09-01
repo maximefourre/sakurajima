@@ -2639,5 +2639,22 @@ Chantier H (câblage `main.js` + crédit CC-BY + banc), après merge A–G
 `test/invariants.html` Chrome headless + SwiftShader, port 58522
 (5173 non tué) : **83 pass, 0 fail** en `?q=low` **et** `?q=ultra`.
 
+---
+
+## Session « audit 01/09 chantier J — fps honnêtes » du 01/09/2026
+
+Re-bench ultra, piège 9 (`readPixels` + caméra orbit figée, autoRotate /
+damping off, `dayTime = 0.5`, pause). Canvas **2490×2008** (pas 3600×1896).
+Post-impostors, herbe `420000 · AREA_SOFT`. Budgets et `DEFAULT_QUALITY`
+inchangés.
+
+| Saison | Ouverture | Sol (prairie) |
+|---|---:|---:|
+| printemps | 54.4 | 29.2 |
+| automne | 54.2 | 42.7 |
+
+Étalon 31/07 (3600×1896) : 33.7 / 24.6 et 59 / 49.3. Résolution différente :
+ne pas en tirer un ratio. Contrat live = `AGENTS.md`.
+
 
 
