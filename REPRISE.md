@@ -2617,5 +2617,27 @@ Chantier A du plan `docs/superpowers/plans/2026-09-01-correctifs-audit.md`
   (code supprimé le 29/07).
 - Plans 12/08 et 13/08 marqués livrés ; ne pas relancer.
 
+---
+
+## Session « audit 01/09 vague 2 » du 01/09/2026
+
+Chantier H (câblage `main.js` + crédit CC-BY + banc), après merge A–G
+(`345a447`).
+
+- `createIsland({ isInPond })` depuis `world.ponds.isInPond` (rochers hors
+  étangs). Même prédicat sur le bake du banc (`test/invariants.html`).
+- `createGrass` : plus de `quality: q` (F throw si la clé est présente) ;
+  `count: q.grassBlades` inchangé.
+- Bag `world` : `bamboo`, `fireflies`, `butterflies`, `audio`,
+  `particles`, `cloudShadow`.
+- Crédit CC-BY hors `#panel` (`#credit` fixe). `H` masque HUD/panneau
+  seulement.
+- Invariants +4 : rochers hors étangs ; herbe 0 brin dans un étang,
+  brins rases sur la sente, `heightScale` borné par shortK 0.45.
+
+`node --check src/main.js`.
+`test/invariants.html` Chrome headless + SwiftShader, port 58522
+(5173 non tué) : **83 pass, 0 fail** en `?q=low` **et** `?q=ultra`.
+
 
 

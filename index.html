@@ -226,11 +226,15 @@
     font-size: .6rem; letter-spacing: .1em; line-height: 1.9; opacity: .3;
   }
   /* Attribution CC-BY du seul asset tiers du projet. Obligatoire, donc elle
-     ne doit pas pouvoir disparaitre — mais discrete : ce n'est pas une
-     commande, elle ne se lit qu'une fois. */
-  .hint .credit {
-    margin-top: .55rem; font-size: .55rem; letter-spacing: .06em; opacity: .62;
+     vit hors #panel / #hud : H masque l'interface, pas ce crédit. Discrete :
+     ce n'est pas une commande, elle ne se lit qu'une fois. */
+  #credit {
+    position: fixed; bottom: 0.7rem; left: 0.9rem; z-index: 21;
+    font-size: .55rem; letter-spacing: .06em;
+    opacity: .45; pointer-events: none;
+    text-shadow: 0 1px 10px rgba(0,0,0,.75);
   }
+  :root.touch #credit { left: 0.9rem; bottom: calc(env(safe-area-inset-bottom, 0px) + 0.6rem); }
   .hint kbd {
     font-family: ui-monospace, Menlo, monospace;
     background: rgba(244,236,226,.09);
@@ -433,7 +437,6 @@
       <kbd>Z Q S D</kbd> / <kbd>W A S D</kbd> promener le shiba · <kbd>Maj</kbd> courir · <kbd>Espace</kbd> sauter<br>
       <kbd>C</kbd> caméra libre ↔ suivie · <kbd>glisser</kbd> orbiter · <kbd>molette</kbd> zoom<br>
       <kbd>P</kbd> pause du temps · <kbd>Échap</kbd> / <kbd>Suppr</kbd> réinitialiser · <kbd>H</kbd> masquer l'interface
-      <div class="credit">Modèle du shiba : « Shiba » par zixisun02 — CC-BY 4.0</div>
     </div>
   </div>
 </div>
@@ -458,6 +461,8 @@
   </div>
   <div id="touch-hint">joystick : promener le shiba</div>
 </div>
+
+<div id="credit">Modèle du shiba : « Shiba » par zixisun02 — CC-BY 4.0</div>
 
 <div id="fatal"></div>
 

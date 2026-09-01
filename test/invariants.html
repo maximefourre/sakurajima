@@ -57,6 +57,7 @@ import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
 import { createIsland, springReefSite, SEA_STACK_RANDOM, rockMossAmount } from '../src/island.js';
+import { createGrass } from '../src/grass.js';
 import { createDetails, flowerSpots, initPath, isOnPath, pathLitterOk, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
@@ -107,7 +108,10 @@ const wind = createWind();
 const ponds = createPonds({ seed: SEED, wind, quality: QUALITY[TIER], heightAt: null });
 const carve = (x, z, h) => ponds.carvePonds(x, z, h);
 const t0 = performance.now();
-const island = createIsland({ seed: SEED, quality: { label: TIER, rocks: 8 }, carve });
+const island = createIsland({
+  seed: SEED, quality: { label: TIER, rocks: 8 }, carve,
+  isInPond: (x, z) => ponds.isInPond(x, z),
+});
 say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier ${TIER})`);
 
 // Comme main.js:311 — sans ça PONDS porte des rayons NOMINAUX, et l'habitat des
@@ -1074,6 +1078,15 @@ try {
     check('resolveRock : au-dessus du sommet, on traverse', false,
       rk ? 'resolveRock absent' : 'aucun gros rocher');
   }
+  {
+    const wet = (island.rockKeepOut || []).filter((r) => {
+      if (r.stack) return false;          // sea stacks : mer, pas étang
+      if (r.spring) return false;         // récif authoré
+      return ponds.isInPond(r.x, r.z);
+    });
+    check('rochers hors étangs', wet.length === 0,
+      wet.length ? `n=${wet.length} ex=(${wet[0].x.toFixed(1)},${wet[0].z.toFixed(1)})` : 'ok');
+  }
   const dog = createShiba({
     seed: SEED,
     heightAt: island.heightAt,
@@ -1929,6 +1942,32 @@ function milieuAppuisGltf(r) {
   check('fleurs : zéro sur le ruban',
     onRibbon === 0,
     `${onRibbon}/${nf}`);
+}
+
+{
+  const jx = 6 * LAND_SCALE, jz = -30 * LAND_SCALE;
+  const grass = createGrass({
+    seed: SEED,
+    count: 2200,
+    bounds: { minX: jx - 28, maxX: jx + 28, minZ: jz - 28, maxZ: jz + 28 },
+    heightAt: island.heightAt,
+    slopeAt: island.slopeAt,
+    exclude: (x, z) => ponds.isInPond(x, z),
+    shortZone: (x, z) => isOnPath(x, z, 0.25),
+    pathLiftAt: (x, z) => pathSurfaceLiftAt(island.heightAt, x, z),
+    recordPlacements: true,
+  });
+  const ps = grass.placements || [];
+  const inPond = ps.filter((p) => ponds.isInPond(p.x, p.z));
+  const ras = ps.filter((p) => p.short);
+  check('herbe : zéro brin dans un étang', inPond.length === 0,
+    `n=${ps.length} pond=${inPond.length}`);
+  check('herbe : des brins rases sur la sente', ras.length > 0,
+    `rase=${ras.length} / ${ps.length}`);
+  check('herbe : rase bornée par shortK 0.45',
+    ras.every((p) => p.heightScale <= 1.6 * 0.45 + 1e-6),
+    ras.length ? `max=${Math.max(...ras.map((p) => p.heightScale)).toFixed(3)}` : 'no ras');
+  grass.dispose();
 }
 
 /* ── lit sonore (poids purs, pas d’AudioContext) ─────────────────── */

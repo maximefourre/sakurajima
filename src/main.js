@@ -175,6 +175,8 @@ const world = {
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
   poi: null, crabs: null, moths: null, herons: null, dragonflies: null, gulls: null,
+  bamboo: null, fireflies: null, butterflies: null,
+  audio: null, particles: null, cloudShadow: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
   camMode: 'orbit',
 };
@@ -427,6 +429,7 @@ async function boot() {
   world.island = createIsland({
     seed: SEED, quality: q, carve, season: world.season,
     cloudShadow: world.cloudShadow.uniforms,
+    isInPond: (x, z) => world.ponds.isInPond(x, z),
   });
   scene.add(world.island.group);
 
@@ -558,9 +561,9 @@ async function boot() {
 
   await step('herbe');
   world.grass = createGrass({
-    seed: SEED, quality: q,
-    // createGrass does not read `quality`; these are the option names it
-    // actually honours. Without them it silently falls back to its own
+    seed: SEED,
+    // createGrass throws if `quality` is present. These are the option names
+    // it actually honours. Without them it silently falls back to its own
     // defaults — 96k blades over the wrong footprint, which on a 460-unit
     // island reads as no grass at all.
     count: q.grassBlades,
