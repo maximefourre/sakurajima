@@ -12,7 +12,7 @@
 | Cible | `42a4b60` (H) sur `main` après merge A–G |
 | Méthode | second Grok, lecture seule, skill review (pas Codex) |
 | Verdict | **spec ✅, quality Approved** |
-| Statut | **Traité** (findings mineurs parkés ; fps J consigné 01/09) |
+| Statut | **Traité** (findings mineurs parkés ; fps J à refaire, drift non nul) |
 
 | Point | Statut | Note |
 |---|---|---|
@@ -22,7 +22,7 @@
 | Invariants herbe + rochers | Traité | **83 pass, 0 fail** low **et** ultra |
 | `rockKeepOut` sans flags `stack`/`spring` | Parké | skip no-op ; 0 wet quand même |
 | Visuel `H` / étang ciel | Parké | headless seulement ; construction HTML OK |
-| fps ultra post-impostors | Traité | 01/09, 2490×2008, piège 9 : P 54.4/29.2, A 54.2/42.7 |
+| fps ultra post-impostors | À refaire | 01/09 2490×2008 sans drift≈0 — pas un contrat |
 
 ## ADV-2026-08-12-PLAN — plan de correctifs audit
 

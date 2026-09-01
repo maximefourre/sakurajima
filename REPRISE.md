@@ -2643,18 +2643,10 @@ Chantier H (câblage `main.js` + crédit CC-BY + banc), après merge A–G
 
 ## Session « audit 01/09 chantier J — fps honnêtes » du 01/09/2026
 
-Re-bench ultra, piège 9 (`readPixels` + caméra orbit figée, autoRotate /
-damping off, `dayTime = 0.5`, pause). Canvas **2490×2008** (pas 3600×1896).
-Post-impostors, herbe `420000 · AREA_SOFT`. Budgets et `DEFAULT_QUALITY`
-inchangés.
-
-| Saison | Ouverture | Sol (prairie) |
-|---|---:|---:|
-| printemps | 54.4 | 29.2 |
-| automne | 54.2 | 42.7 |
-
-Étalon 31/07 (3600×1896) : 33.7 / 24.6 et 59 / 49.3. Résolution différente :
-ne pas en tirer un ratio. Contrat live = `AGENTS.md`.
+Premier passage **invalidé** : chrono lancé sans `drift ≈ 0` (piège 9).
+Canvas 2490×2008, ultra : P 54.4 / 29.2, A 54.2 / 42.7 — **pas un contrat**.
+`AGENTS.md` reprend l'étalon 31/07 (33.7 / 24.6 à 3600×1896) en attendant
+un banc où le drift sur 3 s est ~0 **avant** les 120 frames.
 
 
 
