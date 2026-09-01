@@ -10,7 +10,7 @@
  *   carvePonds()  cuts a bowl RELATIVE to whatever the local ground turns out
  *                 to be. Carving to an absolute level is impossible here, and
  *                 would trench straight through any high ground it crossed —
- *                 the same mistake the river's first elevation profile made.
+ *                 the same mistake an absolute water level would make.
  *   attach()      measures the basin that actually came out. It walks rays out
  *                 from each centre, takes the highest point along each ray as
  *                 that direction's barrier, and fills to just under the LOWEST
@@ -61,7 +61,7 @@ const SHADER_LIGHT_SCALE = 0.26;
  *
  * `radius` is the nominal waterline; the measured outline comes out 15-20%
  * wider because the rim blend eats into the fill level. All three finish
- * between 8 and 18 units across. All are 70+ units clear of the river.
+ * between 8 and 18 units across.
  */
 const SITES = [
   { x:  16, z: -42, radius: 7.2, depth: 2.90 },  // the big one, inside the grove
