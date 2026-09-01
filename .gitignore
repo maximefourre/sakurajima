@@ -4,3 +4,4 @@ dist/
 .worktrees/
 .claude/worktrees/
 .vercel
+.hermes/

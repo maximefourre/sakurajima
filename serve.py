@@ -34,6 +34,10 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
         self.send_header("Expires", "0")
         super().end_headers()
 
+    def list_directory(self, path):
+        self.send_error(404, "directory listing disabled")
+        return None
+
     def log_message(self, fmt, *args):
         # Only log failures; a render loop fetching modules is not interesting.
         if args and str(args[1]).startswith(("4", "5")):
