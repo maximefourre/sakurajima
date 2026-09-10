@@ -214,7 +214,7 @@ chien. Impostors / herbe / hérons / lanternes n'ont pas été rouverts.
 - Mousse rochers biaisée au nord (−Z).
 
 wrack / snag / moucherons (PLAN §7) — wrack **SOLDÉ le 10/09** (8–15, laisse).
-snag / moucherons non ouverts.
+snag **SOLDÉ le 10/09** (un fût mort, montée torii). Moucherons non ouverts.
 
 ---
 

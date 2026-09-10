@@ -2722,5 +2722,13 @@ Mesh `shore-wrack`, **pas** `AREA_SOFT`. Tient la promesse du header
 
 `INVARIANTS: 88 pass, 0 fail` low **et** ultra.
 
+### L2b — un snag authoré (`src/poi.js`)
+
+`computeSnagSite` : premier point sec hors ruban / étang / bosquet le long
+de la montée `torii`. Mesh joint→tip, membres cassés, **pas** de houppier
+(un cylindre gris échoue `spanXZ > 2`). Collision `POI.snagTrunkR`.
+
+`INVARIANTS: 91 pass, 0 fail` low **et** ultra.
+
 
 

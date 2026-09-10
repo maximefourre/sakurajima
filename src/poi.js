@@ -6,6 +6,7 @@
  *        (shimenawa + shide) on the largest ridge-reef block.
  * Lot 4: sea torii on the authored extra stack.
  * Lot 7: abandoned chashitsu on the etangs meadow edge (see chashitsu.js).
+ * Lot snag: one dead trunk off the torii climb, no crown.
  *
  * Placement is a pure walk from PATHS / authored pond / reef (no WebGL)
  * so the invariant can fail the site without constructing a mesh.
@@ -20,11 +21,15 @@ import { springReefSite } from './island.js';
 import { makeToriiGeometry, PATH_HALF } from './details.js';
 import { makeWoodBump } from './detailtex.js';
 import { computeChashitsuSite, createChashitsu, chashitsuKeepOut } from './chashitsu.js';
+import { inBambooGrove } from './bamboo.js';
 
 export { computeChashitsuSite, chashitsuKeepOut };
 
 const BARK = 0x2a241c;
 const BARK_DARK = 0x1a1612;
+const SNAG = 0x6a5e4e;
+const SNAG_DARK = 0x3d362e;
+const SNAG_PALE = 0x8a7c68;
 const NEEDLE = 0x24361c;
 const NEEDLE_LIT = 0x3a5228;
 const NEEDLE_DEEP = 0x1a2814;
@@ -283,6 +288,116 @@ export function makeKuromatsuGeometry() {
   const tip = joints[joints.length - 1];
   cloud(tip.x + 0.10, tip.y + 0.16, tip.z + 0.22, 1.08, 0.44, 0.90, 0.08, 0.2, NEEDLE_LIT);
   cloud(tip.x - 0.32, tip.y + 0.00, tip.z - 0.06, 0.74, 0.32, 0.60, -0.28, 1.15, NEEDLE);
+
+  const merged = mergeParts(parts);
+  merged.computeVertexNormals();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/**
+ * First dry, off-ribbon, off-grove point beside the torii climb.
+ * Visible from the path; not the kuromatsu, not the tea house.
+ */
+export function computeSnagSite({ heightAt, isOnPath, isInPond, slopeAt } = {}) {
+  if (typeof heightAt !== 'function') return null;
+  const route = PATHS.routes.find((r) => r.name === 'torii');
+  if (!route || route.points.length < 6) return null;
+  const pine = computeShorePineSite({ heightAt, isOnPath, isInPond });
+  const tea = computeChashitsuSite({ heightAt, isOnPath, isInPond, slopeAt });
+  const extra = POI.pathClear + 1.6;
+  const minH = WORLD.seaLevel + 0.4;
+  const offs = [3.8, 5.2, 6.8];
+  const pts = route.points;
+
+  const tryAt = (x, z) => {
+    if (typeof isOnPath === 'function' && isOnPath(x, z, extra)) return null;
+    if (typeof isInPond === 'function' && isInPond(x, z)) return null;
+    if (inBambooGrove(x, z, 2)) return null;
+    if (tea && chashitsuKeepOut(tea, x, z)) return null;
+    const h = heightAt(x, z);
+    if (!(h > minH)) return null;
+    if (typeof slopeAt === 'function' && slopeAt(x, z) > 0.42) return null;
+    if (pine && Math.hypot(x - pine.x, z - pine.z) < 14) return null;
+    return { x, z, h, yaw: 0 };
+  };
+
+  for (let i = 2; i < pts.length - 3; i++) {
+    const [ax, az] = pts[i];
+    const [bx, bz] = pts[i + 1];
+    let dx = bx - ax, dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    if (!(len > 1e-6)) continue;
+    dx /= len;
+    dz /= len;
+    const px = -dz, pz = dx;
+    for (let s = 0; s < 2; s++) {
+      const sign = s === 0 ? 1 : -1;
+      for (let k = 0; k < offs.length; k++) {
+        const x = ax + px * offs[k] * sign;
+        const z = az + pz * offs[k] * sign;
+        const hit = tryAt(x, z);
+        if (!hit) continue;
+        hit.yaw = Math.atan2(ax - x, az - z);
+        return hit;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Dead trunk: joint→tip cylinders, broken limbs, no foliage pads.
+ * A grey pole fails the spanXZ invariant.
+ */
+export function makeSnagGeometry() {
+  const parts = [];
+  const UP = new THREE.Vector3(0, 1, 0);
+  const _n = new THREE.Vector3();
+  const _q = new THREE.Quaternion();
+
+  const addCyl = (ax, ay, az, bx, by, bz, rA, rB, hex, vary) => {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz) || 1e-6;
+    _n.set(dx / len, dy / len, dz / len);
+    const cyl = new THREE.CylinderGeometry(rB, rA, len, 7);
+    _q.setFromUnitVectors(UP, _n);
+    cyl.applyQuaternion(_q);
+    cyl.translate((ax + bx) * 0.5, (ay + by) * 0.5, (az + bz) * 0.5);
+    paint(cyl, hex, vary);
+    parts.push(cyl);
+  };
+
+  const joints = [
+    { x: 0.00, y: -0.22, z: 0.00, r: 0.40 },
+    { x: 0.05, y:  0.82, z: 0.10, r: 0.30 },
+    { x: -0.04, y: 1.78, z: 0.18, r: 0.22 },
+    { x: 0.10, y:  2.72, z: 0.08, r: 0.14 },
+    { x: 0.22, y:  3.48, z: -0.04, r: 0.055 },
+  ];
+  for (let i = 0; i < joints.length - 1; i++) {
+    const a = joints[i], b = joints[i + 1];
+    addCyl(a.x, a.y, a.z, b.x, b.y, b.z, a.r, b.r, i < 2 ? SNAG_DARK : SNAG, 0.12);
+  }
+  addCyl(0, -0.52, 0.02, 0.02, -0.02, 0.05, 0.52, 0.36, SNAG_DARK, 0.06);
+
+  const limbs = [
+    { i: 1, yaw: 0.95, pitch: 0.12, len: 1.92, r0: 0.11, r1: 0.028, col: SNAG },
+    { i: 2, yaw: -1.15, pitch: -0.42, len: 1.28, r0: 0.09, r1: 0.022, col: SNAG_DARK },
+    { i: 2, yaw: 2.15, pitch: 0.08, len: 0.52, r0: 0.08, r1: 0.045, col: SNAG_PALE },
+    { i: 3, yaw: 0.38, pitch: 0.58, len: 0.78, r0: 0.055, r1: 0.018, col: SNAG_PALE },
+  ];
+  for (const p of limbs) {
+    const j = joints[p.i];
+    const cp = Math.cos(p.pitch), sp = Math.sin(p.pitch);
+    const dx = Math.cos(p.yaw) * cp;
+    const dy = sp;
+    const dz = Math.sin(p.yaw) * cp;
+    const tx = j.x + dx * p.len;
+    const ty = j.y + dy * p.len;
+    const tz = j.z + dz * p.len;
+    addCyl(j.x, j.y, j.z, tx, ty, tz, p.r0, p.r1, p.col, 0.10);
+  }
 
   const merged = mergeParts(parts);
   merged.computeVertexNormals();
@@ -883,6 +998,9 @@ export function createPOI({
   const chashitsu = typeof heightAt === 'function'
     ? computeChashitsuSite({ heightAt, isOnPath, isInPond, slopeAt })
     : null;
+  const snag = typeof heightAt === 'function'
+    ? computeSnagSite({ heightAt, isOnPath, isInPond, slopeAt })
+    : null;
 
   const pondList = Array.isArray(ponds) ? ponds : (ponds?.PONDS ?? []);
   const big = pondList[0] || null;
@@ -893,6 +1011,7 @@ export function createPOI({
 
   const solids = [];
   if (pine) solids.push({ x: pine.x, z: pine.z, r: POI.pineTrunkR });
+  if (snag) solids.push({ x: snag.x, z: snag.z, r: POI.snagTrunkR });
   const sitTop = rock
     ? rock.h - POI.rockSink + 0.22
     : 0;
@@ -917,6 +1036,20 @@ export function createPOI({
     mesh.name = 'kuromatsu';
     mesh.position.set(pine.x, pine.h, pine.z);
     mesh.rotation.y = pine.yaw;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  if (snag) {
+    const geo = makeSnagGeometry();
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.92, metalness: 0,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'snag';
+    mesh.position.set(snag.x, snag.h, snag.z);
+    mesh.rotation.y = snag.yaw;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
@@ -1088,7 +1221,7 @@ export function createPOI({
     hitsSolid,
     keepOut,
     hitsFootprint: keepOut,
-    sites: { pine, rock, jizo, tsukubai, iwakura, stones, seaTorii, chashitsu },
+    sites: { pine, rock, jizo, tsukubai, iwakura, stones, seaTorii, chashitsu, snag },
     dispose,
   };
 }

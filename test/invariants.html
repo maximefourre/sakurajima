@@ -69,7 +69,7 @@ import { SHIBA_BUILD } from '../src/shiba-geom.js';
 import { loadShibaBody } from '../src/shiba-gltf.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
-import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry } from '../src/poi.js';
+import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry, computeSnagSite, makeSnagGeometry } from '../src/poi.js';
 import { chashitsuPosts } from '../src/chashitsu.js';
 import { computeCrabSpawns } from '../src/crabs.js';
 import { computeMothSpots } from '../src/moths.js';
@@ -429,6 +429,35 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   check('kuromatsu : houppier large, pas une pile de disques',
     spanX > 2.4 && spanZ > 2.0 && spanY > 4.5,
     `bbox ${spanX.toFixed(2)} × ${spanY.toFixed(2)} × ${spanZ.toFixed(2)}`);
+}
+
+{
+  const site = computeSnagSite({
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: ponds.isInPond,
+    slopeAt: island.slopeAt,
+  });
+  if (!site) {
+    check('one snag site', false, 'computeSnagSite a rendu null');
+    check('snag off path / water / grove', false, 'pas de site');
+    check('snag is a tree not a pole', false, 'pas de site');
+  } else {
+    const onPath = isOnPath(site.x, site.z, POI.pathClear);
+    const wet = ponds.isInPond(site.x, site.z);
+    const grove = inBambooGrove(site.x, site.z, 2);
+    check('one snag site', true, `<(${site.x.toFixed(1)},${site.z.toFixed(1)}) h=${site.h.toFixed(2)}>`);
+    check('snag off path / water / grove', !onPath && !wet && !grove,
+      `onPath=${onPath} wet=${wet} grove=${grove}`);
+    const geo = makeSnagGeometry();
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    const spanY = bb.max.y - bb.min.y;
+    const spanXZ = Math.hypot(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+    check('snag is a tree not a pole', spanY > 3.2 && spanXZ > 2.0,
+      `Y=${spanY.toFixed(2)} XZ=${spanXZ.toFixed(2)}`);
+    geo.dispose();
+  }
 }
 
 {

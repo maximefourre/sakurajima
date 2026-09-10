@@ -501,6 +501,7 @@ export const POI = Object.freeze({
   sandCeil: WORLD.beachTop + 0.6,
   pineLean: 0.22,              // radians, vers l'intérieur (vent de mer)
   pineTrunkR: 0.45,
+  snagTrunkR: 0.36,
   rockR: 0.9,
   rockOffset: 1.85,            // vers le large, depuis le fût
   rockPlateau: 1.4,
