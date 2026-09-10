@@ -213,7 +213,8 @@ chien. Impostors / herbe / hérons / lanternes n'ont pas été rouverts.
 - Fleurs : `setPlayer` local, pas `wind.uniforms`.
 - Mousse rochers biaisée au nord (−Z).
 
-wrack / snag / moucherons (PLAN §7, distinct du lot 5 mites déjà livré) — non ouvert.
+wrack / snag / moucherons (PLAN §7) — wrack **SOLDÉ le 10/09** (8–15, laisse).
+snag / moucherons non ouverts.
 
 ---
 

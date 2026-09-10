@@ -270,6 +270,37 @@ export function pathProximity(x, z) {
 }
 
 /**
+ * Driftwood on the tideline. Pure so the banc can fail the site without a mesh.
+ * Fixed N (8–15), never AREA / AREA_SOFT. Same band as shore-pebbles.
+ */
+export function computeWrackSpawns({
+  heightAt, isOnPath, isInPond, count = 12, seed = 1337,
+} = {}) {
+  const out = [];
+  if (typeof heightAt !== 'function' || !(count > 0)) return out;
+  const rng = streamFor(seed, 'details.wrack');
+  const loX = -112 * LAND_SCALE, hiX = 112 * LAND_SCALE;
+  const loZ = -120 * LAND_SCALE, hiZ = 104 * LAND_SCALE;
+  const hi = WORLD.beachTop * 0.85;
+  const maxTries = count * 80;
+  for (let tries = 0; tries < maxTries && out.length < count; tries++) {
+    const x = R.range(rng, loX, hiX);
+    const z = R.range(rng, loZ, hiZ);
+    const h = heightAt(x, z);
+    if (h < -0.55 || h > hi) continue;
+    if (typeof isInPond === 'function' && isInPond(x, z)) continue;
+    if (typeof isOnPath === 'function' && isOnPath(x, z, 0.5)) continue;
+    out.push({
+      x, z, h,
+      yaw: R.range(rng, 0, TAU),
+      len: R.range(rng, 0.8, 1.8),
+      rad: R.range(rng, 0.06, 0.12),
+    });
+  }
+  return out;
+}
+
+/**
  * Lantern feet along every route (plus the overlook terrace pair). Pure so the
  * invariant bench can re-run the same placement without building meshes.
  *
@@ -1621,6 +1652,55 @@ export function createDetails({
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     group.add(mesh);
+  }
+
+  /* ── 3b. wrack (fixed N, not AREA) ──────────────────────────── */
+  {
+    const spots = computeWrackSpawns({
+      heightAt, isOnPath, isInPond: wet, count: 12, seed,
+    });
+    if (spots.length) {
+      const log = new THREE.CylinderGeometry(1, 0.88, 1, 6, 1, false);
+      log.rotateZ(Math.PI * 0.5);
+      const n = log.attributes.position.count;
+      const c = new Float32Array(n * 3);
+      const rng = streamFor(seed, 'details.wrack.paint');
+      for (let i = 0; i < n; i++) {
+        const t = 0.28 + rng() * 0.22;
+        c[i * 3] = t * 1.15;
+        c[i * 3 + 1] = t * 0.82;
+        c[i * 3 + 2] = t * 0.55;
+      }
+      log.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+      log.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: 0.94, metalness: 0,
+      });
+      disposables.push(log, mat);
+      const mesh = new THREE.InstancedMesh(log, mat, spots.length);
+      mesh.name = 'shore-wrack';
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      const _m = new THREE.Matrix4();
+      const _q = new THREE.Quaternion();
+      const _e = new THREE.Euler();
+      const _p = new THREE.Vector3();
+      const _s = new THREE.Vector3();
+      for (let i = 0; i < spots.length; i++) {
+        const s = spots[i];
+        _e.set(0, s.yaw, (rng() - 0.5) * 0.18);
+        _q.setFromEuler(_e);
+        _m.compose(
+          _p.set(s.x, s.h + s.rad * 0.35, s.z),
+          _q,
+          _s.set(s.len, s.rad, s.rad),
+        );
+        mesh.setMatrixAt(i, _m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+    }
   }
 
   /* ── 4. path network ribbons, overlook terrace, torii ────────── */

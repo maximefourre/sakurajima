@@ -58,7 +58,7 @@ import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
 import { createIsland, springReefSite, SEA_STACK_RANDOM, rockMossAmount } from '../src/island.js';
 import { createGrass } from '../src/grass.js';
-import { createDetails, flowerSpots, initPath, isOnPath, pathLitterOk, computeLanternSpots, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
+import { createDetails, flowerSpots, initPath, isOnPath, pathLitterOk, computeLanternSpots, computeWrackSpawns, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
@@ -1908,6 +1908,21 @@ function milieuAppuisGltf(r) {
     pU && pU.uPlayer.value.x === 3 && pU.uPlayer.value.z === 5,
     pU ? `x=${pU.uPlayer.value.x}` : 'no uniform');
   grove.dispose();
+}
+
+/* ── wrack de laisse (N fixe, hors AREA_SOFT) ─────────────────── */
+{
+  const wrack = computeWrackSpawns({
+    heightAt: island.heightAt, isOnPath, isInPond: ponds.isInPond,
+    count: 12, seed: SEED,
+  });
+  const hi = WORLD.beachTop * 0.85;
+  const bad = wrack.filter((s) => {
+    const h = island.heightAt(s.x, s.z);
+    return h < -0.55 || h > hi || ponds.isInPond(s.x, s.z) || isOnPath(s.x, s.z, 0.5);
+  });
+  check('wrack count in [8,15]', wrack.length >= 8 && wrack.length <= 15, `n=${wrack.length}`);
+  check('wrack on tideline, dry, off path', bad.length === 0, `bad=${bad.length}`);
 }
 
 /* ── mousse des rochers, biais nord (−Z, même convention que sky.js) ─ */

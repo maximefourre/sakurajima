@@ -2714,5 +2714,13 @@ jamais `forestWind`. `aFlex` garde la base plantée. Câblé
 `INVARIANTS: 86 pass, 0 fail` low **et** ultra (`setPlayer` écrit
 l’uniforme local).
 
+### L2a — wrack de laisse (`src/details.js`)
+
+`computeWrackSpawns` pur, N=12 (bande des galets, hors ruban / étang).
+Mesh `shore-wrack`, **pas** `AREA_SOFT`. Tient la promesse du header
+« pebbles and driftwood ».
+
+`INVARIANTS: 88 pass, 0 fail` low **et** ultra.
+
 
 
