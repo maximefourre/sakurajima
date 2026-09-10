@@ -2656,5 +2656,54 @@ Avec ou sans garde `drift ≈ 0` sur 3 s, les fps collent (±0.6) : autoRotate
 Étalon 31/07 à 3600×1896 : 33.7 / 24.6 et 59 / 49.3 — pas comparable.
 Le piège 9 reste : un banc **en follow** ou avec autoRotate ferait dériver.
 
+---
+
+## Session « perf P0/P1 + vie » du 10/09/2026
+
+Plan : `.hermes/plans/2026-09-10_151124-perf-vie-budget-distance.md`.
+
+### P0 — extinction (printemps ultra, piège 9)
+
+Chrome isolé CDP, canvas **2400×1818** dpr 2, `readPixels` n=180, orbit,
+autoRotate/damping off, **drift = 0**. `?season=spring`. Ne pas comparer
+au pixel près avec l’étalon 2490×2008 du 01/09.
+
+| Passe | Ouverture | Sol |
+|---|---:|---:|
+| baseline | 56.2 | 29.4 |
+| forest off | 66.7 | 55.0 |
+| foliage quads off | — | 48.9 |
+| impostors off | — | 29.8 |
+| grass off | — | 33.7 |
+| shadows off | 61.4 | 30.6 |
+| petals off | 59.7 | 29.3 |
+| bamboo / particles / dpr1 | ~baseline | ~baseline |
+
+Au sol : feuillage réel **#1** (~40 % du frame, 13.6 ms). Herbe 13 %
+(4.4 ms, même part qu’au 31/07). Impostors ≈ 0. DPR 2→1 plat (piège 10).
+À l’ouverture les quads sont déjà à 0 (postcard > LOD_FAR) : le forest
+restant c’est fûts + lobes d’ombre (~2.8 ms).
+
+`LOD_FAR` 620→560 = no-op (smoothstep déjà ~4 % de quads à 560).
+
+### P1 — `LOD_FAR` 620→400 (`src/sakura.js`)
+
+Le vrai levier est le **mi-distance** (140–400), pas l’anneau 560–620.
+`LOD_NEAR` 140 inchangé (f=1 sous la caméra). Impostors 200–560 inchangés.
+
+Printemps ultra, même protocole, **après** le change :
+
+| | Ouverture | Sol |
+|---|---:|---:|
+| baseline P0 | 56.2 | 29.4 |
+| LOD_FAR=400 | 55.6 | 31.3 |
+
+**+1.9 fps au sol**, ouverture inchangée. Visuel : couronnes proches
+toujours en pétales ; postcard printemps lisible, pas des ballons.
+`INVARIANTS: 83 pass, 0 fail` low **et** ultra.
+
+Pas de chiffre réécrit dans `AGENTS.md` (contrat 01/09 inchangé — canvas
+différent, gain trop petit pour un nouvel étalon).
+
 
 

@@ -30,7 +30,10 @@ import {
 // petals by 1/sqrt(f) once impostors exist: that was the old optical-coverage
 // trick, and stacking it on a solid core over-paints the grove.
 const LOD_NEAR = 140;
-const LOD_FAR = 620;
+// Cross-fade against impostors (in at 200, full at 560). 620 was a no-op:
+// smoothstep already left ~4 % quads at 560. 400 kills leftover mid-range
+// once puffs are ~half opaque, without touching f=1 under the camera.
+const LOD_FAR = 400;
 const LOD_MIN_FRACTION = 0.0;
 const IMPOSTOR_NEAR = 200;
 const IMPOSTOR_FAR = 560;
