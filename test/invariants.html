@@ -76,7 +76,7 @@ import { computeMothSpots } from '../src/moths.js';
 import { computeHeronSpawns, makeHeronGeometry, makeHeronFlyGeometry } from '../src/herons.js';
 import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
 import { computeGullSpawns } from '../src/gulls.js';
-import { computeBambooSpawns, inBambooGrove } from '../src/bamboo.js';
+import { computeBambooSpawns, inBambooGrove, createBamboo } from '../src/bamboo.js';
 import { createCloudShadow } from '../src/cloud-shadow.js';
 import { ambientWeights } from '../src/audio.js';
 
@@ -1894,6 +1894,20 @@ function milieuAppuisGltf(r) {
   check('bosquet de bambous à l’est du carrefour, hors ruban',
     spots.length >= Math.floor(want * 0.6) && onPath === 0 && west === 0 && offGrove === 0,
     `${spots.length}/${want}, ${onPath} sur ruban, ${west} à l’ouest, ${offGrove} hors bosquet`);
+
+  const grove = createBamboo({
+    seed: SEED, quality: QUALITY[TIER],
+    heightAt: island.heightAt, slopeAt: island.slopeAt,
+    isOnPath, isInPond: ponds.isInPond, windUniforms: {},
+  });
+  const pU = grove.group.children[0]?.material?.userData?.playerUniforms;
+  check('bamboo.setPlayer is a function', typeof grove.setPlayer === 'function');
+  check('bamboo uPlayer is local (not on wind)', !!(pU && pU.uPlayer && pU.uPlayer.value));
+  grove.setPlayer({ x: 3, y: 4, z: 5 });
+  check('bamboo.setPlayer writes the local uniform',
+    pU && pU.uPlayer.value.x === 3 && pU.uPlayer.value.z === 5,
+    pU ? `x=${pU.uPlayer.value.x}` : 'no uniform');
+  grove.dispose();
 }
 
 /* ── mousse des rochers, biais nord (−Z, même convention que sky.js) ─ */

@@ -201,6 +201,10 @@ const CULM_VERTEX = /* glsl */`
 	vec3 bamDisp = bamLat * ( bamWave * bamAmp )
 	             + bamSide * ( sin( uTime * uWindFreq * 1.71 + bamOrg.x * 0.63 + bamWpos.y * 0.88 ) * bamAmp * 0.36 )
 	             - vec3( 0.0, 1.0, 0.0 ) * ( abs( bamWave ) * bamAmp * 0.10 );
+	vec2 bamPv = bamOrg.xz - uPlayer.xz;
+	float bamDp = length( bamPv );
+	float bamProx = ( 1.0 - smoothstep( 0.25 * uPlayerRadius, uPlayerRadius, bamDp ) ) * aFlex;
+	bamDisp.xz += bamPv * ( bamProx / max( bamDp, 1e-4 ) ) * uPlayerStrength;
 	transformed += vec3( dot( bamDisp, bamBx ), dot( bamDisp, bamBy ), dot( bamDisp, bamBz ) ) / bamScl;
 `;
 
@@ -211,12 +215,27 @@ function makeBambooMaterial(wind) {
     roughness: 0.86,
     metalness: 0.0,
   });
+  // Local — never write uPlayer onto wind / forestWind (leaks into sakura).
+  const playerUniforms = {
+    uPlayer: { value: new THREE.Vector3(1e4, -1e4, 1e4) },
+    uPlayerRadius: { value: 2.8 },
+    uPlayerStrength: { value: 0.55 },
+  };
+  mat.userData.playerUniforms = playerUniforms;
   mat.onBeforeCompile = (shader) => {
     for (const k in wind) shader.uniforms[k] = wind[k];
-    shader.vertexShader = 'attribute float aFlex;\n' + WIND_GLSL + '\n' + shader.vertexShader;
+    Object.assign(shader.uniforms, playerUniforms);
+    shader.vertexShader = [
+      'attribute float aFlex;',
+      'uniform vec3 uPlayer;',
+      'uniform float uPlayerRadius;',
+      'uniform float uPlayerStrength;',
+      WIND_GLSL,
+      shader.vertexShader,
+    ].join(String.fromCharCode(10));
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', CULM_VERTEX);
   };
-  mat.customProgramCacheKey = () => 'bamboo-culm-v1';
+  mat.customProgramCacheKey = () => 'bamboo-culm-v2-player';
   return mat;
 }
 
@@ -263,6 +282,11 @@ export function createBamboo({
     meshes.push(mesh);
   }
 
+  function setPlayer(pos) {
+    const u = mat.userData?.playerUniforms?.uPlayer;
+    if (u && pos) u.value.copy(pos);
+  }
+
   return {
     group,
     count: spots.length,
@@ -270,6 +294,7 @@ export function createBamboo({
     update(time) {
       wind.uTime.value = time;
     },
+    setPlayer,
     dispose() {
       for (const m of meshes) {
         group.remove(m);

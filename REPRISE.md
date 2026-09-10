@@ -2705,5 +2705,14 @@ toujours en pétales ; postcard printemps lisible, pas des ballons.
 Pas de chiffre réécrit dans `AGENTS.md` (contrat 01/09 inchangé — canvas
 différent, gain trop petit pour un nouvel étalon).
 
+### L1 — bambou ↔ shiba (`src/bamboo.js`)
+
+`uPlayer` **local** sur le matériau des fûts (`userData.playerUniforms`),
+jamais `forestWind`. `aFlex` garde la base plantée. Câblé
+`world.bamboo.setPlayer` dans `main.js` à côté de l’herbe.
+
+`INVARIANTS: 86 pass, 0 fail` low **et** ultra (`setPlayer` écrit
+l’uniforme local).
+
 
 

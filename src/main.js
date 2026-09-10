@@ -979,6 +979,7 @@ function frame() {
   // in follow mode you swim through it, in orbit mode you watch him wade.
   world.grass.setPlayer?.(world.shiba.position, dt);
   world.details.setPlayer?.(world.shiba.position);
+  world.bamboo.setPlayer?.(world.shiba.position);
   // Le tapis de pétales frémit au passage : vitesse normalisée du shiba.
   world.petals.setPlayer?.(world.shiba.position.x, world.shiba.position.z,
     world.shiba.speedN);
