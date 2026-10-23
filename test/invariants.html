@@ -1005,6 +1005,17 @@ try {
     isPond: () => false,
   };
   const dog = createShiba({ seed: SEED, heightAt: island.heightAt, water, body: null });
+  {
+    // repli procédural : le grain de pelage est branché (bumpScale 0.02)
+    let bumped = 0, meshes = 0;
+    dog.group.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh) return;
+      meshes++;
+      if (o.material?.bumpMap && Math.abs(o.material.bumpScale - 0.02) < 1e-6) bumped++;
+    });
+    check('shiba procédural : grain de pelage (makeCoatBump) branché',
+      meshes > 0 && bumped === meshes, `${bumped}/${meshes} meshes`);
+  }
   let crestOpens = false;
   let maxS = -Infinity;
   for (let t = 0; t <= Math.PI * 2; t += 0.1) {

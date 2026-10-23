@@ -17,7 +17,7 @@ import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
 import { isOnPath } from './details.js';
 import { PARTICLE_KIND } from './particles.js';
-import { TAU, UP, SHIBA_BUILD, buildBody } from './shiba-geom.js';
+import { TAU, UP, SHIBA_BUILD, buildBody, makeCoatBump } from './shiba-geom.js';
 
 export const SHIBA = {
   walkSpeed: 6.4,
@@ -259,6 +259,11 @@ export function createShiba({
     roughness: 0.86,
     metalness: 0.0,
     flatShading: false,
+    // grain de pelage généré (REPRISE : « exportée, pas encore branchée »).
+    // Repli procédural SEULEMENT : les UV du glTF sont un atlas, une grille
+    // 6×14 y couperait les îlots de texture.
+    bumpMap: makeCoatBump(seed),
+    bumpScale: 0.02,
   }));
   const group = new THREE.Group();
   group.name = 'shiba-rig';
@@ -1138,6 +1143,7 @@ export function createShiba({
     // et que shiba-gltf.js a déjà libéré : dispose() d'un matériau ne touche
     // pas à sa map, donc c'est bien ici qu'elle se libère, une seule fois.
     rig.material.map?.dispose();
+    rig.material.bumpMap?.dispose();
     rig.material.dispose();
     prints.geo.dispose();
     prints.material.dispose();
