@@ -321,6 +321,14 @@ Le travail est inventif et documenté, mais il est trop sûr de lui dans ses com
 | P3 — smoothstep GLSL inversé (edge0>edge1, comportement indéfini) | Traité | `smoothstep(0.55, 0.12, vFade)` → `1.0 - smoothstep(0.12, 0.55, vFade)` ; grep des autres smoothstep GLSL inversés : 8+ occurrences PRÉ-existantes (sakura/grass/sky, antérieures à la passe auditée) laissées en l'état — dette de portabilité notée, à normaliser en lot dédié avec vérification visuelle shader par shader. |
 
 Dette notée : transition croisée temporelle hi/lo par chunk (remplacerait la mitigation lodKeep).
+**SOLDÉE le 23/10** (`0d768ff`) : fondu temporel 0.8 s par chunk, seuil par brin
+`r = phase/2π` partagé hi/lo, un matériau poolé par chunk en transition (même
+programme). Invariant : traversée lente, pire variation de couverture par chunk
+et par frame **2.43 %** (critère ≤ 5 %) contre **10.0 %** pour la bascule sèche.
+Smoothstep GLSL inversés : **normalisés le 23/10** (`d33538e`, 11 sites,
+`1 - smoothstep(b, a, x)`, identité exacte de l'Hermite ; captures avant/après
+sol midi + ciel nuit identiques). Les `smoothstep` JS de `shiba-geom.js` sont
+définis (clamp explicite, `noise.js`) et n'ont pas été touchés.
 
 ## Rapport Codex (verbatim)
 

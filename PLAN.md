@@ -214,7 +214,13 @@ chien. Impostors / herbe / hérons / lanternes n'ont pas été rouverts.
 - Mousse rochers biaisée au nord (−Z).
 
 wrack / snag / moucherons (PLAN §7) — wrack **SOLDÉ le 10/09** (8–15, laisse).
-snag **SOLDÉ le 10/09** (un fût mort, montée torii). Moucherons non ouverts.
+snag **SOLDÉ le 10/09** (un fût mort, montée torii). Moucherons non ouverts
+(gated : décision utilisateur après visuel L1–L2).
+
+### 8. Dettes soldées le 23/10
+Herbe hi/lo en fondu temporel (dette ADV), grain de pelage du chien
+procédural, smoothstep GLSL inversés normalisés. Retests visuels en souffrance
+(pin de plage, wrack, snag, bambou) passés.
 
 ---
 

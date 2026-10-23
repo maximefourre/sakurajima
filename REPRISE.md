@@ -2732,3 +2732,51 @@ de la montée `torii`. Mesh joint→tip, membres cassés, **pas** de houppier
 
 
 
+## Session « reste à faire » du 23/10/2026
+
+Plan : `.hermes/plans/2026-10-23_reste-a-faire.md`. Branches : rien à merger
+(main seule, à jour d'origin).
+
+### R1 — herbe : fondu temporel hi/lo (`src/grass.js`, `0d768ff`)
+
+Dette ADV soldée. Seuil par brin `r = phase/2π` (même instance → même r dans
+hi et lo, lo = préfixe de hi), attribut de sommet `aLodSide`, uniform
+`uLodCut` **par matériau** : `matHi` (0) / `matLo` (1) partagés par les
+chunks stables, un matériau de pool par chunk en transition (même cache key →
+même programme ; three ré-uploade les uniforms à chaque changement de
+matériau — c'est ce qui fait arriver la valeur par chunk). `lodFadeTime` 0.8 s,
+dt clampé à 0.1, premier `update` = snap. Miroir JS `lodKeepHi` +
+`grass.lodCoverage(i)`. Invariant : pire variation de couverture par chunk et
+par frame **2.43 %** (critère ADV 5 %), bascule sèche **10.0 %** (non vide).
+
+### R2 — grain de pelage (`src/shiba.js`, `71ad623`)
+
+`makeCoatBump(seed)` branché, bumpScale 0.02, **repli procédural seulement**
+(UV glTF = atlas). Invariant 33/33 meshes.
+
+### R5 — smoothstep GLSL inversés (`d33538e`)
+
+11 sites (details, grass, ponds, sakura ×5, seasonal-foliage, sky ×2) →
+`1 - smoothstep(b, a, x)` : identité exacte de l'Hermite, plus de
+comportement indéfini. Captures avant/après (worktree de base sur :5174)
+sol midi + ciel nuit identiques.
+
+### R3 — retests visuels
+
+Pin de plage + torii marin, wrack sur la laisse, snag montée torii, bambou :
+OK à l'œil. Fondu herbe : balayage caméra au sol, ≤ 2 chunks en fondu
+simultané, contexte GL intact.
+
+`INVARIANTS: 94 pass, 0 fail` low **et** ultra.
+
+**Piège payé** : une boucle `__sk.frame()` de 240 frames ultra SANS
+`readPixels` dans un seul `Runtime.evaluate` a fait perdre le contexte WebGL
+(file GPU saturée → reset). Chrome bloque alors WebGL pour l'ORIGINE
+(`127.0.0.1`) : « Error creating WebGL context » au reload. Contournement :
+servir via `localhost`. Toujours 1 frame + `readPixels` par évaluation.
+
+Pas de chiffre fps : sur ce poste (fenêtre 800×479, frames forcées à 46 ms
+avec des pointes à 1–3 s, **identiques** base et nouveau), le banc n'est pas
+honnête. En régime établi le chemin de rendu est inchangé (0 chunk en fondu).
+
+Moucherons (L3) : toujours **gated** — décision utilisateur après visuel.
