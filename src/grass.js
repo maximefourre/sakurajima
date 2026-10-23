@@ -243,6 +243,12 @@ const DEFAULTS = {
 	lodDistance: 72,
 	lodHysteresis: 4,
 	lodKeep: 0.62,     // lo coverage ~= 0.62 x 1.45 ~= 90% of hi - the swap stops reading as a pop
+	// Bascule hi/lo en FONDU TEMPOREL par chunk (dette ADV soldée) : pendant
+	// lodFadeTime les deux meshes sont soumis, chaque brin franchit son propre
+	// seuil r = phase / 2π. Les brins partagés (lo = préfixe de hi) changent
+	// de représentation un à un ; les brins hi-only s'éteignent. Couverture
+	// continue, plus aucune marche de ~10 % en une frame.
+	lodFadeTime: 0.8,
 	fadeStart: 170,
 	fadeEnd: 250
 
@@ -358,6 +364,26 @@ function makeBladeGeometry( segments, widthMul, bow ) {
    Shader source
    ===================================================================================== */
 
+// hi/lo crossfade softness, in threshold units. Shared by the GLSL and its JS
+// mirror below - both must stay byte-for-byte the same curve.
+const LOD_SOFT = 0.03;
+
+function smoothstepJS( e0, e1, x ) {
+
+	const t = Math.min( 1, Math.max( 0, ( x - e0 ) / ( e1 - e0 ) ) );
+	return t * t * ( 3 - 2 * t );
+
+}
+
+/** Scale kept by a HI blade of threshold r at crossfade cut (lo keeps 1 - this).
+ *  cut 0 -> every hi blade at full size; cut 1 -> none. */
+export function lodKeepHi( r, cut ) {
+
+	const c = cut * ( 1 + LOD_SOFT );
+	return smoothstepJS( c - LOD_SOFT, c, r );
+
+}
+
 function vertexCommon( windGLSL ) {
 
 	return /* glsl */`
@@ -382,6 +408,8 @@ uniform float uRippleSpeed;
 uniform float uRippleAmp;
 uniform float uFadeStart;
 uniform float uFadeEnd;
+attribute float aLodSide;  // 0: hi mesh, 1: lo mesh (constant per base geometry)
+uniform float uLodCut;     // per MATERIAL: 0 stable hi, 1 stable lo, between = crossfade
 uniform vec3  uPlayer;
 uniform vec3  uPlayerTrail;
 uniform float uPlayerRadius;
@@ -414,6 +442,16 @@ void grassSetup() {
 
 	// distance fade: blades shrink into the ground instead of popping
 	gGrassFade = 1.0 - smoothstep( uFadeStart, uFadeEnd, distance( rootW, cameraPosition ) );
+
+	// hi/lo crossfade: per-blade threshold from the uniform phase. Same instance
+	// -> same phase in both meshes, so a shared blade is hi OR lo, never twice.
+	// Mirrored in JS by lodKeepHi() - keep the two in lockstep.
+	{
+		float lodR = fract( aParams.x * 0.15915494 );
+		float lodC = uLodCut * ( 1.0 + ${LOD_SOFT.toFixed( 4 )} );
+		float keepHi = smoothstep( lodC - ${LOD_SOFT.toFixed( 4 )}, lodC, lodR );
+		gGrassFade *= aLodSide < 0.5 ? keepHi : 1.0 - keepHi;
+	}
 
 	// --- shared wind ------------------------------------------------------------
 	vec2 w = windForce( rootW ).xz;
@@ -652,18 +690,34 @@ export function createGrass( options = {} ) {
 
 	/* ---------------------------------------------------------------- material */
 
-	const material = new THREE.MeshStandardMaterial( {
-		color: 0xffffff,          // all colour comes from aTint
-		roughness: CFG.roughness,
-		metalness: 0.0,
-		side: THREE.DoubleSide,
-		dithering: true
-	} );
+	// One program, several MATERIALS: each carries its own uLodCut object, so a
+	// chunk mid-crossfade can draw with its own cut while every stable chunk
+	// shares matHi (cut 0) / matLo (cut 1). Same cache key -> same compiled
+	// program; three re-uploads uniforms on every material switch, which is
+	// exactly what makes the per-chunk value reach the GPU.
+	function makeMaterial( cut ) {
 
-	material.onBeforeCompile = function ( shader ) {
+		const lodCut = { value: cut };
+		const m = new THREE.MeshStandardMaterial( {
+			color: 0xffffff,          // all colour comes from aTint
+			roughness: CFG.roughness,
+			metalness: 0.0,
+			side: THREE.DoubleSide,
+			dithering: true
+		} );
+		m.onBeforeCompile = ( shader ) => compileGrass( shader, lodCut );
+		// CRITICAL: without a custom cache key three may hand this material a program
+		// compiled from *unpatched* MeshStandardMaterial source.
+		m.customProgramCacheKey = function () { return 'sakura-grass-v3-lodfade'; };
+		m.userData.lodCut = lodCut;
+		return m;
+
+	}
+
+	function compileGrass( shader, lodCut ) {
 
 		// share the uniform OBJECTS by reference so update() reaches every recompile
-		Object.assign( shader.uniforms, uniforms, windUniforms, CFG.cloudShadow || {} );
+		Object.assign( shader.uniforms, uniforms, windUniforms, CFG.cloudShadow || {}, { uLodCut: lodCut } );
 
 		let v = shader.vertexShader;
 		v = patch( v, '#include <common>', '#include <common>\n' + vertexCommon( windGLSL ), 'vertex common' );
@@ -701,11 +755,13 @@ export function createGrass( options = {} ) {
 
 		shader.fragmentShader = f;
 
-	};
+	}
 
-	// CRITICAL: without a custom cache key three may hand this material a program
-	// compiled from *unpatched* MeshStandardMaterial source.
-	material.customProgramCacheKey = function () { return CFG.cloudShadow ? 'sakura-grass-v2-cld' : 'sakura-grass-v1'; };
+	const matHi = makeMaterial( 0 );
+	const matLo = makeMaterial( 1 );
+	const material = matHi;          // public handle (tests read it); stable-hi draws
+	const fadePool = [];             // free per-chunk crossfade materials
+	const fadeMats = new Set( [ matHi, matLo ] );
 
 	/* ---------------------------------------------------------------- generation */
 
@@ -868,6 +924,10 @@ export function createGrass( options = {} ) {
 
 	const GEO_HI = makeBladeGeometry( CFG.segmentsHi, 1.0, CFG.normalBow );
 	const GEO_LO = makeBladeGeometry( CFG.segmentsLo, CFG.loWidthMul, CFG.normalBow );
+	for ( const [ g, side ] of [ [ GEO_HI, 0 ], [ GEO_LO, 1 ] ] ) {
+		const nv = g.getAttribute( 'position' ).count;
+		g.setAttribute( 'aLodSide', new THREE.BufferAttribute( new Float32Array( nv ).fill( side ), 1 ) );
+	}
 
 	const _m = new THREE.Matrix4();
 	const _q = new THREE.Quaternion();
@@ -956,6 +1016,7 @@ export function createGrass( options = {} ) {
 
 		hi.mesh.name = 'grass_hi_' + c;
 		lo.mesh.name = 'grass_lo_' + c;
+		lo.mesh.material = matLo;
 		lo.mesh.visible = false;
 
 		group.add( hi.mesh );
@@ -965,7 +1026,9 @@ export function createGrass( options = {} ) {
 			hi: hi.mesh, lo: lo.mesh,
 			cx: hi.cx, cy: hi.cy, cz: hi.cz,
 			radius: hi.radius,
-			near: true
+			near: true,
+			alpha: 0,          // 0 = hi, 1 = lo, between = crossfade in flight
+			fadeMat: null      // pooled material while 0 < alpha < 1
 		} );
 
 	}
@@ -975,6 +1038,7 @@ export function createGrass( options = {} ) {
 	const _camPos = new THREE.Vector3();
 	let activeCamera = CFG.camera;
 	let visibleBlades = placed;
+	let lastT = null;
 
 	function update( t, cam ) {
 
@@ -1004,6 +1068,11 @@ export function createGrass( options = {} ) {
 		const near = CFG.lodDistance;
 		const hyst = CFG.lodHysteresis;
 		const cullDist = CFG.fadeEnd;
+		// first call snaps (no fade from boot state); then a clamped real dt so a
+		// stalled tab or a time jump cannot finish a fade in one frame by accident
+		const dt = lastT === null ? Infinity : Math.min( 0.1, Math.max( 0, t - lastT ) );
+		lastT = t;
+		const step = dt / Math.max( 1e-3, CFG.lodFadeTime );
 		let vb = 0;
 
 		for ( let i = 0; i < chunks.length; i ++ ) {
@@ -1012,25 +1081,85 @@ export function createGrass( options = {} ) {
 			const dx = ch.cx - _camPos.x, dy = ch.cy - _camPos.y, dz = ch.cz - _camPos.z;
 			const dCentre = Math.sqrt( dx * dx + dy * dy + dz * dz );
 
+			const threshold = ch.near ? near + hyst : near - hyst;
+			ch.near = dCentre < threshold;
+			const target = ch.near ? 0 : 1;
+
 			// conservative: nothing in this chunk is closer than dCentre - radius
 			if ( dCentre - ch.radius > cullDist ) {
 
+				// invisible: nothing to fade, land on the target directly
+				ch.alpha = target;
+				setChunkLod( ch );
 				ch.hi.visible = false;
 				ch.lo.visible = false;
 				continue;
 
 			}
 
-			const threshold = ch.near ? near + hyst : near - hyst;
-			ch.near = dCentre < threshold;
+			if ( ch.alpha < target ) ch.alpha = Math.min( target, ch.alpha + step );
+			else if ( ch.alpha > target ) ch.alpha = Math.max( target, ch.alpha - step );
+			setChunkLod( ch );
 
-			ch.hi.visible = ch.near;
-			ch.lo.visible = ! ch.near;
-			vb += ch.near ? ch.hi.count : ch.lo.count;
+			const a = ch.alpha;
+			vb += Math.round( ch.hi.visible ? ch.hi.count * ( 1 - a ) : 0 ) +
+				Math.round( ch.lo.visible ? ch.lo.count * a : 0 );
 
 		}
 
 		visibleBlades = vb;
+
+	}
+
+	// Visibility + material from ch.alpha. Stable chunks share matHi / matLo;
+	// a chunk mid-fade borrows one pooled material for BOTH its meshes.
+	function setChunkLod( ch ) {
+
+		const a = ch.alpha;
+		if ( a <= 0 || a >= 1 ) {
+
+			if ( ch.fadeMat ) { fadePool.push( ch.fadeMat ); ch.fadeMat = null; }
+			ch.hi.visible = a <= 0;
+			ch.lo.visible = a >= 1;
+			ch.hi.material = matHi;
+			ch.lo.material = matLo;
+			return;
+
+		}
+
+		if ( ! ch.fadeMat ) {
+
+			ch.fadeMat = fadePool.pop() || makeMaterial( a );
+			fadeMats.add( ch.fadeMat );
+
+		}
+
+		ch.fadeMat.userData.lodCut.value = a;
+		ch.hi.material = ch.fadeMat;
+		ch.lo.material = ch.fadeMat;
+		ch.hi.visible = true;
+		ch.lo.visible = true;
+
+	}
+
+	/** Blade COVERAGE of chunk i as the GPU draws it (JS mirror of the shader
+	 *  cut): Σ hi keep × 1 + Σ lo keep × loWidthMul, visible meshes only. */
+	function lodCoverage( i ) {
+
+		const ch = chunks[ i ];
+		const a = ch.alpha;
+		const ph = ch.hi.geometry.getAttribute( 'aParams' ).array;
+		const nLo = ch.lo.count;
+		let cov = 0;
+		for ( let k = 0; k < ch.hi.count; k ++ ) {
+
+			const r = ( ph[ k * 4 ] / ( Math.PI * 2 ) ) % 1;
+			const kh = lodKeepHi( r, a );
+			if ( ch.hi.visible ) cov += kh;
+			if ( ch.lo.visible && k < nLo ) cov += ( 1 - kh ) * CFG.loWidthMul;
+
+		}
+		return { alpha: a, coverage: cov, hi: ch.hi.visible, lo: ch.lo.visible };
 
 	}
 
@@ -1077,7 +1206,7 @@ export function createGrass( options = {} ) {
 
 		GEO_HI.dispose();
 		GEO_LO.dispose();
-		material.dispose();
+		for ( const m of fadeMats ) m.dispose();
 		group.clear();
 
 	}
@@ -1094,6 +1223,7 @@ export function createGrass( options = {} ) {
 		uniforms,
 		windUniforms,
 		chunks,
+		lodCoverage,          // lodCoverage(i) -> { alpha, coverage, hi, lo } (JS mirror, tests)
 		count: placed,
 		placements: CFG.recordPlacements ? placements : null,
 		get visibleCount() { return visibleBlades; }

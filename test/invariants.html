@@ -2028,6 +2028,67 @@ function milieuAppuisGltf(r) {
   grass.dispose();
 }
 
+/* ── herbe : fondu temporel hi/lo (dette ADV P2 soldée) ──────────────
+   Critère ADV : une traversée lente des seuils d'hystérésis ne produit ni
+   saut en une frame ni variation de couverture > 5 % PAR CHUNK. La
+   couverture est le miroir JS exact du cut shader (lodCoverage). */
+{
+  const jx = 6 * LAND_SCALE, jz = -30 * LAND_SCALE;
+  const grass = createGrass({
+    seed: SEED,
+    count: 4000,
+    chunkDivisions: 4,
+    lodDistance: 20,
+    lodHysteresis: 2,
+    fadeStart: 1e4, fadeEnd: 2e4,
+    bounds: { minX: jx - 28, maxX: jx + 28, minZ: jz - 28, maxZ: jz + 28 },
+    heightAt: island.heightAt,
+    slopeAt: island.slopeAt,
+  });
+  const cam = new THREE.PerspectiveCamera();
+  const n = grass.chunks.length;
+  const y0 = island.heightAt(jx, jz) + 2;
+  let t = 0, worst = 0, worstAt = '', midSeen = 0, bothSeen = 0;
+  let prev = null;
+  // aller-retour lent (2 u/s, 60 Hz) de 70 u à l'ouest jusqu'au centre
+  const frames = [];
+  for (let k = 0; k <= 35 * 60; k++) frames.push(jx - 70 + (70 * k) / (35 * 60));
+  for (let k = frames.length - 1; k >= 0; k--) frames.push(frames[k]);
+  for (const x of frames) {
+    cam.position.set(x, y0, jz);
+    cam.updateMatrixWorld();
+    grass.update(t, cam);
+    t += 1 / 60;
+    const cur = [];
+    for (let i = 0; i < n; i++) {
+      const c = grass.lodCoverage(i);
+      cur.push(c);
+      if (c.alpha > 0 && c.alpha < 1) midSeen++;
+      if (c.hi && c.lo) bothSeen++;
+      if (prev && prev[i].coverage > 0) {
+        const rel = Math.abs(c.coverage - prev[i].coverage) / prev[i].coverage;
+        if (rel > worst) { worst = rel; worstAt = `chunk ${i} α=${c.alpha.toFixed(3)}`; }
+      }
+    }
+    prev = cur;
+  }
+  // non vide : l'ancienne bascule sèche aurait sauté de |cov(lo) − cov(hi)|
+  const ch0 = grass.chunks[0];
+  const saved = ch0.alpha;
+  ch0.alpha = 0; ch0.hi.visible = true; ch0.lo.visible = false;
+  const covHi = grass.lodCoverage(0).coverage;
+  ch0.alpha = 1; ch0.hi.visible = false; ch0.lo.visible = true;
+  const covLo = grass.lodCoverage(0).coverage;
+  ch0.alpha = saved;
+  const snap = Math.abs(covLo - covHi) / covHi;
+  check('herbe : fondu hi/lo sans saut > 5 % par frame',
+    worst <= 0.05 && midSeen > 0 && bothSeen > 0,
+    `pire=${(worst * 100).toFixed(2)} % (${worstAt}), fondus=${midSeen}, bascule sèche=${(snap * 100).toFixed(1)} %`);
+  check('herbe : la bascule sèche dépassait le critère (test non vide)',
+    snap > 0.05, `${(snap * 100).toFixed(1)} %`);
+  grass.dispose();
+}
+
 /* ── lit sonore (poids purs, pas d’AudioContext) ─────────────────── */
 {
   const sea = ambientWeights({
