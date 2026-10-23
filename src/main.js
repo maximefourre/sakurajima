@@ -32,6 +32,7 @@ import { createPOI } from './poi.js';
 import { createCrabs } from './crabs.js';
 import { createHerons } from './herons.js';
 import { createDragonflies } from './dragonflies.js';
+import { createMidges } from './midges.js';
 import { createGulls } from './gulls.js';
 import { createBamboo, inBambooGrove } from './bamboo.js';
 import { createTouchControls } from './touch.js';
@@ -174,7 +175,7 @@ const world = {
   wind: null,
   island: null, ponds: null, forest: null, grass: null,
   petals: null, sky: null, birds: null, clouds: null, shiba: null, details: null,
-  poi: null, crabs: null, moths: null, herons: null, dragonflies: null, gulls: null,
+  poi: null, crabs: null, moths: null, herons: null, dragonflies: null, midges: null, gulls: null,
   bamboo: null, fireflies: null, butterflies: null,
   audio: null, particles: null, cloudShadow: null,
   /** 'orbit' = the contemplation camera, 'follow' = third person behind the dog. */
@@ -505,6 +506,14 @@ async function boot() {
     isInPond: world.inWater,
   });
   scene.add(world.dragonflies.mesh);
+  // Moucherons (L3) : essaims de crépuscule sur les berges, N fixe par tier.
+  world.midges = createMidges({
+    seed: SEED, quality: q,
+    heightAt: world.heightAt,
+    ponds: world.ponds.PONDS,
+    pondWaterYAt: (x, z) => world.ponds.pondWaterYAt(x, z),
+  });
+  scene.add(world.midges.mesh);
 
   await step('goélands');
   world.gulls = createGulls({
@@ -952,6 +961,7 @@ function frame() {
   world.crabs?.update(t, dogX, dogZ);
   world.herons?.update(t, dt, dogX, dogZ);
   world.dragonflies?.update(t, phase);
+  world.midges?.update(t, phase);
   world.gulls?.update(t, dt, world.shiba, camera);
   const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
     && world.heightAt(dogX, dogZ) < world.island.seaLevel;

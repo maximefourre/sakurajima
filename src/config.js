@@ -152,6 +152,7 @@ export const QUALITY = {
     moths: 0.5,            // mites par lanterne (1 toutes les deux)
     herons: 1,             // échassiers — N petit, pas AREA_SOFT
     dragonflies: Math.round(1.413936700 * AREA_SOFT), // ≈ 8
+    midges: 48,            // 4 essaims × 12 — N FIXE, pas AREA_SOFT
     gulls: 6,              // stacks + nuki — pas AREA_SOFT
     shadowMap: 1024,
     bloom: false,
@@ -173,6 +174,7 @@ export const QUALITY = {
     moths: 1,              // une mite par lanterne
     herons: 2,
     dragonflies: Math.round(3.181357575 * AREA_SOFT), // ≈ 18
+    midges: 72,            // 6 essaims × 12
     gulls: 10,
     shadowMap: 2048,
     bloom: true,
@@ -196,6 +198,7 @@ export const QUALITY = {
     moths: 2,              // halo vivant autour de chaque cage à feu
     herons: 3,
     dragonflies: Math.round(5.655746800 * AREA_SOFT), // ≈ 32
+    midges: 96,            // 8 essaims × 12 (plan 10/09 : 80–120 ultra)
     gulls: 16,
     shadowMap: 4096,
     bloom: true,
@@ -634,6 +637,25 @@ export const DRAGONFLIES = Object.freeze({
   size: [0.20, 0.32],
   color: 0x2ec4a0,
   wingColor: 0xa8ffe6,
+});
+
+/**
+ * Moucherons (L3 du plan 10/09). Essaims de crépuscule en colonnes au-dessus
+ * des berges des étangs : N fixe par tier (pas AREA_SOFT), un essaim = une
+ * colonne qui danse sur place, pas une nappe. Visibles en contre-jour : le
+ * fragment s'allume quand on regarde vers le soleil bas.
+ */
+export const MIDGES = Object.freeze({
+  perSwarm: 12,
+  shoreK: [0.82, 1.04],     // rayon de l'ancre, en fraction du rayon mesuré
+  centreClear: [1.0, 1.9],  // hauteur du centre au-dessus du sol / de l'eau
+  swarmR: 0.42,             // rayon horizontal d'un essaim
+  swarmH: 0.55,             // demi-hauteur de la colonne
+  jitter: 0.16,             // amplitude max de la danse (shader), toutes directions
+  minClear: 0.45,           // garde au sol, dérive comprise (invariant)
+  size: [0.07, 0.11],       // un moucheron vrai fait 0.005 : on montre la lueur, pas l'insecte
+  color: 0x2a2620,
+  glint: 0xffd9a0,
 });
 
 /**

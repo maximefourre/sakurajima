@@ -52,7 +52,7 @@ window.addEventListener('unhandledrejection', e => {
   finish();
 });
 
-import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS, STONES, HERONS, DRAGONFLIES, SEA_TORII, BAMBOO } from '../src/config.js';
+import { SEED, WORLD, CAMERA, QUALITY, PATHS, LAND_SCALE, FIREFLIES, BUTTERFLIES, POI, CRABS, MOTHS, STONES, HERONS, DRAGONFLIES, MIDGES, SEA_TORII, BAMBOO } from '../src/config.js';
 import { seedNoise } from '../src/noise.js';
 import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
@@ -75,6 +75,7 @@ import { computeCrabSpawns } from '../src/crabs.js';
 import { computeMothSpots } from '../src/moths.js';
 import { computeHeronSpawns, makeHeronGeometry, makeHeronFlyGeometry } from '../src/herons.js';
 import { computeDragonflySpots, dragonflyActivity } from '../src/dragonflies.js';
+import { computeMidgeSpots, midgeActivity } from '../src/midges.js';
 import { computeGullSpawns } from '../src/gulls.js';
 import { computeBambooSpawns, inBambooGrove, createBamboo } from '../src/bamboo.js';
 import { createCloudShadow } from '../src/cloud-shadow.js';
@@ -708,6 +709,49 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
   }
   check('libellules : habitat bassin, actives le jour', ok,
     ok ? `${spots.length} libellules, pire rayon ${(worst * 100).toFixed(0)} % de l’habitat`
+      : detail);
+}
+
+/* ── moucherons (L3) : essaims de berge, garde au sol dérive comprise ── */
+{
+  const want = QUALITY[TIER].midges;
+  const { swarms, spots } = computeMidgeSpots({
+    ponds: ponds.PONDS,
+    heightAt: island.heightAt,
+    pondWaterYAt: ponds.pondWaterYAt,
+    count: want,
+    seed: SEED,
+  });
+  let ok = spots.length === want && swarms.length >= 4;
+  let detail = ok ? '' : `n=${spots.length}/${want} essaims=${swarms.length}`;
+  let worstClear = Infinity, worstShore = 0;
+  const J = MIDGES.jitter;
+  for (const s of spots) {
+    const p = ponds.PONDS[s.pond];
+    // pire sol sous toute la danse (|dx|,|dz| <= 0.55 J, |dy| <= J)
+    let g = -Infinity;
+    for (const [dx, dz] of [[0, 0], [J, 0], [-J, 0], [0, J], [0, -J], [J, J], [-J, -J], [J, -J], [-J, J]]) {
+      g = Math.max(g, island.heightAt(s.x + dx, s.z + dz), ponds.pondWaterYAt(s.x + dx, s.z + dz) ?? -Infinity);
+    }
+    const clear = s.y - J - g;
+    worstClear = Math.min(worstClear, clear);
+    const shore = Math.hypot(s.x - p.x, s.z - p.z) / p.radius;
+    worstShore = Math.max(worstShore, shore);
+    if (clear < MIDGES.minClear - 0.02 || shore > MIDGES.shoreK[1] + (MIDGES.swarmR / p.radius) + 1e-6) {
+      ok = false;
+      detail = `moucheron@(${s.x.toFixed(1)},${s.z.toFixed(1)}) garde=${clear.toFixed(2)} berge=${shore.toFixed(2)}`;
+      break;
+    }
+  }
+  const noon = midgeActivity({ night: 0, golden: 0, twilight: 0 });
+  const dusk = midgeActivity({ night: 0, golden: 0.9, twilight: 0.4 });
+  const night = midgeActivity({ night: 1, golden: 0, twilight: 0.3 });
+  if (!(noon === 0 && night === 0 && dusk > 0.5)) {
+    ok = false;
+    detail = `activité midi=${noon} crépuscule=${dusk} nuit=${night}`;
+  }
+  check('moucherons : essaims de berge, garde au sol, actifs au crépuscule seulement', ok,
+    ok ? `${spots.length} en ${swarms.length} essaims, garde min ${worstClear.toFixed(2)} u, berge max ${(worstShore * 100).toFixed(0)} %`
       : detail);
 }
 
