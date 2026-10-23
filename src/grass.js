@@ -581,7 +581,7 @@ const FRAGMENT_TRANSLUCENCY = /* glsl */`
 		vec3 viewV = normalize( vViewPosition );
 		float back = pow( max( dot( viewV, -sunV ), 0.0 ), 3.0 );
 		float edge = 1.0 - abs( dot( normalize( normal ), sunV ) );
-		float horizon = mix( 0.25, 1.0, smoothstep( 0.45, 0.0, uSunDirWorld.y ) )
+		float horizon = mix( 0.25, 1.0, ( 1.0 - smoothstep( 0.0, 0.45, uSunDirWorld.y ) ) )
 		              * smoothstep( -0.14, 0.03, uSunDirWorld.y );
 		float trans = back * mix( 0.35, 1.0, edge ) * smoothstep( 0.0, 0.8, vGrassH ) * horizon;
 		outgoingLight += uSunColor * ( uSunIntensity * uTranslucency * trans ) * diffuseColor.rgb;

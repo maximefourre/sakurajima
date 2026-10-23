@@ -644,7 +644,7 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
             float cloud = sky_fbm3(sd * 3.0);
             float lanes = sky_fbm3(sd * 9.0 + 11.0);
             float dust  = smoothstep(0.32, 0.78, cloud);
-            float dark  = smoothstep(0.62, 0.28, lanes);   // the dust lanes
+            float dark  = (1.0 - smoothstep(0.28, 0.62, lanes));   // the dust lanes
             float glow  = mask * mask * (0.30 + 0.70 * dust) * mix(0.30, 1.0, dark);
             col += uMwColor * glow * 1.10;
           }
@@ -886,7 +886,7 @@ export function createSky({ scene, renderer, camera, quality = {}, season = 'spr
             float shade = mix(0.66, 1.0, smoothstep(0.34, 0.74, maria))
                         * mix(0.94, 1.0, crat);
 
-            float edge = smoothstep(1.0, 0.982, r);
+            float edge = (1.0 - smoothstep(0.982, 1.0, r));
             // Earthshine: the unlit limb is not black, it is very faintly blue.
             vec3 surf = uDiskColor * limb * shade * (0.045 + 0.955 * lit);
             // Driven well past 1.0 so the disc clips toward white and crosses

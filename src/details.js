@@ -1743,7 +1743,7 @@ export function createDetails({
           diffuseColor.rgb *= 0.80 + 0.30 * grit;
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 0.80, 0.62), mottle * 0.35);
           // 2. le coeur COMPACTE par les pas, un peu plus clair et lisse ;
-          diffuseColor.rgb *= 1.0 + 0.10 * smoothstep(0.5, 0.0, vPathEdge);
+          diffuseColor.rgb *= 1.0 + 0.10 * (1.0 - smoothstep(0.0, 0.5, vPathEdge));
           // 3. un LISERE de bord seulement : verdissement doux et effilochage
           //    FIN, confines au dernier quart du demi-ruban. Les versions
           //    larges (amplitude 0.5, frequences basses) envoyaient des

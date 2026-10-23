@@ -515,7 +515,7 @@ const KOI_FRAG = /* glsl */ `
 
     // Pale underside. vLocal.y is the body-space height, so this follows the
     // taper without needing a separate mask.
-    float ventral = smoothstep(0.02, -0.06, vLocal.y);
+    float ventral = (1.0 - smoothstep(-0.06, 0.02, vLocal.y));
     col = mix(col, mix(col * 0.45, uBelly, 0.78), ventral * 0.8);
 
     // Fins are thin, unpigmented tissue: paler and warmer than the flank.

@@ -1182,9 +1182,9 @@ const BARK_FRAGMENT = /* glsl */`
 		vec2 cellId = floor( gc );
 		vec2 f = fract( gc );
 		float rnd = sakBarkHash( cellId );
-		float dash = smoothstep( 0.50, 0.16, abs( f.y - 0.5 ) )
+		float dash = ( 1.0 - smoothstep( 0.16, 0.50, abs( f.y - 0.5 ) ) )
 		           * smoothstep( 0.02, 0.20, f.x )
-		           * smoothstep( 0.99, 0.80, f.x );
+		           * ( 1.0 - smoothstep( 0.80, 0.99, f.x ) );
 		dash *= step( 0.52, rnd );
 		diffuseColor.rgb *= mix( 1.0, 0.52, dash * 0.9 );
 
@@ -1193,7 +1193,7 @@ const BARK_FRAGMENT = /* glsl */`
 		diffuseColor.rgb *= 0.88 + 0.26 * streak;
 
 		// moss / lichen collecting on the thick low wood
-		float mossy = smoothstep( 0.42, 0.0, vBarkFlex )
+		float mossy = ( 1.0 - smoothstep( 0.0, 0.42, vBarkFlex ) )
 		            * smoothstep( 0.40, 0.80, sakBarkHash( cellId * 1.73 + 4.0 ) );
 		diffuseColor.rgb = mix( diffuseColor.rgb,
 			diffuseColor.rgb * vec3( 0.58, 0.86, 0.52 ) + vec3( 0.006, 0.014, 0.004 ),
@@ -1346,7 +1346,7 @@ void main() {
 		lp.x *= 2.15;
 		float lr = length( lp ) + 0.22 * abs( lp.x );
 		alpha = 1.0 - smoothstep( 0.70, 0.92, lr );
-		float vein = smoothstep( 0.05, 0.0, abs( lp.y ) );
+		float vein = ( 1.0 - smoothstep( 0.0, 0.05, abs( lp.y ) ) );
 		tint = mix( vec3( 0.055, 0.150, 0.038 ), vec3( 0.170, 0.300, 0.070 ), 0.5 + 0.5 * lp.y );
 		tint = mix( tint, tint * 1.5, vein * 0.6 );
 
@@ -1361,7 +1361,7 @@ void main() {
 
 		float core = 1.0 - smoothstep( 0.04, 0.21, r );
 		vec3 deep  = vTint * vec3( 0.95, 0.58, 0.70 );      // pinker toward the throat
-		tint = mix( vTint, deep, smoothstep( 0.90, 0.05, r ) * 0.78 );
+		tint = mix( vTint, deep, ( 1.0 - smoothstep( 0.05, 0.90, r ) ) * 0.78 );
 		tint = mix( tint, vec3( 1.00, 0.76, 0.30 ), core * 0.80 );
 
 		// faint radial veins along each petal seam

@@ -120,7 +120,7 @@ float mapleVeins(vec2 p, float variant) {
   }
   // midrib down into the petiole
   {
-    float along = smoothstep(0.15, -0.05, q.y) * smoothstep(-0.95, -0.55, q.y);
+    float along = (1.0 - smoothstep(-0.05, 0.15, q.y)) * smoothstep(-0.95, -0.55, q.y);
     float mid = (1.0 - smoothstep(0.0, 0.022, abs(q.x))) * along;
     v = max(v, mid);
   }
