@@ -389,8 +389,13 @@ const K_BLOOM_THRESHOLD = [
   // Night threshold sits at 0.42: low enough for the moon (~2.1 linear) and
   // the brightest stars (~1.3) to halo, high enough that the disc itself
   // still reads through its own glow instead of drowning in it.
-  [0.000, 0.42], [0.230, 0.62], [0.250, 0.78], [0.400, 0.88], [0.500, 0.95],
-  [0.640, 0.88], [0.750, 0.78], [0.800, 0.66], [0.870, 0.44], [1.000, 0.42],
+  // DAY threshold sits ABOVE the dome (~2.6 linear) : with the sun up, the
+  // Preetham sky around a low sun is 1.6–3 linear over a quarter of the frame,
+  // and a 0.8 threshold bloomed that whole lobe into a white veil laid over
+  // the land (PLAN §2bis, ablation 23/10 : bloom off → veil gone, threshold
+  // 1.6 → still veiled, 3 → gone). Only the disc and true highlights pass.
+  [0.000, 0.42], [0.215, 0.62], [0.250, 2.40], [0.300, 2.60], [0.500, 2.60],
+  [0.700, 2.60], [0.750, 2.40], [0.785, 0.70], [0.870, 0.44], [1.000, 0.42],
 ];
 
 /* Golden-hour weight — exported through phase so petals/grass can warm their
