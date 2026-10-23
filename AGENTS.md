@@ -76,6 +76,7 @@ herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
 shiba.js    — gestes aboie / secoue / regard : `onEvent('bark')`,
               `setLookTargets([{x,y,z,kind}])`, `notify('heron-flush')`
 dragonflies.js — libellules GPU au-dessus des bassins (jour)
+midges.js   — moucherons : essaims de berge au crépuscule (N fixe par tier, contre-jour)
 poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin, chashitsu) + stoneYAt
 chashitsu.js — pièce de thé abandonnée (lot 7), site lisière étangs, importée par poi.js
 crabs.js    — crabes de laisse (fuite, enfouissement)

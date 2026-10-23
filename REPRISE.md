@@ -2780,3 +2780,29 @@ avec des pointes à 1–3 s, **identiques** base et nouveau), le banc n'est pas
 honnête. En régime établi le chemin de rendu est inchangé (0 chunk en fondu).
 
 Moucherons (L3) : toujours **gated** — décision utilisateur après visuel.
+
+### Suite — moucherons, halo, étangs (même jour)
+
+- **Halo** (`9c17676`, `sky.js` `K_BLOOM_THRESHOLD`) : ablation au soleil bas
+  (heure 0.735) — bloom off → voile parti, god rays seuls innocents, seuil
+  1.6 → encore voilé, 3 → parti, clamp HDR à 1.5 avant bloom → toujours
+  voilé (c'est l'AIRE du lobe Mie, pas le disque). Seuil de jour 2.4–2.6,
+  nuit/lune intactes. Lever 0.27, 0.70, 0.745, 0.755 revus.
+- **Étangs** (`2f53b3d`, `ponds.js` `uGolden`) : le miroir prenait
+  `uSkyColor` = teinte HÉMI (beige à 0.70), d'où le kaki. Au doré : plancher
+  de fresnel 0.55, zénith froid (vues plongeantes) / horizon chaud (rasantes),
+  lobe de soleil réfléchi. Zéro à midi et la nuit. Aube automne : identique à
+  l'œil (ablation `uGolden=0`).
+- **Moucherons** (`5312283`, `src/midges.js`) : 48/72/96 (4/6/8 essaims × 12),
+  N fixe, ancres de berge 0.82–1.04 R, garde au sol dérive comprise (Y relevé
+  au semis), lueur en contre-jour. Taille 0.07–0.11 : à 0.035 ils étaient
+  sous le pixel. Invariant : 96 en 8 essaims, garde min 0.57 u (ultra).
+
+`INVARIANTS: 95 pass, 0 fail` low et ultra.
+
+**Piège** : deux pertes de contexte WebGL de plus en ultra (caméra au sol
+dans le bosquet), puis Chrome bloque WebGL pour tout le navigateur
+(`--gpu-recent-crash`). Seul remède : tuer le Chrome du harness. Les
+vérifs visuelles sont passées en `?q=high`.
+Une tache pâle polygonale dans l'étang 1 est PRÉ-EXISTANTE (visible avec
+`uGolden=0`) — non traitée.

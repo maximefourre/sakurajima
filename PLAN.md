@@ -138,11 +138,13 @@ vers ciel/brouillard.
 - Oiseaux : le perchoir nocturne fonctionne ; si on téléporte `dayTime` en
   pleine nuit ils mettent ~1 min simulée à converger — artefact de test, pas
   un bug.
-- Halo solaire très large et brûlé au lever/coucher bas (deux saisons, ~1/4 du
-  cadre en plein contre-jour). État de base, pas une régression automne — à
-  trancher comme choix d'art direction si ça gêne.
-- Eau des étangs printemps à la golden hour : brun kaki plat, ne prend pas la
-  lumière chaude (l'aube automne, lilas, est belle). Niveau goût, pas cassé.
+- Halo solaire très large et brûlé au lever/coucher bas — **SOLDÉ le 23/10** :
+  c'était le BLOOM (seuil 0.8 sous un dôme à 1.6–3 linéaire autour du soleil
+  bas → voile blanc sur la terre). Seuil de jour 2.4–2.6, nuit inchangée.
+- Eau des étangs printemps à la golden hour — **SOLDÉ le 23/10** : le miroir
+  prenait la teinte hémi (beige) au lieu du ciel ; `uGolden` = plancher de
+  fresnel + zénith froid / horizon chaud + lobe de soleil. Aube automne
+  inchangée à l'œil.
 
 ### 3. La bande grise au zénith
 **SOLDÉ le 16/08.** Le cadrage d'ouverture (fov 42°, look ~19° vers le bas)
@@ -214,8 +216,8 @@ chien. Impostors / herbe / hérons / lanternes n'ont pas été rouverts.
 - Mousse rochers biaisée au nord (−Z).
 
 wrack / snag / moucherons (PLAN §7) — wrack **SOLDÉ le 10/09** (8–15, laisse).
-snag **SOLDÉ le 10/09** (un fût mort, montée torii). Moucherons non ouverts
-(gated : décision utilisateur après visuel L1–L2).
+snag **SOLDÉ le 10/09** (un fût mort, montée torii). Moucherons **SOLDÉS le
+23/10** (`src/midges.js`, demande utilisateur).
 
 ### 8. Dettes soldées le 23/10
 Herbe hi/lo en fondu temporel (dette ADV), grain de pelage du chien
