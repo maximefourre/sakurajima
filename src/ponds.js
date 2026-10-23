@@ -152,6 +152,7 @@ const WATER_FRAG = /* glsl */ `
   uniform vec3  uSkyColor;
   uniform vec3  uHorizon;
   uniform float uReflect;
+  uniform float uGolden;
   uniform vec4  uRipples[${RIPPLE_SLOTS}];
   uniform vec4  uDogWake;   // xy = position, z = amplitude, w = active
   uniform vec2  uDogTrail;  // position delayed by about 0.35 s
@@ -265,14 +266,29 @@ const WATER_FRAG = /* glsl */ `
     // Killing the reflection in the shallows keeps the margin reading as wet
     // mud rather than as a chrome band around the pond.
     fres *= uReflect * smoothstep(0.02, 0.45, depth);
+    // Golden hour: the pond took the hemi tint (beige × green = flat khaki)
+    // and none of the warm sky (PLAN §2bis). Two cheap terms, both zero by
+    // day and night: a fresnel FLOOR so the water mirrors the warm horizon
+    // instead of showing its body, and a broad lobe of the low sun along the
+    // reflected ray - the golden path, wider than the hard glint below.
+    float gDeep = uGolden * smoothstep(0.10, 0.60, depth);
+    fres = max(fres, 0.55 * gDeep);
+    vec3 Rv = reflect(-V, N);
+    float lobe = pow(max(dot(Rv, uKeyDir), 0.0), 18.0);
 
     vec3 sky = mix(uHorizon, uSkyColor, clamp(ndv * 1.4, 0.0, 1.0));
+    // uSkyColor is the HEMI tint (beige at golden), not the dome: mirrored,
+    // it is what read as khaki. At golden the zenith is still a cool blue;
+    // steep views reflect that, grazing views the warm horizon band.
+    vec3 zen = vec3(0.56, 0.66, 0.86) * dot(uHorizon, vec3(0.30, 0.59, 0.11)) * 1.1;
+    sky = mix(sky, mix(uHorizon, zen, clamp(ndv * 1.4, 0.0, 1.0)), gDeep);
     vec3 col = mix(body, sky, fres);
 
     // One tight glint. Still water has a small, hard sun spot, not a sheen.
     vec3 Hv = normalize(uKeyDir + V);
     col += uKeyColor * pow(max(dot(N, Hv), 0.0), 220.0) * 1.7;
     col += uKeyColor * max(h0, 0.0) * 2.0;
+    col += uKeyColor * lobe * 0.55 * gDeep;
 
     // Deep water has to be genuinely opaque or the bed reads straight through
     // it and the pond looks like a tinted window laid on the grass. The koi are
@@ -912,6 +928,7 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
     uSkyColor: { value: new THREE.Color(0x7fb0e8) },
     uHorizon: { value: new THREE.Color(0xcfe2f2) },
     uReflect: { value: 0.66 },   // update() drives this; see the note there
+    uGolden: { value: 0 },       // golden + twilight weight, from the raw phase
     uRipples: { value: Array.from({ length: RIPPLE_SLOTS }, () => new THREE.Vector4(0, 0, -999, 0)) },
     uDogWake: { value: new THREE.Vector4(0, 0, 0, 0) },
     uDogTrail: { value: new THREE.Vector2(0, 0) },
@@ -1559,6 +1576,8 @@ export function createPonds({ seed = 1337, wind, quality, heightAt = null, seaso
       // Straight down the pond is a window; at grazing angles it is a mirror.
       // Night pushes the mirror harder: there is nothing to see in the water.
       waterUniforms.uReflect.value = 0.66 + 0.22 * (phase.night ?? 0);
+      waterUniforms.uGolden.value = Math.min(1, (phase.golden ?? 0) + 0.6 * (phase.twilight ?? 0))
+        * (1 - (phase.night ?? 0));
     }
 
     if (!koiMesh) return;
