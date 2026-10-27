@@ -1,9 +1,9 @@
 /**
  * shiba.js — the playable Shiba Inu.
  *
- * Playable dog. Runtime body is the Sketchfab glTF (shiba-gltf.js) when the
- * asset loads; buildBody() in shiba-geom.js is the fallback. Same pose
- * contract either way.
+ * Playable dog. The body is built in shiba-geom.js (SDF skin, skeleton, rigid
+ * face / ears / tail, and the pose hooks that translate the gait intent below
+ * onto three-joint legs). No third-party asset.
  *
  * Scale is a deliberate lie. A real shiba stands 0.4 units at the withers in this
  * world, which is shorter than a blade of grass (0.55) and invisible from any
@@ -17,7 +17,7 @@ import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
 import { isOnPath } from './details.js';
 import { PARTICLE_KIND } from './particles.js';
-import { TAU, UP, SHIBA_BUILD, buildBody, makeCoatBump } from './shiba-geom.js';
+import { TAU, UP, SHIBA_BUILD, buildBody } from './shiba-geom.js';
 
 export const SHIBA = {
   walkSpeed: 6.4,
@@ -217,8 +217,7 @@ export function createShiba({
    * au-dessus d'un mur puis la chute laisse le chien prisonnier.
    */
   unstick = null,
-  /** Corps préconstruit, au contrat de buildBody() — le rig glTF de
-   *  shiba-gltf.js. `null` construit le chien procédural, qui est le repli. */
+  /** Corps préconstruit, au contrat de buildBody(). `null` : on le construit. */
   body = null,
 } = {}) {
   if (typeof heightAt !== 'function') {
@@ -249,22 +248,9 @@ export function createShiba({
   const barkRng = streamFor(seed, 'shiba:bark');
   const lookRng = streamFor(seed, 'shiba:look');
 
-  // Le corps peut être fourni tout fait (`body`) : c'est le rig glTF de
-  // shiba-gltf.js. Sinon on construit le chien procédural, qui reste le repli.
-  // Le matériau n'est créé QUE dans cette branche-là : le rig glTF apporte le
-  // sien, et lui imposer `vertexColors: true` sans attribut `color` rendrait le
-  // chien NOIR, silencieusement — piège n°2 d'AGENTS.md.
-  const rig = body ?? buildBody(new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.86,
-    metalness: 0.0,
-    flatShading: false,
-    // grain de pelage généré (REPRISE : « exportée, pas encore branchée »).
-    // Repli procédural SEULEMENT : les UV du glTF sont un atlas, une grille
-    // 6×14 y couperait les îlots de texture.
-    bumpMap: makeCoatBump(seed),
-    bumpScale: 0.02,
-  }));
+  // Le corps peut être fourni tout fait (`body`, au contrat de buildBody()) :
+  // les bancs en construisent un à part pour le poser à la main.
+  const rig = body ?? buildBody();
   const group = new THREE.Group();
   group.name = 'shiba-rig';
   group.add(rig.root);
@@ -598,8 +584,10 @@ export function createShiba({
       // Sitting. Sign convention matters more than the magnitudes here: a
       // positive rotation.x swings a limb BACKWARD and pitches the nose DOWN,
       // because the model faces +Z. The shake pose is a neutral braced stance.
-      const sitHip = leg.front ? 0.04 : -0.85;
-      const sitKnee = leg.front ? -0.04 : 1.95;
+      // Assis, le tronc bascule de -0.60 autour des épaules (poseBody) : les
+      // antérieurs compensent pour rester d'aplomb, l'arrière se plie en Z.
+      const sitHip = leg.front ? 0.52 : -0.31;
+      const sitKnee = leg.front ? -0.04 : 1.24;
       let hip = mix(locomotionHip, swimHip, swim);
       let knee = mix(locomotionKnee, swimKnee, swim);
       hip = mix(hip, sitHip, sit);
@@ -667,22 +655,22 @@ export function createShiba({
     const shakeTailWave = Math.sin((shakeS - 0.14) * 34) * shakeEnvelope;
 
     let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
-    bodyY = mix(bodyY, -0.20, sit);
+    bodyY = mix(bodyY, -0.03, sit);
     let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
     bodyRoll = mix(bodyRoll, 0, sit);
     // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
     let bodyPitch = mix(locomotionPitch, -0.18, swim);
-    bodyPitch = mix(bodyPitch, -0.30, sit);
-    // Même contrat que poseLeg : les trois valeurs sont FINALES. Un rig dont
-    // l'anatomie diffère les réinterprète — l'affaissement d'assise vaut -0.20
-    // pour une chaîne de patte de 0.52, il enterrerait un chien à moignons.
-    // Surtout, ce n'est PAS un facteur multiplicatif : bodyY a déjà absorbé
-    // l'assise ci-dessus, un facteur l'amplifierait avec le rebond.
+    bodyPitch = mix(bodyPitch, -0.60, sit);
+    // Même contrat que poseLeg : les trois valeurs sont FINALES. L'assise ne
+    // descend presque pas le tronc (-0.03) : c'est le tangage, pivoté sur les
+    // épaules par poseBody, qui pose l'arrière-train au sol.
     const bodyYF = mix(bodyY, 0, shake);
     const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
     const bodyPitchF = mix(bodyPitch, 0, shake);
+    // Le rein se voûte et s'étire une fois par foulée de galop.
+    const flex = Math.sin(state.gait + 0.6) * 0.16 * gallopW * speedN * (1 - swim) * (1 - shake);
     if (rig.poseBody) {
-      rig.poseBody(bodyYF, bodyPitchF, bodyRollF, { swim, sit, shake, speedN });
+      rig.poseBody(bodyYF, bodyPitchF, bodyRollF, { swim, sit, shake, speedN, flex });
     } else {
       rig.body.position.y = bodyYF;
       rig.body.rotation.z = bodyRollF;
@@ -742,7 +730,8 @@ export function createShiba({
       dt,
       headYaw: mix(headYaw, 0, shake),
       headPitch: mix(headPitch, 0, shake),
-      headRoll: mix(0, -shakeWave * 0.38, shake),
+      // Le penché de tête du chien intrigué, quand il fixe quelque chose.
+      headRoll: mix(state.look * 0.20 * (1 - speedN), -shakeWave * 0.38, shake),
       neckPitch: mix(neckPitch, 0, shake),
       neckRoll: mix(0, shakeWave * 0.55, shake),
     };
@@ -768,8 +757,10 @@ export function createShiba({
     // Rotate the curled plume onto the surface and sweep it gently as a rudder.
     let tailY = mix(locomotionTailY, Math.sin(state.swimGait * 0.5) * 0.13, swim);
     tailY = mix(tailY, locomotionTailY, sit);
-    let tailX = mix(locomotionTailX, 0.68, swim);
-    tailX = mix(tailX, 0.26, sit);
+    // La faucille se déroule vers l'arrière en gouvernail à la nage ; assis,
+    // elle reste enroulée sur le dos.
+    let tailX = mix(locomotionTailX, -0.62, swim);
+    tailX = mix(tailX, 0.04, sit);
     // Valeurs FINALES, comme les autres hooks. L'amplitude de battement (0.10
     // rad au repos) a été réglée pour un plumet long et fin ; sur un macaron
     // compact elle ne se voit pas.
@@ -791,10 +782,13 @@ export function createShiba({
     for (let i = 0; i < 2; i++) {
       const side = i === 0 ? -1 : 1;
       const flick = Math.sin(t * 7.3 + i * 2.1) * gust * 0.16;
-      const landEarX = -0.30 + 0.34 * speedN + flick;
-      const landEarZ = side * (0.20 + 0.10 * gust);
-      rig.ears[i].rotation.x = mix(landEarX, 0.46, swim);
-      rig.ears[i].rotation.z = mix(landEarZ, side * 0.08, swim);
+      // +X penche la pointe vers l'avant (le port du shiba au repos), -X la
+      // couche en arrière : à la course il les plaque, à la nage aussi.
+      // -side * z les ouvre vers l'extérieur.
+      const landEarX = 0.24 - 0.80 * speedN + flick;
+      const landEarZ = -side * (0.08 + 0.08 * gust + 0.18 * speedN);
+      rig.ears[i].rotation.x = mix(landEarX, -0.75, swim);
+      rig.ears[i].rotation.z = mix(landEarZ, -side * 0.32, swim);
     }
 
     // A high-excitement pant is continuous and readable without audio. The jaw
@@ -1007,11 +1001,9 @@ export function createShiba({
       }
     }
 
-    // La flottaison appartient au rig, parce qu'elle dépend de la hauteur de
-    // son dos : 0.85 laisse le chien procédural émerger de 0.486, et le chibi
-    // glTF de 0.080 seulement — il nagerait quasi submergé. La garde de la
-    // l.84, elle, reste sur les constantes : elle protège le rig procédural et
-    // s'évalue avant qu'aucun rig n'existe.
+    // La flottaison peut appartenir au rig (elle dépend de la hauteur de son
+    // dos) ; à défaut, SHIBA.swimFloat. Garrot à 0.80 × 1.35 = 1.08 : à 0.85
+    // le dos émerge de 0.23, la tête bien davantage.
     const targetY = state.swimming ? s - (rig.swimFloat ?? SHIBA.swimFloat) : ground;
     let landed = false;
     if (state.airborne) {
@@ -1138,13 +1130,8 @@ export function createShiba({
     removeEventListener('keyup', onKeyUp);
     removeEventListener('blur', onBlur);
     for (const g of rig.parts) g.dispose();
-    // Le rig POSSÈDE son matériau, quelle que soit sa provenance. La texture du
-    // rig glTF est partagée avec le MeshBasicMaterial que le loader avait rendu
-    // et que shiba-gltf.js a déjà libéré : dispose() d'un matériau ne touche
-    // pas à sa map, donc c'est bien ici qu'elle se libère, une seule fois.
-    rig.material.map?.dispose();
-    rig.material.bumpMap?.dispose();
-    rig.material.dispose();
+    // Le rig POSSÈDE ses matériaux (pelage, et truffe/yeux humides).
+    for (const m of rig.materials ?? [rig.material]) m.dispose();
     prints.geo.dispose();
     prints.material.dispose();
     prints.mesh.dispose();
@@ -1231,10 +1218,8 @@ export function createShiba({
         stickRunning = false;
       }
     },
-    /** Les quatre semelles, en coordonnées MONDE, dans l'ordre FL FR BL BR.
-     *  Ouvert pour l'invariant 12, qui doit mesurer la garde au sol sur les
-     *  DEUX corps possibles : le procédural la tire de son mesh nommé 'paw', le
-     *  glTF de sa géométrie skinnée, et le banc n'a pas à savoir lequel il a.
+    /** Les quatre semelles, en coordonnées MONDE, dans l'ordre FL FR BL BR,
+     *  mesurées sur la peau skinnée (invariant 12).
      *  Appeler group.updateMatrixWorld(true) avant. */
     soles: () => rig.legs.map((leg) => rig.sole(leg)),
     /** Banc seulement : pose nowT puis évalue la laisse live. */

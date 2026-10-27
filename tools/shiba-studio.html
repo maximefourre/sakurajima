@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier shiba</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #c9d6dc; overflow: hidden; font: 12px ui-monospace, Menlo, monospace; }
+  #info { position: fixed; top: 8px; left: 8px; background: rgba(255,255,255,.8); padding: 6px 8px; border-radius: 4px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "../vendor/three/build/three.module.js",
+  "three/addons/": "../vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="info">atelier shiba — <span id="stat"></span></div>
+<script type="module">
+/* Atelier du shiba : le corps seul, sous une lumière de jour, pour les gros
+ * plans et les poses. Outil de dev (tools/ ne part pas en production).
+ * Console : __st.pose('sit'), __st.view('side'), __st.animate('trot', 0.5). */
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { buildBody } from '../src/shiba-geom.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xc9d6dc);
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 50);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.6, 0.1);
+scene.add(new THREE.HemisphereLight(0xdfeaff, 0x6a5a40, 1.1));
+const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+sun.position.set(2.5, 4, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5 });
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(4, 48), new THREE.MeshStandardMaterial({ color: 0x8d9a6a, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const t0 = performance.now();
+const rig = buildBody();
+const ms = performance.now() - t0;
+scene.add(rig.root);
+const tris = rig.parts.reduce((s, g) => s + (g.index ? g.index.count : g.attributes.position.count) / 3, 0);
+document.getElementById('stat').textContent = `bake ${ms.toFixed(0)} ms, ${Math.round(tris)} triangles`;
+
+const VIEWS = {
+  side: [[2.6, 0.7, 0.1], [0, 0.6, 0.1]],
+  front: [[0.5, 0.95, 2.4], [0, 0.7, 0.2]],
+  threeq: [[1.7, 1.1, 1.8], [0, 0.6, 0.1]],
+  face: [[0.35, 1.0, 1.25], [0, 0.95, 0.6]],
+  back: [[-1.4, 1.3, -1.9], [0, 0.65, 0]],
+  top: [[0.01, 3.0, 0.1], [0, 0.6, 0.1]],
+};
+const view = (k) => { const [p, t] = VIEWS[k]; camera.position.set(...p); controls.target.set(...t); controls.update(); };
+view('threeq');
+
+const neutral = () => ({ hip: 0, knee: 0, sit: 0, swim: 0, pitch: 0, y: 0, roll: 0, flex: 0, headPitch: 0, neckPitch: 0, headYaw: 0, headRoll: 0, tailX: 0, tailY: 0 });
+let current = neutral();
+const POSES = {
+  stand: {},
+  sit: { sitPose: true },
+  swim: { swimPose: true },
+};
+function apply(p, legFn) {
+  rig.legs.forEach((leg, i) => {
+    const [h, k] = legFn ? legFn(leg, i) : [p.hip, p.knee];
+    rig.poseLeg(leg, h, k, { sit: p.sit, swim: p.swim });
+  });
+  rig.poseBody(p.y, p.pitch, p.roll, { sit: p.sit, flex: p.flex });
+  rig.poseHead({ dt: 0, headYaw: p.headYaw, headPitch: p.headPitch, headRoll: p.headRoll, neckPitch: p.neckPitch, neckRoll: 0 });
+  rig.poseTail(p.tailX, p.tailY, 0);
+}
+let anim = null;
+const GAITS = { walk: [[0, Math.PI, Math.PI * 0.5, Math.PI * 1.5], 0.30, 1.20], trot: [[0, Math.PI, Math.PI, 0], 0.62, 1.35], gallop: [[0, 0.35, Math.PI, Math.PI + 0.35], 0.95, 1.55] };
+const api = {
+  rig, scene, camera, renderer, view,
+  pose(name) {
+    anim = null;
+    const p = neutral();
+    if (name === 'sit') {
+      p.sit = 1; p.pitch = -0.60; p.y = -0.03; p.neckPitch = -0.28; p.headPitch = -0.05; p.tailX = 0.04;
+      apply(p, (leg) => (leg.front ? [0.52, -0.04] : [-0.31, 1.24]));
+    } else if (name === 'swim') {
+      p.swim = 1; p.pitch = -0.18; p.neckPitch = -0.12; p.headPitch = -0.24; p.tailX = -0.62;
+      apply(p, (leg, i) => [0.8 * (i % 2 ? 1 : -1), -0.9]);
+    } else apply(p);
+    for (const e of rig.ears) e.rotation.set(0.24, 0, 0);
+    rig.ears[0].rotation.z = 0.08; rig.ears[1].rotation.z = -0.08;
+    for (const l of rig.lids) l.rotation.x = -0.32;
+  },
+  animate(gait = 'trot', speedN = 0.5) { anim = { gait, speedN, ph: 0 }; },
+  stop() { anim = null; api.pose('stand'); },
+};
+globalThis.__st = api;
+api.pose('stand');
+// ?view=side&pose=sit&gait=trot&speed=0.5&t=0.3 : captures headless sans console.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('pose')) api.pose(q.get('pose'));
+  if (q.get('view')) view(q.get('view'));
+  if (q.get('legs')) {
+    // legs=hip,knee[,swim] : même angle sur les quatre pattes, comme le banc 26.
+    const [h, k, sw] = q.get('legs').split(',').map(Number);
+    const p = neutral(); p.swim = sw || 0;
+    apply(p, () => [h, k]);
+  }
+  if (q.has('stretch')) {
+    // Les 8 arêtes les plus étirées de la pose courante vs le repos.
+    const geo = rig.mesh.geometry, idx = geo.index.array, n = geo.attributes.position.count;
+    const t = new THREE.Vector3(), cur = [];
+    rig.root.updateMatrixWorld(true);
+    for (let v = 0; v < n; v++) cur.push(rig.mesh.getVertexPosition(v, t).clone());
+    const P = geo.attributes.position, rest = (v) => new THREE.Vector3().fromBufferAttribute(P, v);
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    const bones = (v) => [0, 1, 2, 3].filter((c) => sw.getComponent(v, c) > 0).map((c) => rig.skeleton.bones[si.getComponent(v, c)].name + ':' + sw.getComponent(v, c).toFixed(2)).join(' ');
+    const list = [];
+    for (let k = 0; k < idx.length; k += 3) for (const [i, j] of [[idx[k], idx[k + 1]], [idx[k + 1], idx[k + 2]], [idx[k + 2], idx[k]]]) {
+      const l0 = rest(i).distanceTo(rest(j)); if (l0 < 1e-4) continue;
+      list.push([cur[i].distanceTo(cur[j]) - l0, i, j, l0]);
+    }
+    list.sort((a, b) => b[0] - a[0]);
+    const out = list.slice(0, 8).map(([k, i, j, l0]) => `+${k.toFixed(4)} (l0 ${l0.toFixed(4)}) @${rest(i).toArray().map((x) => x.toFixed(3))} [${bones(i)}] / [${bones(j)}]`);
+    const pre = document.createElement('pre'); pre.id = 'stretch'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  }
+  if (q.has('probe')) {
+    // Positions monde des os, pour --dump-dom.
+    rig.root.updateMatrixWorld(true);
+    const out = {};
+    rig.skeleton.bones.forEach((b) => { const v = b.getWorldPosition(new THREE.Vector3()); out[b.name] = [v.x, v.y, v.z].map((n) => +n.toFixed(3)); });
+    out.soles = rig.legs.map((l) => { const s = rig.sole(l); return [s.x, s.y, s.z].map((n) => +n.toFixed(3)); });
+    const pre = document.createElement('pre'); pre.id = 'probe'; pre.textContent = JSON.stringify(out); document.body.appendChild(pre);
+  }
+  if (q.get('gait')) {
+    api.animate(q.get('gait'), Number(q.get('speed') ?? 0.5));
+    anim.ph = Number(q.get('ph') ?? 0);
+    anim.frozen = true;
+  }
+}
+
+const clock = new THREE.Clock();
+function frame() {
+  const dt = clock.getDelta();
+  if (anim) {
+    const [ph, amp, kn] = GAITS[anim.gait];
+    if (!anim.frozen) anim.ph += dt * (5.2 + anim.speedN * 7.5) * (0.25 + anim.speedN);
+    const p = neutral();
+    p.y = Math.sin(anim.ph * 2) * 0.056 * anim.speedN;
+    p.pitch = -0.05 * anim.speedN + (anim.gait === 'gallop' ? Math.sin(anim.ph) * 0.09 : 0);
+    p.flex = anim.gait === 'gallop' ? Math.sin(anim.ph + 0.6) * 0.16 * anim.speedN : 0;
+    p.tailY = Math.sin(anim.ph * 0.7) * 0.3;
+    apply(p, (leg, i) => {
+      const a = anim.ph + ph[i];
+      return [Math.sin(a) * amp, -Math.max(0, -Math.cos(a)) * amp * kn];
+    });
+    rig.ears.forEach((e, i) => { e.rotation.x = 0.24 - 0.8 * anim.speedN; e.rotation.z = (i ? -1 : 1) * (0.08 + 0.18 * anim.speedN); });
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

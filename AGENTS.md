@@ -25,6 +25,6 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
 - Debug : `globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock }`.
   `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
 - Contrôles : ZQSD, `Maj` court, `C` caméra, Espace saut, `P` pause du temps,
-  `H` HUD (sauf crédit CC-BY), `Échap` reset. Boot à midi figé.
+  `H` HUD, `Échap` reset. Boot à midi figé.
 - Vercel : servi tel quel ; `.vercelignore` exclut `*.md`, `docs/`, `tools/`,
-  `serve.py`. `test/` est public (voulu). `assets/shiba/LICENSE.txt` reste (CC-BY).
+  `serve.py`. `test/` est public (voulu).

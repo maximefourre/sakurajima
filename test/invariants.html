@@ -65,8 +65,7 @@ import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { createPetals, isPetalSand, forEachCarpetLeaf, airbornePetalAt, nearestAirbornePetal } from '../src/petals.js';
 import { trunkHits } from '../src/sakura.js';
-import { SHIBA_BUILD } from '../src/shiba-geom.js';
-import { loadShibaBody } from '../src/shiba-gltf.js';
+import { SHIBA_BUILD, buildBody } from '../src/shiba-geom.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry, computeSnagSite, makeSnagGeometry } from '../src/poi.js';
@@ -878,23 +877,16 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
  * un second attach ici, il serait sans effet utile.
  */
 
-/* ── le rig glTF, chargé une fois pour les invariants 12 et 22 à 26 ───────
- * Le harnais gagne ici son PREMIER await, et c'est le seul montage correct :
- * le module est un module ES, donc le top-level await est disponible, alors
- * qu'un check fait dans un .then s'ajouterait APRÈS la ligne « INVARIANTS: »
- * sans être compté, et qu'un rejet ne serait vu que par le unhandledrejection
- * de la l.34 — qui n'incrémente PAS `fail`.
- *
- * L'URL est relative à test/. Un asset absent doit FAIRE ÉCHOUER les
- * invariants qui en dépendent, pas les sauter : sinon la page imprime
- * « 21 pass, 0 fail » en vert alors que rien du chantier n'a été testé.
+/* ── le rig du shiba, construit une fois pour les invariants 22 à 26 ───────
+ * Construit À PART de tout createShiba : dispose() libère la géométrie du rig
+ * qu'on lui passe, et ces invariants posent les os à la main. Une exception
+ * de construction doit FAIRE ÉCHOUER les cinq, pas les sauter.
  */
-let gltfRig = null, gltfCause = '';
+let shibaRig = null, rigCause = '';
 try {
-  gltfRig = await loadShibaBody({ url: '../assets/shiba/shiba.glb' });
-  if (!gltfRig) gltfCause = 'loadShibaBody a rendu null — voir le warn ci-dessus';
+  shibaRig = buildBody();
 } catch (e) {
-  gltfCause = String(e && e.message ? e.message : e);
+  rigCause = String(e && e.message ? e.message : e);
 }
 
 /* ── 11. il nage, il n'est pas un sous-marin ─────────────────────────────── */
@@ -906,21 +898,10 @@ try {
     + `(dos émergé ${(centre - SHIBA.swimFloat).toFixed(3)})`);
 }
 
-/* ── 12. le plan des pattes est bien à position.y, SUR LES DEUX CORPS ──────
- * Côté procédural, c'est le seul invariant qui empêche MÉCANIQUEMENT de
- * raccourcir un tibia sans corriger standHeight : les deux vivent dans
- * SHIBA_BUILD, et si on les désynchronise le chien s'enfonce ou flotte.
- *
- * Il passe désormais par `shiba.soles()` et non plus par un `traverse` qui
- * cherchait un mesh nommé 'paw' : le rig glTF n'a qu'un SkinnedMesh, ce nom
- * n'y existe pas, et le test aurait échoué avec lowest = Infinity — pour une
- * mauvaise raison. Chaque rig sait mesurer SES pieds ; le banc n'a pas à
- * savoir lequel il tient.
- *
- * Le seuil de 0.09 ne bouge pas côté glTF. Ne PAS le serrer sous prétexte que
- * la normalisation pose les semelles à y = 0 : ce qu'on mesure est la semelle
- * SKINNÉE, pas la géométrie de repos, et le chien est posé sur un terrain
- * interpolé.
+/* ── 12. le plan des pattes est bien à position.y ────────────────────────
+ * Mesuré par `shiba.soles()` : la semelle SKINNÉE (plus bas sommet que domine
+ * l'os du pied), pas la géométrie de repos — le chien est posé sur un terrain
+ * interpolé, d'où la tolérance.
  */
 {
   const water = {
@@ -931,25 +912,15 @@ try {
     },
     impact: () => {}, setSwimmer: () => {},
   };
-  const garde = (corps) => {
-    const shiba = createShiba({ seed: SEED, heightAt: island.heightAt, water, body: corps });
-    shiba.update(0, 0.016, null);
-    shiba.group.updateMatrixWorld(true);
-    const bas = Math.min(...shiba.soles().map((p) => p.y));
-    const gap = bas - shiba.position.y;
-    shiba.dispose();
-    return gap;
-  };
-  const gapProc = garde(null);
-  // Un SECOND rig glTF, exprès : dispose() libère la géométrie du corps qu'on
-  // lui passe, et les invariants 22 à 26 travaillent encore sur le premier.
-  const corpsGltf = gltfRig ? await loadShibaBody({ url: '../assets/shiba/shiba.glb' }) : null;
-  const gapGltf = corpsGltf ? garde(corpsGltf) : NaN;
-  const fmt = (g) => (Number.isNaN(g) ? 'absent' : `${g >= 0 ? '+' : ''}${g.toFixed(3)}`);
-  check('les pattes touchent le sol logique (procédural ET glTF)',
-    Math.abs(gapProc) < 0.09 && corpsGltf !== null && Math.abs(gapGltf) < 0.09,
-    `procédural ${fmt(gapProc)}, glTF ${fmt(gapGltf)} sous position.y, plafond 0.090`
-    + (corpsGltf ? '' : ` — ${gltfCause}`));
+  const shiba = createShiba({ seed: SEED, heightAt: island.heightAt, water });
+  shiba.update(0, 0.016, null);
+  shiba.group.updateMatrixWorld(true);
+  const bas = Math.min(...shiba.soles().map((p) => p.y));
+  const gap = bas - shiba.position.y;
+  shiba.dispose();
+  check('les pattes touchent le sol logique',
+    Math.abs(gap) < 0.09,
+    `${gap >= 0 ? '+' : ''}${gap.toFixed(3)} sous position.y, plafond 0.090`);
 }
 
 /* ── 13. pondWaterYAt cohérent, et sans contamination d'isInPond ──────────
@@ -1050,15 +1021,16 @@ try {
   };
   const dog = createShiba({ seed: SEED, heightAt: island.heightAt, water, body: null });
   {
-    // repli procédural : le grain de pelage est branché (bumpScale 0.02)
-    let bumped = 0, meshes = 0;
+    // Piège 2 d'AGENTS.md : un matériau vertexColors sur un mesh sans
+    // attribut `color` rend NOIR, silencieusement. Toute pièce du chien en a un.
+    let painted = 0, meshes = 0;
     dog.group.traverse((o) => {
       if (!o.isMesh || o.isInstancedMesh) return;
       meshes++;
-      if (o.material?.bumpMap && Math.abs(o.material.bumpScale - 0.02) < 1e-6) bumped++;
+      if (!o.material.vertexColors || o.geometry.getAttribute('color')) painted++;
     });
-    check('shiba procédural : grain de pelage (makeCoatBump) branché',
-      meshes > 0 && bumped === meshes, `${bumped}/${meshes} meshes`);
+    check('shiba : chaque pièce du pelage porte ses couleurs de sommet',
+      meshes > 0 && painted === meshes, `${painted}/${meshes} meshes`);
   }
   let crestOpens = false;
   let maxS = -Infinity;
@@ -1538,18 +1510,8 @@ check('bancs d’ondes disjoints',
         + `${poses} poses sur corolle, garde min ${pireGarde.toFixed(2)}, 60 s de fuites sans sortie en mer`);
 }
 
-/* ── 22 à 26. le rig glTF du shiba ────────────────────────────────────────
- * Le harnais gagne ici son PREMIER await, et c'est le seul montage correct :
- * le module est un module ES, donc le top-level await est disponible, alors
- * qu'un check fait dans un .then s'ajouterait APRÈS la ligne « INVARIANTS: »
- * sans être compté, et qu'un rejet ne serait vu que par le unhandledrejection
- * de la l.34 — qui n'incrémente PAS `fail`.
- *
- * L'URL est relative à test/. Un asset absent doit FAIRE ÉCHOUER les cinq
- * invariants, pas les sauter : sinon la page imprime « 21 pass, 0 fail » en
- * vert alors que rien du chantier n'a été testé.
- *
- * UNITÉS. Le rig est chargé seul, donc `root.scale` vaut 1 et tout ce qu'on
+/* ── 22 à 26. le rig du shiba ─────────────────────────────────────────────
+ * UNITÉS. Le rig est construit seul, donc `root.scale` vaut 1 et tout ce qu'on
  * mesure ici est en unités de CONSTRUCTION. En jeu, shiba.js pose
  * root.scale = SHIBA_BUILD.scale : les seuils qui se comparent à une constante
  * de monde (la flottaison) multiplient explicitement par ce facteur.
@@ -1560,56 +1522,33 @@ function osDominant(r, v) {
   const si = r.mesh.geometry.attributes.skinIndex;
   const sw = r.mesh.geometry.attributes.skinWeight;
   let best = -1, bi = 0;
-  for (const c of ['X', 'Y', 'Z', 'W']) {
-    const w = sw['get' + c](v);
-    if (w > best) { best = w; bi = si['get' + c](v); }
+  for (let c = 0; c < 4; c++) {
+    const w = sw.getComponent(v, c);
+    if (w > best) { best = w; bi = si.getComponent(v, c); }
   }
   return r.skeleton.bones[bi].name;
 }
 function compterDominance(r) {
   const m = new Map(r.skeleton.bones.map((b) => [b.name, 0]));
   const n = r.mesh.geometry.attributes.position.count;
-  for (let v = 0; v < n; v++) m.set(osDominant(r, v), m.get(osDominant(r, v)) + 1);
+  for (let v = 0; v < n; v++) { const k = osDominant(r, v); m.set(k, m.get(k) + 1); }
   return m;
 }
-/** Hauteur du dos VISIBLE, en unités de construction : le plus haut vertex du
- *  tronc, DERRIÈRE le crâne et DEVANT la queue, près de l'axe.
- *  La fenêtre est bornée PAR MESURE, pas par transposition : le profil médian
- *  monte de 0.676 à z = -0.20 jusqu'à 0.905 à z = -0.10, donc le crâne commence
- *  vers z = -0.15 et toute fenêtre qui va au-delà mesure la base du crâne (elle
- *  annonçait 0.711 au lieu de 0.689). La spec, elle, donne 0.650 : elle a été
- *  mesurée en tranches PLEINE LARGEUR, or le point haut du tronc est sur l'axe
- *  médian — c'est la ligne de dos, justement.
- *
- *  Deux pièges évités ici, tous deux payés pendant le chantier G :
- *  — ne PAS prendre SHIBA_BUILD.standHeight, qui est la somme de la chaîne de
- *    patte, donc la ligne MÉDIANE et non le dos. L'invariant 11 fait cette
- *    confusion, comme le commentaire de shiba.js:81-82 ; sur le chien
- *    procédural elle est sans conséquence, sur le chibi elle vaut 0.29 u — la
- *    différence entre un chien qui nage et un chien qui coule.
- *  — ne PAS prendre « le plus haut vertex dominé par l'os body » : la porte de
- *    la tête est nulle en z < 0, donc l'ARRIÈRE DU CRÂNE retombe sur body et
- *    la mesure annonçait 1.006 au lieu de 0.650. */
-function hauteurDosGltf(r) {
+/** Hauteur du dos VISIBLE : le plus haut sommet de peau près de l'axe, entre la
+ *  croupe et le garrot — devant, c'est déjà le cou. Pas SHIBA_BUILD.standHeight,
+ *  qui est le pivot du tronc et non sa ligne de dos. */
+function hauteurDos(r) {
   const pos = r.mesh.geometry.attributes.position;
   let h = -Infinity;
   for (let v = 0; v < pos.count; v++) {
     const z = pos.getZ(v);
-    if (z > -0.90 && z < -0.15 && Math.abs(pos.getX(v)) < 0.10) {
-      h = Math.max(h, pos.getY(v));
-    }
+    if (z > -0.35 && z < 0.25 && Math.abs(pos.getX(v)) < 0.08) h = Math.max(h, pos.getY(v));
   }
   return h;
 }
-
-/** Centroïde des appuis en contact, sur la géométrie SKINNÉE au repos, en
- *  unités de construction. C'est la définition EXACTE qu'emploie la
- *  normalisation de shiba-gltf.js — et c'est le point : une version antérieure
- *  de cet invariant passait par `sole()`, qui rend le point le plus BAS d'une
- *  patte et non le centroïde de sa semelle, et trouvait un décentrage de 0.026
- *  là où il n'y en a pas. Mesurer par une autre définition, c'est mesurer autre
- *  chose. */
-function milieuAppuisGltf(r) {
+/** Centroïde des appuis en contact (sommets à moins de 0.02 de la semelle),
+ *  avant et arrière séparés par z = 0. */
+function milieuAppuis(r) {
   const pos = r.mesh.geometry.attributes.position;
   const tmp = new THREE.Vector3();
   const skin = [];
@@ -1619,59 +1558,54 @@ function milieuAppuisGltf(r) {
     skin.push(tmp.clone());
     yMin = Math.min(yMin, tmp.y);
   }
-  // Le seuil de contact suit l'échelle appliquée à la géométrie.
-  const seuil = 0.02 * 0.823;
-  const split = -0.40 * 0.823 + 0.300;
   let zAv = 0, nAv = 0, zAr = 0, nAr = 0;
   for (const p of skin) {
-    if (p.y - yMin >= seuil) continue;
-    if (p.z > split) { zAv += p.z; nAv++; } else { zAr += p.z; nAr++; }
+    if (p.y - yMin >= 0.02) continue;
+    if (p.z > 0) { zAv += p.z; nAv++; } else { zAr += p.z; nAr++; }
   }
-  if (!nAv || !nAr) return NaN;
+  if (!nAv || !nAr) return { milieu: NaN, semelle: yMin };
   return { milieu: (zAv / nAv + zAr / nAr) / 2, semelle: yMin, nAv, nAr };
 }
 
-/* ── 22. le rig glTF expose le contrat complet ── */
+/* ── 22. le rig expose le contrat complet ── */
 {
-  const r = gltfRig;
+  const r = shibaRig;
   const manque = !r ? ['rig absent'] : [
     ...['root', 'tilt', 'body', 'neck', 'head', 'jaw', 'tailBase', 'material', 'mesh', 'skeleton']
       .filter((k) => !r[k]),
     ...(r.lids && r.lids.length === 2 ? [] : ['lids[2]']),
     ...(r.ears && r.ears.length === 2 ? [] : ['ears[2]']),
     ...(r.legs && r.legs.length === 4 ? [] : ['legs[4]']),
-    ...(typeof r.sole === 'function' ? [] : ['sole()']),
-    ...(typeof r.poseLeg === 'function' ? [] : ['poseLeg()']),
-    ...(typeof r.poseBody === 'function' ? [] : ['poseBody()']),
+    ...['sole', 'poseLeg', 'poseBody', 'poseHead', 'poseTail']
+      .filter((k) => typeof r[k] !== 'function').map((k) => k + '()'),
     ...(r.parts && typeof r.parts[Symbol.iterator] === 'function' ? [] : ['parts itérable']),
   ];
   // L'ORDRE des pattes porte du sens : GAITS.trot.ph = [0, π, π, 0] apparie
   // legs[0] avec legs[3] et legs[1] avec legs[2] — ce sont les DIAGONALES. Un
   // ordre FL, BL, FR, BR ferait trotter le chien à l'amble, sans une erreur.
+  const wx = (o) => o.getWorldPosition(new THREE.Vector3()).x;
   const ordreOk = !!r && r.legs && r.legs.length === 4
     && r.legs[0].front && r.legs[1].front && !r.legs[2].front && !r.legs[3].front
-    && Math.sign(r.legs[0].hip.position.x) === -Math.sign(r.legs[1].hip.position.x)
-    && Math.sign(r.legs[2].hip.position.x) === -Math.sign(r.legs[3].hip.position.x);
-  check('rig glTF : contrat complet, pattes FL FR BL BR',
+    && wx(r.legs[0].hip) < 0 && wx(r.legs[1].hip) > 0
+    && wx(r.legs[2].hip) < 0 && wx(r.legs[3].hip) > 0;
+  check('rig shiba : contrat complet, pattes FL FR BL BR',
     manque.length === 0 && ordreOk,
     r ? `${r.skeleton.bones.length} os, pattes ${r.legs.map((l) => l.key).join(' ')}`
         + (manque.length ? ` — manque : ${manque.join(', ')}` : '')
         + (ordreOk ? '' : ' — ORDRE DES PATTES FAUX')
-      : gltfCause);
+      : rigCause);
 }
 
 /* ── 23. échelle, orientation, et le dos hors de l'eau ── */
 {
-  const r = gltfRig;
-  let ok = false, detail = gltfCause;
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
   if (r) {
     r.root.updateMatrixWorld(true);
-    const { milieu, semelle } = milieuAppuisGltf(r);
+    const { milieu, semelle } = milieuAppuis(r);
     const zTete = r.head.getWorldPosition(new THREE.Vector3()).z;
     const zQueue = r.tailBase.getWorldPosition(new THREE.Vector3()).z;
-    // Version *rig* de l'invariant 11 : lui ne teste que des constantes et
-    // laisserait passer un chibi submergé.
-    const dos = hauteurDosGltf(r) * SHIBA_BUILD.scale;
+    const dos = hauteurDos(r) * SHIBA_BUILD.scale;
     const flot = r.swimFloat ?? SHIBA.swimFloat;
     ok = Math.abs(milieu) <= 0.02 && Math.abs(semelle) <= 0.02
       && zTete > zQueue && dos > flot + 0.03;
@@ -1679,13 +1613,13 @@ function milieuAppuisGltf(r) {
       + `(plafonds 0.020), dos ${dos.toFixed(3)} > flottaison ${flot} `
       + `(émergé ${(dos - flot).toFixed(3)})`;
   }
-  check('rig glTF : appuis centrés, +Z, dos hors de l’eau', ok, detail);
+  check('rig shiba : appuis centrés, +Z, dos hors de l’eau', ok, detail);
 }
 
 /* ── 24. poids bien formés ── */
 {
-  const r = gltfRig;
-  let ok = false, detail = gltfCause;
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
   if (r) {
     const si = r.mesh.geometry.attributes.skinIndex;
     const sw = r.mesh.geometry.attributes.skinWeight;
@@ -1693,8 +1627,8 @@ function milieuAppuisGltf(r) {
     let pire = 0, horsBornes = 0, negatifs = 0, parasites = 0;
     for (let v = 0; v < si.count; v++) {
       let s = 0;
-      for (const c of ['X', 'Y', 'Z', 'W']) {
-        const w = sw['get' + c](v), i = si['get' + c](v);
+      for (let c = 0; c < 4; c++) {
+        const w = sw.getComponent(v, c), i = si.getComponent(v, c);
         s += w;
         if (w < 0) negatifs++;
         if (i < 0 || i >= n) horsBornes++;
@@ -1708,113 +1642,112 @@ function milieuAppuisGltf(r) {
     detail = `écart max à 1 : ${pire.toExponential(2)}, hors bornes ${horsBornes}, `
       + `négatifs ${negatifs}, indices parasites ${parasites}`;
   }
-  check('rig glTF : poids bien formés', ok, detail);
+  check('rig shiba : poids bien formés', ok, detail);
 }
 
 /* ── 25. rig non dégénéré ── */
 {
-  const r = gltfRig;
-  let ok = false, detail = gltfCause;
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
   if (r) {
     const dom = compterDominance(r);
     const pattes = r.skeleton.bones.filter((b) => /^(hip|knee|paw)/.test(b.name));
     const minPatte = Math.min(...pattes.map((b) => dom.get(b.name) || 0));
-    const tronc = ['head', 'neck', 'tailBase', 'lidL', 'lidR'];
+    const tronc = ['head', 'neck', 'body', 'pelvis'];
     const minTronc = Math.min(...tronc.map((k) => dom.get(k) || 0));
-    // `jaw` à EXACTEMENT 0 est la version testable de « aucun vertex sous son
-    // influence » : la gueule est peinte dans la texture. `tilt` est exclu, il
-    // est structurel.
-    ok = minPatte >= 20 && minTronc >= 10 && (dom.get('jaw') || 0) === 0;
+    // Mâchoire, oreilles et queue sont des pièces RIGIDES accrochées à leur os :
+    // aucun sommet de peau ne doit leur appartenir.
+    const rigides = ['jaw', 'earL', 'earR', 'tailBase'].reduce((s, k) => s + (dom.get(k) || 0), 0);
+    ok = minPatte >= 20 && minTronc >= 50 && rigides === 0;
     detail = `os de patte le plus pauvre ${minPatte} (plancher 20), `
-      + `tronc/tête ${minTronc} (plancher 10), jaw ${dom.get('jaw')} (doit être 0)`;
+      + `tronc/tête ${minTronc} (plancher 50), pièces rigides ${rigides} (doit être 0)`;
   }
-  check('rig glTF : chaque os porte de la matière, jaw aucune', ok, detail);
+  check('rig shiba : chaque os porte de la matière, pièces rigides aucune', ok, detail);
 }
 
-/* ── 26. non-explosion sur 12 poses, et latéralité ────────────────────────
- * Les poses sont posées DIRECTEMENT sur les os, via poseLeg/poseBody :
- * animate() est privée du closure de createShiba, ce n'est pas une API de
- * test, et on ne duplique pas sa formule non plus.
- *
- * RÉSERVE, à lire avant de toucher aux seuils : cet invariant attrape les
- * EXPLOSIONS, pas les défauts de peau. Pendant le chantier G, une déchirure du
- * ventre bien visible en gros plan donnait une dérive de 0.290 pour un plafond
- * de 0.35 — il aurait déclaré la chose saine. Le gros plan reste obligatoire.
- * Et la marge est mince : le pire cas mesuré (0.335) est le SECOUAGE, dont
- * l'essentiel est une rotation RIGIDE de tout le corps, pas une déformation.
+/* ── 26. non-déchirure sur 12 poses, et latéralité ─────────────────────────
+ * Les poses passent par les HOOKS (poseLeg / poseBody / poseHead / poseTail),
+ * le chemin qu'emprunte animate(). On mesure l'ALLONGEMENT ABSOLU des arêtes
+ * de la peau (unités de construction). Ni une dérive de sommets (qui confond
+ * déchirure et rotation rigide) ni un ratio (qui explose sur les arêtes de
+ * 1 mm des surface nets) : mesuré au 27/10, l'aisselle s'étire de 0.040 à la
+ * nage et 0.046 au galop arrière, une nappe tirée entre deux os dépasse 0.1.
  */
 {
-  const r = gltfRig;
-  let ok = false, detail = gltfCause;
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
   if (r) {
     const POSES = [
       ['repos', { hip: 0, knee: 0, sit: 0 }],
       ['marche φ0', { hip: 0.30, knee: -0.36, sit: 0 }],
       ['trot φ0', { hip: 0.62, knee: -0.84, sit: 0 }],
-      ['galop φ0', { hip: 0.95, knee: -1.47, sit: 0 }],
+      ['galop φ0', { hip: 0.95, knee: -1.47, sit: 0, flex: 0.16 }],
       ['marche φπ', { hip: -0.30, knee: -0.36, sit: 0 }],
       ['trot φπ', { hip: -0.62, knee: -0.84, sit: 0 }],
-      ['galop φπ', { hip: -0.95, knee: -1.47, sit: 0 }],
-      ['nage', { hip: 1.34, knee: -1.20, sit: 0 }],
-      ['assise', { hip: -0.85, knee: 1.95, sit: 1 }],
+      ['galop φπ', { hip: -0.95, knee: -1.47, sit: 0, flex: -0.16 }],
+      ['nage', { hip: 1.34, knee: -1.20, sit: 0, swim: 1 }],
+      ['assise', { sit: 1, pitch: -0.60 }],
       ['secouage', { hip: 0, knee: 0, sit: 0, roll: 0.42 }],
       ['galop + tête', { hip: -0.95, knee: -1.47, sit: 0, head: 0.7, tail: 0.9 }],
-      ['assise + clin', { hip: -0.85, knee: 1.95, sit: 1, blink: 1, ear: 0.46 }],
+      ['assise + regard', { sit: 1, pitch: -0.60, head: -0.6, headPitch: -0.6 }],
     ];
     const poser = (p) => {
-      for (const leg of r.legs) r.poseLeg(leg, p.hip, p.knee, { swim: 0, sit: p.sit, shake: 0, speedN: 0 });
-      r.poseBody(0, 0, p.roll || 0, { swim: 0, sit: p.sit, shake: 0, speedN: 0 });
-      // Par les HOOKS, pas par des écritures directes : c'est le chemin que
-      // animate() emprunte, saturations comprises. Écrire les rotations à la
-      // main testerait un rig que personne ne pilote.
-      r.poseHead({ headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
+      r.poseBody(0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0, flex: p.flex || 0 });
+      for (const leg of r.legs) {
+        // Assise : les angles qu'animate() envoie (sitHip / sitKnee de shiba.js).
+        const hip = p.sit ? (leg.front ? 0.52 : -0.31) : p.hip;
+        const knee = p.sit ? (leg.front ? -0.04 : 1.24) : p.knee;
+        r.poseLeg(leg, hip, knee, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0 });
+      }
+      r.poseHead({ dt: 0, headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
         neckPitch: 0, neckRoll: 0 });
       r.poseTail(0, p.tail || 0, 0);
-      for (const l of r.lids) l.rotation.x = p.blink ? 0.58 : -0.32;
-      for (const e of r.ears) e.rotation.x = p.ear ?? -0.30;
       r.root.updateMatrixWorld(true);
     };
-    const pos = r.mesh.geometry.attributes.position;
+    const geo = r.mesh.geometry;
+    const idx = geo.index.array;
+    const n = geo.attributes.position.count;
     const tmp = new THREE.Vector3();
+    const skinned = () => {
+      const a = new Float32Array(n * 3);
+      for (let v = 0; v < n; v++) { r.mesh.getVertexPosition(v, tmp); a[v * 3] = tmp.x; a[v * 3 + 1] = tmp.y; a[v * 3 + 2] = tmp.z; }
+      return a;
+    };
+    const len = (a, i, j) => Math.hypot(a[i * 3] - a[j * 3], a[i * 3 + 1] - a[j * 3 + 1], a[i * 3 + 2] - a[j * 3 + 2]);
     poser(POSES[0][1]);
-    const repos = [];
-    for (let v = 0; v < pos.count; v++) repos.push(r.mesh.getVertexPosition(v, tmp).clone());
-    const diagRepos = new THREE.Box3().setFromPoints(repos).getSize(new THREE.Vector3()).length();
-
-    let pireD = 0, pirePose = '', pireVol = 0;
+    const repos = skinned();
+    let pire = 0, pirePose = '';
     for (const [nom, p] of POSES) {
       poser(p);
-      const pts = [];
-      for (let v = 0; v < pos.count; v++) {
-        r.mesh.getVertexPosition(v, tmp);
-        pts.push(tmp.clone());
-        const d = tmp.distanceTo(repos[v]);
-        if (d > pireD) { pireD = d; pirePose = nom; }
+      const cur = skinned();
+      for (let t = 0; t < idx.length; t += 3) {
+        for (const [i, j] of [[idx[t], idx[t + 1]], [idx[t + 1], idx[t + 2]], [idx[t + 2], idx[t]]]) {
+          const k = len(cur, i, j) - len(repos, i, j);
+          if (k > pire) { pire = k; pirePose = nom; }
+        }
       }
-      const diag = new THREE.Box3().setFromPoints(pts).getSize(new THREE.Vector3()).length();
-      pireVol = Math.max(pireVol, diag / diagRepos);
     }
     poser(POSES[0][1]);
 
     // Latéralité : aucun vertex d'un côté ne reçoit de poids d'une patte de
     // l'autre. C'est ce qui garantit que les pattes ne se collent pas.
-    const si = r.mesh.geometry.attributes.skinIndex;
-    const sw = r.mesh.geometry.attributes.skinWeight;
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    const pos = geo.attributes.position;
     let fuites = 0;
-    for (let v = 0; v < pos.count; v++) {
+    for (let v = 0; v < n; v++) {
       const x = pos.getX(v);
       if (Math.abs(x) <= 0.02) continue;
-      for (const c of ['X', 'Y', 'Z', 'W']) {
-        if (sw['get' + c](v) <= 0) continue;
-        const m = /^(hip|knee|paw)[FB]([LR])$/.exec(r.skeleton.bones[si['get' + c](v)].name);
+      for (let c = 0; c < 4; c++) {
+        if (sw.getComponent(v, c) <= 0) continue;
+        const m = /^(hip|knee|paw)[FB]([LR])$/.exec(r.skeleton.bones[si.getComponent(v, c)].name);
         if (m && ((m[2] === 'L' && x > 0.02) || (m[2] === 'R' && x < -0.02))) fuites++;
       }
     }
-    ok = pireD <= 0.35 && pireVol <= 2 && fuites === 0;
-    detail = `dérive max ${pireD.toFixed(3)} sur « ${pirePose} » (plafond 0.350), `
-      + `bbox ×${pireVol.toFixed(2)} (plafond 2.00), fuites latérales ${fuites}`;
+    ok = pire <= 0.08 && fuites === 0;
+    detail = `allongement d'arête max ${pire.toFixed(3)} sur « ${pirePose} » (plafond 0.080), `
+      + `fuites latérales ${fuites}`;
   }
-  check('rig glTF : aucune explosion sur 12 poses, pattes non collées', ok, detail);
+  check('rig shiba : aucune déchirure sur 12 poses, pattes non collées', ok, detail);
 }
 
 /* ── lot 6. shiba : aboie, se secoue, regarde ─────────────────────────────
@@ -1913,7 +1846,7 @@ function milieuAppuisGltf(r) {
 {
   const posedYaw = (dog) => {
     let y = null;
-    dog.group.traverse((o) => { if (o.name === 'skull' && o.parent) y = o.parent.rotation.y; });
+    dog.group.traverse((o) => { if (o.isBone && o.name === 'head') y = o.rotation.y; });
     return y;
   };
   const dog = createShiba({

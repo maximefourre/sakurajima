@@ -225,16 +225,6 @@
     border-top: 1px solid rgba(244,236,226,.08);
     font-size: .6rem; letter-spacing: .1em; line-height: 1.9; opacity: .3;
   }
-  /* Attribution CC-BY du seul asset tiers du projet. Obligatoire, donc elle
-     vit hors #panel / #hud : H masque l'interface, pas ce crédit. Discrete :
-     ce n'est pas une commande, elle ne se lit qu'une fois. */
-  #credit {
-    position: fixed; bottom: 0.7rem; left: 0.9rem; z-index: 21;
-    font-size: .55rem; letter-spacing: .06em;
-    opacity: .45; pointer-events: none;
-    text-shadow: 0 1px 10px rgba(0,0,0,.75);
-  }
-  :root.touch #credit { left: 0.9rem; bottom: calc(env(safe-area-inset-bottom, 0px) + 0.6rem); }
   .hint kbd {
     font-family: ui-monospace, Menlo, monospace;
     background: rgba(244,236,226,.09);
@@ -462,7 +452,6 @@
   <div id="touch-hint">joystick : promener le shiba</div>
 </div>
 
-<div id="credit">Modèle du shiba : « Shiba » par zixisun02 — CC-BY 4.0</div>
 
 <div id="fatal"></div>
 
