@@ -36,7 +36,7 @@ eau ondes wake pondWaterYAt → ponds.js ; verification.md
 saison automne printemps → season.js ; seasonal-foliage.js
 ciel lune étoiles brouillard nuit → sky.js
 nuages ombres de nuages → clouds.js ; cloud-shadow.js
-audio sons ambiance → audio.js ; config.js AMBIENCE
+audio sons ambiance cigales cicada phrases surf grenouilles → audio.js ; config.js AMBIENCE
 POI chashitsu pas japonais stoneYAt signes torii marin → poi.js ; chashitsu.js
 tactile mobile touch → touch.js
 rivière pont → supprimés, ne pas réintroduire (pieges.md#règles)

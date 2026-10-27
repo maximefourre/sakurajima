@@ -84,6 +84,65 @@ function makeBed(ctx, dest, { type, freq, q = 1, rate = 0, depth = 0 }) {
   return gain;
 }
 
+/**
+ * Une cigale : bruit en bande étroite, trille AM rapide, phrase (gain
+ * piloté par update) puis panoramique. Le lit global n'est plus un souffle
+ * continu — chaque voix chante par phrases séparées de silences.
+ */
+function makeCicadaVoice(ctx, dest, { freq, pan, trill }) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(ctx);
+  src.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = freq;
+  filter.Q.value = 4;
+  // Trille : gain oscillant 0..1 (pas un léger tremolo de 2 %).
+  const am = ctx.createGain();
+  am.gain.value = 0.5;
+  const lfo = ctx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = trill;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.5;
+  lfo.connect(lfoGain);
+  lfoGain.connect(am.gain);
+  lfo.start();
+  const phrase = ctx.createGain();
+  phrase.gain.value = 0;
+  src.connect(filter);
+  filter.connect(am);
+  am.connect(phrase);
+  let out = phrase;
+  if (ctx.createStereoPanner) {
+    const p = ctx.createStereoPanner();
+    p.pan.value = pan;
+    phrase.connect(p);
+    out = p;
+  }
+  out.connect(dest);
+  src.start();
+  // Premier chant décalé : pas de mur sonore au déverrouillage.
+  return { phrase, filter, lfo, freq, trill, nextAt: ctx.currentTime + 1 + Math.random() * 5 };
+}
+
+/** Programme une phrase : montée, tenue, déclin, puis un silence. */
+function scheduleCicada(v, now) {
+  if (now < v.nextAt) return;
+  const len = 3 + Math.random() * 6;
+  const rise = 0.8 + Math.random() * 1.2;
+  const fall = 1.2 + Math.random() * 1.8;
+  const g = v.phrase.gain;
+  g.cancelScheduledValues(now);
+  g.setValueAtTime(0, now);
+  g.linearRampToValueAtTime(1, now + rise);
+  g.setValueAtTime(1, now + len - fall);
+  g.linearRampToValueAtTime(0, now + len);
+  v.filter.frequency.setValueAtTime(v.freq * (0.92 + Math.random() * 0.16), now);
+  v.lfo.frequency.setValueAtTime(v.trill * (0.85 + Math.random() * 0.3), now);
+  v.nextAt = now + len + 4 + Math.random() * 12;
+}
+
 /** Destination des SFX : le master s'il existe, sinon le contexte (unlock). */
 export function sfxOut(ctx, masterNode) {
   return masterNode || ctx.destination;
@@ -94,6 +153,7 @@ export function createAudio() {
   let unlocked = false;
   let beds = null;
   let master = null;
+  let cicadas = [];
 
   function startBeds(c) {
     if (beds) return;
@@ -103,9 +163,16 @@ export function createAudio() {
     beds = {
       surf: makeBed(c, master, { type: 'lowpass', freq: 900, q: 0.7, rate: 0.15, depth: 0.012 }),
       bamboo: makeBed(c, master, { type: 'bandpass', freq: 1800, q: 1.4 }),
-      cicada: makeBed(c, master, { type: 'highpass', freq: 4000, q: 0.6, rate: 16, depth: 0.018 }),
+      cicada: c.createGain(),
       frogs: makeBed(c, master, { type: 'lowpass', freq: 600, q: 0.8, rate: 0.35, depth: 0.02 }),
     };
+    beds.cicada.gain.value = 0.0001;
+    beds.cicada.connect(master);
+    cicadas = [
+      makeCicadaVoice(c, beds.cicada, { freq: 5200, pan: -0.6, trill: 38 }),
+      makeCicadaVoice(c, beds.cicada, { freq: 6100, pan: 0.5, trill: 52 }),
+      makeCicadaVoice(c, beds.cicada, { freq: 4600, pan: 0.05, trill: 27 }),
+    ];
   }
 
   function ensure() {
@@ -185,10 +252,11 @@ export function createAudio() {
     const peak = {
       surf: 0.55,
       bamboo: 0.40,
-      cicada: 0.28,
+      cicada: 0.12,
       frogs: 0.32,
     };
     const now = ctx.currentTime;
+    for (const v of cicadas) scheduleCicada(v, now);
     for (const k of Object.keys(beds)) {
       const w = weights?.[k] ?? 0;
       beds[k].gain.setTargetAtTime(Math.max(0.0001, peak[k] * w), now, 0.08);
