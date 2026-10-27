@@ -31,7 +31,7 @@ checklist visuelle midi nuit vue sol → verification.md#visuel
 debug __sk dayTime paused contrôles touches → AGENTS.md#lancer
 déploiement Vercel vercelignore public → AGENTS.md#lancer
 winding DoubleSide instanceColor GLSL mvPosition OrbitControls rAF → pieges.md#pièges
-shiba chien nage regard aboie secoue → shiba.js ; shiba-geom.js ; shiba-gltf.js
+shiba chien nage regard aboie secoue empreintes → shiba.js ; shiba-geom.js ; tools/shiba-studio.html
 eau ondes wake pondWaterYAt → ponds.js ; verification.md
 saison automne printemps → season.js ; seasonal-foliage.js
 ciel lune étoiles brouillard nuit → sky.js

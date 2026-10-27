@@ -110,20 +110,32 @@ function createFootprints(count, life) {
   geo.rotateY(Math.PI);
   const born = new Float32Array(count).fill(-1e9);
   geo.setAttribute('aBorn', new THREE.InstancedBufferAttribute(born, 1));
+  // 0 = sable humide, 1 = terre battue des sentes (plus sombre, plus discrète).
+  const kind = new Float32Array(count);
+  geo.setAttribute('aKind', new THREE.InstancedBufferAttribute(kind, 1));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uLife: { value: life },
       uColor: { value: new THREE.Color(0x6a5540) },
+      uDirt: { value: new THREE.Color(0x4a3a2a) },
     },
     transparent: true,
     depthWrite: false,
+    // Décalque : la surface de marche (groundAt) peut passer de quelques cm
+    // sous le ruban visible des sentes ; le décalage de profondeur garde
+    // l'empreinte devant lui sans la faire flotter.
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
     side: THREE.DoubleSide,
     vertexShader: /* glsl */ `
       attribute float aBorn;
+      attribute float aKind;
       varying vec2 vUv;
       varying float vBorn;
+      varying float vKind;
       // instanceMatrix is declared for us by three whenever the material is used
       // on an InstancedMesh. The matrices stamped into it are WORLD space, which
       // is only equivalent to this because the mesh hangs off an untransformed
@@ -132,6 +144,7 @@ function createFootprints(count, life) {
       void main() {
         vUv = uv;
         vBorn = aBorn;
+        vKind = aKind;
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
       }
     `,
@@ -140,8 +153,10 @@ function createFootprints(count, life) {
       uniform float uTime;
       uniform float uLife;
       uniform vec3  uColor;
+      uniform vec3  uDirt;
       varying vec2 vUv;
       varying float vBorn;
+      varying float vKind;
 
       float pad(vec2 p, vec2 c, vec2 r) {
         vec2 d = (p - c) / r;
@@ -161,9 +176,9 @@ function createFootprints(count, life) {
         m = max(m, pad(p, vec2(0.57, 0.72), vec2(0.085, 0.10)));
         m = max(m, pad(p, vec2(0.68, 0.60), vec2(0.085, 0.10)));
         float fade = 1.0 - age / uLife;
-        float a = m * fade * fade * 0.55;
+        float a = m * fade * fade * mix(0.55, 0.42, vKind);
         if (a < 0.005) discard;
-        gl_FragColor = vec4(uColor, a);
+        gl_FragColor = vec4(mix(uColor, uDirt, vKind), a);
       }
     `,
   });
@@ -180,7 +195,7 @@ function createFootprints(count, life) {
   for (let i = 0; i < count; i++) mesh.setMatrixAt(i, m4);
   mesh.instanceMatrix.needsUpdate = true;
 
-  return { mesh, born, cursor: 0, material, geo };
+  return { mesh, born, kind, cursor: 0, material, geo };
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -823,8 +838,10 @@ export function createShiba({
   function stampPrint(leg) {
     leg.paw.getWorldPosition(_pawWorld);
     const h = heightAt(_pawWorld.x, _pawWorld.z);
-    // Sand only. Prints in grass are invisible and prints on rock are wrong.
-    if (h > WORLD.beachTop || h < seaLevelLocal - 0.05) return;
+    // Sable et terre battue des sentes. Pas dans l'herbe (invisible) ni sur la
+    // roche (faux).
+    const onPath = isOnPath(_pawWorld.x, _pawWorld.z);
+    if (!onPath && (h > WORLD.beachTop || h < seaLevelLocal - 0.05)) return;
 
     if (normalAt) normalAt(_pawWorld.x, _pawWorld.z, _n); else _n.copy(UP);
     _printQ.setFromUnitVectors(UP, _n);
@@ -838,6 +855,8 @@ export function createShiba({
     const i = prints.cursor;
     prints.mesh.setMatrixAt(i, _m4);
     prints.born[i] = printClock;
+    prints.kind[i] = onPath ? 1 : 0;
+    prints.mesh.geometry.attributes.aKind.needsUpdate = true;
     prints.cursor = (i + 1) % SHIBA.footprintCount;
     prints.mesh.instanceMatrix.needsUpdate = true;
     prints.mesh.geometry.attributes.aBorn.needsUpdate = true;

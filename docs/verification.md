@@ -13,6 +13,10 @@ La console doit finir par `INVARIANTS: N pass, 0 fail` (N grandit, seul le
 - chien et eau : flottaison (le dos sort), pattes sur le sol logique,
   `pondWaterYAt` cohérent sans route mouillée, étangs nageables et
   franchissables, bancs d'ondes koi/chien disjoints ;
+- rig du shiba : contrat complet (pattes FL FR BL BR), appuis centrés et dos
+  hors de l'eau, poids bien formés, pièces rigides sans peau, allongement
+  d'arête ≤ 0.080 sur 12 poses (aisselle ≈ 0.057 au galop), empreintes sur
+  la terre battue ;
 - lucioles, trois signes sacrés, pas japonais (`stoneYAt` fidèle, dalles hors
   ruban), hérons en bas-fonds, libellules dans l'habitat bassin, mites à une
   lanterne, shiba secoué seulement après nage, regard sans lacet du corps,

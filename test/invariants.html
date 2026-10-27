@@ -1752,6 +1752,27 @@ function milieuAppuis(r) {
   check('rig shiba : aucune déchirure sur 12 poses, pattes non collées', ok, detail);
 }
 
+/* ── empreintes sur la terre battue ───────────────────────────────────────
+ * Le chien apparaît au carrefour, SUR la sente, et doit y laisser des
+ * empreintes de terre (aKind = 1), pas seulement sur le sable de la plage.
+ * Sans caméra, la touche avance le long d'un axe MONDE : il quitte la sente
+ * au bout de ~1 s (3 empreintes mesurées le 27/10), d'où un plancher de 2.
+ */
+{
+  const dog = createShiba({ seed: SEED, heightAt: island.heightAt, water: { surfaceAt: () => null } });
+  dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+  let t = 0;
+  for (let i = 0; i < 180; i++) { t += 1 / 60; dog.update(t, 1 / 60, null); }
+  dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+  const fp = dog.group.children.find((o) => o.name === 'shiba-footprints');
+  const born = fp.geometry.attributes.aBorn.array, kind = fp.geometry.attributes.aKind.array;
+  let n = 0, terre = 0;
+  for (let i = 0; i < born.length; i++) if (born[i] > -1e8) { n++; if (kind[i] > 0.5) terre++; }
+  check('empreintes : le chien marque la terre battue des sentes',
+    terre >= 2, `${terre} empreintes de terre sur ${n} en 3 s de marche (plancher 2)`);
+  dog.dispose();
+}
+
 /* ── lot 6. shiba : aboie, se secoue, regarde ─────────────────────────────
  * Purs : createShiba + update, pas de renderer. Le secouage n'existe que
  * après une immersion ≥ wetBeforeShake ; le regard n'écrit jamais heading.

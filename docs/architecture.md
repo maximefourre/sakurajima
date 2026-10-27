@@ -30,7 +30,11 @@ poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin, c
 chashitsu.js — pièce de thé abandonnée, site lisière étangs, importée par poi.js
 crabs.js    — crabes de laisse (fuite, enfouissement)
 gulls.js    — goélands posés sur stacks / nuki du torii marin
-shiba-geom.js / shiba-gltf.js — corps procédural et rig glTF du chien
+shiba-geom.js — le chien, modelé ici : SDF → surface nets → peau skinnée (21 os),
+              oreilles/queue/mâchoire/yeux rigides, hooks de pose à 3 articulations
+              (pied à plat à l'appui, omoplate qui glisse, assise sur les épaules).
+              `SIT_POSE` = seule source des angles d'assise. Aucun asset tiers.
+              Atelier : tools/shiba-studio.html (?view=side&pose=sit&stretch)
 touch.js / boot.js — commandes tactiles, voile d'erreur
 main.js     — le SEUL endroit où tout est câblé + boucle de rendu
 ```
