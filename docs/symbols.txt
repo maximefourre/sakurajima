@@ -10,7 +10,7 @@ AREA_SOFT                   src/config.js:137         = Math.pow(AREA, 0.75);
 AUTUMN_DOMINANT_SEQUENCE    src/seasonal-foliage.js:9  = Object.freeze([
 AUTUMN_PALETTES             src/seasonal-foliage.js:14  = Object.freeze({
 BAMBOO                      src/config.js:705         = Object.freeze({
-buildBody                   src/shiba-geom.js:675     ()
+buildBody                   src/shiba-geom.js:681     ()
 BUTTERFLIES                 src/config.js:433         = Object.freeze({
 butterflyActivity           src/butterflies.js:72     (phase)
 CAMERA                      src/config.js:293         = {
@@ -68,7 +68,7 @@ createPetals                src/petals.js:170         ({ seed, quality, season =
 createPOI                   src/poi.js:975            ({
 createPonds                 src/ponds.js:816          ({ seed = 1337, wind, quality, heightAt = null, season = 'spring' } = {})
 createSakuraForest          src/sakura.js:1608        ( options = {} )
-createShiba                 src/shiba.js:220          ({
+createShiba                 src/shiba.js:222          ({
 createSky                   src/sky.js:472            ({ scene, renderer, camera, quality = {}, season = 'spring', islandRadius = null } = {})
 createTouchControls         src/touch.js:14           ({ shiba, onJump, onCamera, onPause })
 createWind                  src/wind.js:53            ()
@@ -142,6 +142,7 @@ pathProximity               src/details.js:297        (x, z)
 PATHS                       src/config.js:253         = {
 pathSurfaceLiftAt           src/details.js:624        (heightAt, x, z)
 pathWidthK                  src/details.js:237        (x, z)
+PAW_SOLE                    src/shiba-geom.js:56      = Object.freeze({ F: [0, -0.100, 0.038], B: [0, -0.170, 0.050] });
 placeRock                   src/poi.js:467            (pine, heightAt, isOnPath, isInPond)
 POI                         src/config.js:500         = Object.freeze({
 QUALITY                     src/config.js:139         = {
@@ -163,7 +164,7 @@ sfxOut                      src/audio.js:147          (ctx, masterNode)
 shadowEnvelope              src/sky.js:467            (islandR)
 SHIBA                       src/shiba.js:22           = {
 SHIBA_BUILD                 src/shiba-geom.js:50      = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
-SIT_POSE                    src/shiba-geom.js:55      = Object.freeze({
+SIT_POSE                    src/shiba-geom.js:61      = Object.freeze({
 SKY_TUNE                    src/sky.js:55             = {
 smoothstep                  src/noise.js:155          (edge0, edge1, x)
 springReefSite              src/island.js:505         ()
@@ -205,8 +206,8 @@ src/main.js:645  createBirds
 src/main.js:654  ponds.attach
 src/main.js:662  createFireflies
 src/main.js:671  createDetails
-src/main.js:691  createButterflies
-src/main.js:705  createMoths
-src/main.js:733  createParticles
-src/main.js:735  createShiba
-src/main.js:804  createTouchControls
+src/main.js:725  createButterflies
+src/main.js:739  createMoths
+src/main.js:767  createParticles
+src/main.js:769  createShiba
+src/main.js:839  createTouchControls

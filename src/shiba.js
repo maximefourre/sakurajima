@@ -15,9 +15,9 @@
 import * as THREE from 'three';
 import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
-import { isOnPath, onPathDirt } from './details.js';
+import { onPathDirt } from './details.js';
 import { PARTICLE_KIND } from './particles.js';
-import { TAU, UP, SHIBA_BUILD, SIT_POSE, buildBody } from './shiba-geom.js';
+import { TAU, UP, SHIBA_BUILD, SIT_POSE, PAW_SOLE, buildBody } from './shiba-geom.js';
 
 export const SHIBA = {
   walkSpeed: 6.4,
@@ -209,6 +209,8 @@ function createFootprints(count, life) {
  * @param {Function} opts.heightAt   (x, z) => y
  * @param {Function} [opts.slopeAt]  (x, z) => 0..1
  * @param {Function} [opts.normalAt] (x, z, out) => Vector3
+ * @param {Function} [opts.dirtAt]   (x, z, outNormal) => y|null — surface de
+ *   la terre battue VISIBLE (null hors terre). Absent : onPathDirt + heightAt.
  * @param {object}   opts.water      REQUIRES surfaceAt(x, z, t) => y|null.
  *   impact(x, z, strength) and setSwimmer(x, z, active, amp, dt) are OPTIONAL
  *   presentation hooks, normalised to no-ops below: locomotion must not depend
@@ -222,6 +224,7 @@ export function createShiba({
   heightAt,
   slopeAt = null,
   normalAt = null,
+  dirtAt = null,
   water = null,
   wind = null,
   particles = null,
@@ -337,6 +340,7 @@ export function createShiba({
 
   /* ── scratch ───────────────────────────────────────────────── */
   const _n = new THREE.Vector3();
+  const _dirtN = new THREE.Vector3();
   const _qAlign = new THREE.Quaternion();
   const _qYaw = new THREE.Quaternion();
   const _qWant = new THREE.Quaternion();
@@ -352,6 +356,12 @@ export function createShiba({
   const _printS = new THREE.Vector3(1, 1, 1);
 
   const legPlanted = [true, true, true, true];
+  // Contact RÉEL du coussinet (hauteur au-dessus du sol), distinct de la phase
+  // de l'allure : la phase annonçait l'appui patte encore en l'air (17 cm au
+  // sommet de la foulée en marche, 8 à 14 images trop tôt au galop), et
+  // l'empreinte tombait des dizaines de cm à côté du pied.
+  const soleDown = [true, true, true, true];
+  const _sole = new THREE.Vector3();
   let printClock = 0;
   let nowT = 0;
 
@@ -527,8 +537,11 @@ export function createShiba({
       return;
     }
 
-    const h = heightAt(x, z);
-    const kind = isOnPath(x, z)
+    // Même juge que les empreintes : de la poussière de terre sans empreinte
+    // de terre, au même pas, trahissait deux bords de sente différents.
+    const dirtY = dirtSurfaceAt(x, z);
+    const h = dirtY !== null ? dirtY : heightAt(x, z);
+    const kind = dirtY !== null
       ? PARTICLE_KIND.DIRT
       : h < WORLD.beachTop ? PARTICLE_KIND.SAND : PARTICLE_KIND.MEADOW;
     particles.burst(kind, x, h, z, count, strength, 0, dx, dz);
@@ -717,18 +730,34 @@ export function createShiba({
         contactSwing = gallopSwing;
         contactCos = gallopCos;
       }
+      // Poussière et empreinte : quand le dessous du coussinet atteint le sol
+      // (< 3 cm), réarmé au-dessus de 8 cm. Hystérésis assez large pour le
+      // rebond de 1 à 2 cm des appuis, assez basse pour les foulées courtes.
+      leg.paw.localToWorld(_sole.fromArray(leg.front ? PAW_SOLE.F : PAW_SOLE.B));
+      const clear = _sole.y - heightAt(_sole.x, _sole.z);
+      if (!soleDown[i] && clear < 0.03) {
+        soleDown[i] = true;
+        if (state.moving && !state.swimming) {
+          if (water.surfaceAt(_sole.x, _sole.z, nowT) === null) {
+            emitSurfaceBurst(_sole.x, _sole.z, PAW_BURST_COUNT(speedN), PAW_BURST_SIZE(speedN), 1, null);
+          }
+          stampPrint(_sole);
+        }
+      } else if (soleDown[i] && clear > 0.08) {
+        soleDown[i] = false;
+      }
+
       const down = contactSwing < 0 && contactCos > 0;
       if (down && !legPlanted[i]) {
         legPlanted[i] = true;
+        // Dans l'eau la sole ne touche pas toujours le fond (nage) : les
+        // gerbes gardent le rythme de l'allure.
         if (state.moving) {
           leg.paw.getWorldPosition(_pawWorld);
-          emitSurfaceBurst(
-            _pawWorld.x,
-            _pawWorld.z,
-            PAW_BURST_COUNT(speedN),
-            PAW_BURST_SIZE(speedN)
-          );
-          if (!state.swimming) stampPrint(leg);
+          const waterY = water.surfaceAt(_pawWorld.x, _pawWorld.z, nowT);
+          if (waterY !== null) {
+            emitSurfaceBurst(_pawWorld.x, _pawWorld.z, PAW_BURST_COUNT(speedN), PAW_BURST_SIZE(speedN), 1, waterY);
+          }
         }
         if (state.depth > 0.10 && leg.front) {
           leg.paw.getWorldPosition(_pawWorld);
@@ -908,16 +937,31 @@ export function createShiba({
 
   /* ── footprints ────────────────────────────────────────────── */
 
-  function stampPrint(leg) {
-    leg.paw.getWorldPosition(_pawWorld);
-    const h = heightAt(_pawWorld.x, _pawWorld.z);
+  /**
+   * Hauteur de la terre battue VISIBLE sous (x, z), normale dans _dirtN ;
+   * null hors terre. dirtAt lit les vrais triangles du ruban (bord lobé,
+   * frange effilochée, fin dissoute, patin) ; le repli onPathDirt + heightAt
+   * ne sert qu'aux tests sans scène.
+   */
+  function dirtSurfaceAt(x, z) {
+    if (dirtAt) return dirtAt(x, z, _dirtN);
+    if (!onPathDirt(x, z)) return null;
+    if (normalAt) normalAt(x, z, _dirtN); else _dirtN.copy(UP);
+    return heightAt(x, z);
+  }
+
+  function stampPrint(sole) {
+    _pawWorld.copy(sole);
     // Sable et terre battue des sentes. Pas dans l'herbe (invisible) ni sur la
-    // roche (faux). onPathDirt suit le bord LOBÉ visible de la terre ;
-    // isOnPath, plus large, déborderait sur l'herbe des lisières.
-    const onPath = onPathDirt(_pawWorld.x, _pawWorld.z);
+    // roche (faux). Sur la terre, hauteur ET normale du ruban réel : posée sur
+    // groundAt, l'empreinte passait sous la terre surélevée.
+    const dirtY = dirtSurfaceAt(_pawWorld.x, _pawWorld.z);
+    const onPath = dirtY !== null;
+    const h = onPath ? dirtY : heightAt(_pawWorld.x, _pawWorld.z);
     if (!onPath && (h > WORLD.beachTop || h < seaLevelLocal - 0.05)) return;
 
-    if (normalAt) normalAt(_pawWorld.x, _pawWorld.z, _n); else _n.copy(UP);
+    if (onPath) _n.copy(_dirtN);
+    else if (normalAt) normalAt(_pawWorld.x, _pawWorld.z, _n); else _n.copy(UP);
     _printQ.setFromUnitVectors(UP, _n);
     _printSpin.setFromAxisAngle(UP, state.heading);
     _m4.compose(

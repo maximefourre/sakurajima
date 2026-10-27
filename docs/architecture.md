@@ -96,7 +96,10 @@ bosse (56,-10)·L).
 routes (demi-largeur = `PATH_HALF`, le max de `pathWidthK`, borne
 conservatrice pour arbres/lanternes/POI). La largeur réelle est le champ monde
 `pathWidthK` (0.66–1.28, houle ~9 u + lobes ~2 u : sinon bords droits) ;
-`onPathDirt(x, z, extra)` suit ce bord visible (herbe rase, fleurs, épaule). Lanternes
+`onPathDirt(x, z, extra)` suit ce bord visible (herbe rase, fleurs, épaule).
+Le shiba (empreintes ET poussière) lit `world.dirtAt(x, z, n)` (main.js) :
+rayon vertical contre les maillages `path-*`, frange `aPathEdge > 0.70`
+exclue ; `groundAt` sous-estime la terre (écart ≤ 0.23). Lanternes
 générées en quinconce, sautées si pente > 0.9, sol trop bas ou `isInPond`
 (le seuil mer rate les bassins carvés). Torii aux fractions `toriiAt` de la
 route 'torii'. `initPath()` est appelé avant `createGrass` ; les cerisiers

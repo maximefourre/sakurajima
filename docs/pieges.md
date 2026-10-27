@@ -33,3 +33,6 @@ Appris à l'usage. Le détail du pourquoi : `architecture.md`, `perf.md`.
 8. Mesurer les fps : `readPixels` après chaque frame + caméra figée (voir `perf.md`).
 9. Le feuillage coûte en géométrie, pas en fill-rate : baisser la résolution ne rapporte rien.
 10. Retouche des chemins : repasser les invariants en `?q=ultra` (low est le cas facile).
+11. Shiba : la PHASE de l'allure n'est pas le contact (patte en l'air jusqu'à 17 cm).
+    Tout effet au sol se déclenche sur la hauteur de `PAW_SOLE`, pas sur l'os `paw`
+    (cheville/jarret). Décalques sur les sentes : `world.dirtAt`, pas `groundAt`.

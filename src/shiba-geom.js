@@ -49,6 +49,12 @@ export const COAT = {
  *  `withers`, au-dessus. */
 export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
 
+/** Dessous du coussinet, dans le repère de l'os `paw` (unités modèle) : centre
+ *  de l'ellipsoïde de sole moins sa demi-hauteur, moins la position de l'os
+ *  (LEG.paw). L'os `paw` est la cheville (le jarret derrière), 13 à 22 cm
+ *  au-dessus du sol : c'est ce point-ci qui touche la terre. */
+export const PAW_SOLE = Object.freeze({ F: [0, -0.100, 0.038], B: [0, -0.170, 0.050] });
+
 /** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
  *  seule source pour animate(), le banc 26 et l'atelier. Les angles arrière
  *  tiennent compte des angles de repos du fémur (-0.34) et du tibia (+0.67). */

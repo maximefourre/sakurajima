@@ -680,6 +680,40 @@ async function boot() {
   });
   scene.add(world.details.group);
 
+  // Terre battue VISIBLE sous (x, z) : rayon vertical contre les vrais
+  // triangles des rubans et du patin. groundAt n'en est qu'une approximation
+  // (sans liftBias ni dégagement, écart mesuré jusqu'à 0.23) : une empreinte
+  // posée dessus passait SOUS la terre. null hors terre et dans la frange que
+  // le fragment effiloche (aPathEdge + bruit·0.18 > 0.88 → discard, donc
+  // jamais découpé sous 0.70) — fin dissoute de plage/bambous comprise.
+  {
+    world.details.group.updateMatrixWorld(true);
+    const pathMeshes = world.details.group.children.filter((o) => o.isMesh && o.name.startsWith('path-'));
+    const ray = new THREE.Raycaster();
+    ray.far = 4;
+    const hits = [];
+    const down = new THREE.Vector3(0, -1, 0);
+    const tri = new THREE.Triangle(), bary = new THREE.Vector3(), local = new THREE.Vector3();
+    const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+    world.dirtAt = (x, z, outNormal) => {
+      ray.set(local.set(x, world.heightAt(x, z) + 2, z), down);
+      hits.length = 0;
+      ray.intersectObjects(pathMeshes, false, hits);
+      for (const hit of hits) {
+        const geo = hit.object.geometry;
+        const pos = geo.attributes.position, edge = geo.attributes.aPathEdge;
+        const { a, b, c } = hit.face;
+        tri.set(vA.fromBufferAttribute(pos, a), vB.fromBufferAttribute(pos, b), vC.fromBufferAttribute(pos, c));
+        tri.getBarycoord(hit.object.worldToLocal(local.copy(hit.point)), bary);
+        const e = bary.x * edge.getX(a) + bary.y * edge.getX(b) + bary.z * edge.getX(c);
+        if (e > 0.70) continue;
+        if (outNormal) outNormal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+        return hit.point.y;
+      }
+      return null;
+    };
+  }
+
   await step('papillons');
   // APRES createDetails, et l'ordre n'est pas negociable : `flowerSpots` est
   // REMPLI par createDetails et vaut un Float32Array VIDE avant lui. Construire
@@ -741,6 +775,7 @@ async function boot() {
     heightAt: world.groundAt,
     slopeAt: world.slopeAt,
     normalAt: world.island.normalAt,
+    dirtAt: world.dirtAt,
     water,
     blocked: (x, z) => world.island.hitsRock(x, z, 0.35, world.shiba?.position.y)
       || world.poi.hitsSolid(x, z, 0.35)
