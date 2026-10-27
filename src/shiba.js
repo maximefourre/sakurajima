@@ -17,7 +17,7 @@ import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
 import { isOnPath } from './details.js';
 import { PARTICLE_KIND } from './particles.js';
-import { TAU, UP, SHIBA_BUILD, buildBody } from './shiba-geom.js';
+import { TAU, UP, SHIBA_BUILD, SIT_POSE, buildBody } from './shiba-geom.js';
 
 export const SHIBA = {
   walkSpeed: 6.4,
@@ -82,10 +82,10 @@ const BLINK_DURATION = 0.09;
 const PAW_BURST_COUNT = (speedN) => 1 + Math.round(2 * speedN);
 const PAW_BURST_SIZE = (speedN) => 0.6 + 0.8 * speedN;
 
-// Hard flotation invariant: 0.66 * 1.35 = 0.891 > 0.85. The back therefore
-// clears the water by 0.041 u and the muzzle by about 0.36 u. At swimFloat 0.55
-// he looked as if he walked on water; without flotation he was a submarine.
-if (SHIBA_BUILD.standHeight * SHIBA_BUILD.scale <= SHIBA.swimFloat) {
+// Garde de flottaison : la LIGNE DE DOS (garrot, 0.80 × 1.35 = 1.08) doit
+// sortir de l'eau d'au moins 3 cm à swimFloat. standHeight n'est que le pivot
+// du tronc, il ne dit rien du dos. L'invariant 23 mesure le dos réel sur la peau.
+if (SHIBA_BUILD.withers * SHIBA_BUILD.scale <= SHIBA.swimFloat + 0.03) {
   throw new Error('[shiba] swimFloat submerges the back; update SHIBA_BUILD or flotation');
 }
 
@@ -551,6 +551,48 @@ export function createShiba({
     if (trotW > walkW && trotW >= gallopW) dominantGait = GAITS.trot;
     else if (gallopW > walkW) dominantGait = GAITS.gallop;
 
+    // Body carriage AVANT les pattes : poseLeg garde le pied à plat en
+    // compensant le tangage du tronc — posé après, il compenserait celui de la
+    // frame précédente (pieds qui basculent pendant l'assise et le galop).
+    // Body carriage: bob at twice the stride, with each gait contributing its
+    // own output amplitude. Gallop also flexes the spine once per stride.
+    const gaitBob =
+      walkW * GAITS.walk.bob
+      + trotW * GAITS.trot.bob
+      + gallopW * GAITS.gallop.bob;
+    const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob;
+    const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
+    const locomotionPitch = -0.05 * speedN
+      + Math.sin(state.gait) * 0.09 * gallopW
+      + (state.airborne ? state.vy * 0.025 : 0);
+    const shakeS = clamp(state.shakeElapsed / SHAKE_DURATION, 0, 1);
+    const shakeEnvelope = Math.sin(Math.PI * shakeS);
+    const shakeWave = Math.sin(shakeS * 34) * shakeEnvelope;
+    const shakeTailWave = Math.sin((shakeS - 0.14) * 34) * shakeEnvelope;
+
+    let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
+    bodyY = mix(bodyY, SIT_POSE.drop, sit);
+    let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
+    bodyRoll = mix(bodyRoll, 0, sit);
+    // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
+    let bodyPitch = mix(locomotionPitch, -0.18, swim);
+    bodyPitch = mix(bodyPitch, SIT_POSE.pitch, sit);
+    // Même contrat que poseLeg : les trois valeurs sont FINALES. L'assise ne
+    // descend presque pas le tronc (-0.03) : c'est le tangage, pivoté sur les
+    // épaules par poseBody, qui pose l'arrière-train au sol.
+    const bodyYF = mix(bodyY, 0, shake);
+    const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
+    const bodyPitchF = mix(bodyPitch, 0, shake);
+    // Le rein se voûte et s'étire une fois par foulée de galop.
+    const flex = Math.sin(state.gait + 0.6) * 0.16 * gallopW * speedN * (1 - swim) * (1 - shake);
+    if (rig.poseBody) {
+      rig.poseBody(bodyYF, bodyPitchF, bodyRollF, { swim, sit, shake, speedN, flex });
+    } else {
+      rig.body.position.y = bodyYF;
+      rig.body.rotation.z = bodyRollF;
+      rig.body.rotation.x = bodyPitchF;
+    }
+
     for (let i = 0; i < 4; i++) {
       const leg = rig.legs[i];
       // Blend complete curve OUTPUTS. Blending the phase offsets themselves
@@ -586,8 +628,8 @@ export function createShiba({
       // because the model faces +Z. The shake pose is a neutral braced stance.
       // Assis, le tronc bascule de -0.60 autour des épaules (poseBody) : les
       // antérieurs compensent pour rester d'aplomb, l'arrière se plie en Z.
-      const sitHip = leg.front ? 0.52 : -0.31;
-      const sitKnee = leg.front ? -0.04 : 1.24;
+      const sitHip = leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip;
+      const sitKnee = leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee;
       let hip = mix(locomotionHip, swimHip, swim);
       let knee = mix(locomotionKnee, swimKnee, swim);
       hip = mix(hip, sitHip, sit);
@@ -638,44 +680,6 @@ export function createShiba({
       }
     }
 
-    // Body carriage: bob at twice the stride, with each gait contributing its
-    // own output amplitude. Gallop also flexes the spine once per stride.
-    const gaitBob =
-      walkW * GAITS.walk.bob
-      + trotW * GAITS.trot.bob
-      + gallopW * GAITS.gallop.bob;
-    const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob;
-    const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
-    const locomotionPitch = -0.05 * speedN
-      + Math.sin(state.gait) * 0.09 * gallopW
-      + (state.airborne ? state.vy * 0.025 : 0);
-    const shakeS = clamp(state.shakeElapsed / SHAKE_DURATION, 0, 1);
-    const shakeEnvelope = Math.sin(Math.PI * shakeS);
-    const shakeWave = Math.sin(shakeS * 34) * shakeEnvelope;
-    const shakeTailWave = Math.sin((shakeS - 0.14) * 34) * shakeEnvelope;
-
-    let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
-    bodyY = mix(bodyY, -0.03, sit);
-    let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
-    bodyRoll = mix(bodyRoll, 0, sit);
-    // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
-    let bodyPitch = mix(locomotionPitch, -0.18, swim);
-    bodyPitch = mix(bodyPitch, -0.60, sit);
-    // Même contrat que poseLeg : les trois valeurs sont FINALES. L'assise ne
-    // descend presque pas le tronc (-0.03) : c'est le tangage, pivoté sur les
-    // épaules par poseBody, qui pose l'arrière-train au sol.
-    const bodyYF = mix(bodyY, 0, shake);
-    const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
-    const bodyPitchF = mix(bodyPitch, 0, shake);
-    // Le rein se voûte et s'étire une fois par foulée de galop.
-    const flex = Math.sin(state.gait + 0.6) * 0.16 * gallopW * speedN * (1 - swim) * (1 - shake);
-    if (rig.poseBody) {
-      rig.poseBody(bodyYF, bodyPitchF, bodyRollF, { swim, sit, shake, speedN, flex });
-    } else {
-      rig.body.position.y = bodyYF;
-      rig.body.rotation.z = bodyRollF;
-      rig.body.rotation.x = bodyPitchF;
-    }
 
     // Emit six airborne droplets at every internal zero-crossing. Particle
     // grains already fan radially; a seeded drift rotates each successive fan.
@@ -1130,6 +1134,9 @@ export function createShiba({
     removeEventListener('keyup', onKeyUp);
     removeEventListener('blur', onBlur);
     for (const g of rig.parts) g.dispose();
+    // Le squelette porte une texture d'os côté GPU : sans ceci, chaque chien
+    // construit puis libéré (les bancs en font plusieurs) la laisse fuir.
+    rig.skeleton?.dispose();
     // Le rig POSSÈDE ses matériaux (pelage, et truffe/yeux humides).
     for (const m of rig.materials ?? [rig.material]) m.dispose();
     prints.geo.dispose();

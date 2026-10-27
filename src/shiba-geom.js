@@ -49,6 +49,13 @@ export const COAT = {
  *  `withers`, au-dessus. */
 export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
 
+/** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
+ *  seule source pour animate(), le banc 26 et l'atelier. Les angles arrière
+ *  tiennent compte des angles de repos du fémur (-0.34) et du tibia (+0.67). */
+export const SIT_POSE = Object.freeze({
+  frontHip: 0.52, frontKnee: -0.04, hindHip: -0.31, hindKnee: 1.24, pitch: -0.60, drop: -0.03,
+});
+
 /* ── maths ─────────────────────────────────────────────────────── */
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -238,20 +245,20 @@ function surfaceHit(sdf, o, d, maxT = 1) {
 const BONES = [
   ['tilt', null, [0, SHIBA_BUILD.standHeight, 0]],
   ['body', 'tilt', [0, SHIBA_BUILD.standHeight, 0]],
-  ['pelvis', 'body', [0, 0.66, -0.16]],
+  ['pelvis', 'body', [0, 0.66, -0.14]],
   ['neck', 'body', [0, 0.72, 0.34]],
   ['head', 'neck', [0, 0.93, 0.46]],
   ['jaw', 'head', [0, 0.895, 0.585]],
   ['earL', 'head', [-0.072, 1.06, 0.48]],
   ['earR', 'head', [0.072, 1.06, 0.48]],
-  ['tailBase', 'pelvis', [0, 0.775, -0.42]],
+  ['tailBase', 'pelvis', [0, 0.775, -0.40]],
 ];
 // Avant : épaule → coude → carpe. Arrière : hanche → grasset → jarret.
 // Les clés `hip / knee / paw` sont le contrat de shiba.js, quel que soit le
 // nom anatomique de l'articulation.
 const LEG = {
-  F: { parent: 'body', hip: [0.095, 0.60, 0.29], knee: [0.095, 0.39, 0.265], paw: [0.093, 0.095, 0.30] },
-  B: { parent: 'pelvis', hip: [0.095, 0.62, -0.29], knee: [0.105, 0.38, -0.205], paw: [0.105, 0.165, -0.375] },
+  F: { parent: 'body', hip: [0.100, 0.60, 0.28], knee: [0.100, 0.39, 0.255], paw: [0.098, 0.095, 0.29] },
+  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.38, -0.185], paw: [0.110, 0.165, -0.355] },
 };
 for (const fb of ['F', 'B']) {
   for (const [lr, s] of [['L', -1], ['R', 1]]) {
@@ -285,15 +292,15 @@ function bodyPrims() {
 
   /* — tronc — garrot à 0.80, sternum à 0.40 (poitrail = 1/2 hauteur), ventre
    * relevé sous le rein (0.53), croupe de niveau avec le dos. */
-  add(ellipsoid([0, 0.605, 0.22], [0.150, 0.200, 0.215]), 'body', 'torso');
-  add(ellipsoid([0, 0.585, 0.36], [0.115, 0.145, 0.110]), 'body', 'torso');
+  add(ellipsoid([0, 0.605, 0.215], [0.150, 0.200, 0.210]), 'body', 'torso');
+  add(ellipsoid([0, 0.585, 0.35], [0.115, 0.145, 0.110]), 'body', 'torso');
   add(ellipsoid([0, 0.730, 0.24], [0.100, 0.070, 0.120]), 'body', 'torso');
-  add(ellipsoid([0, 0.635, 0.03], [0.145, 0.170, 0.200]), spineBones, 'torso');
-  add(ellipsoid([0, 0.668, -0.16], [0.125, 0.132, 0.170]), spineBones, 'torso');
-  add(ellipsoid([0, 0.655, -0.31], [0.138, 0.150, 0.140]), 'pelvis', 'torso');
+  add(ellipsoid([0, 0.630, 0.03], [0.145, 0.200, 0.195]), spineBones, 'torso');
+  add(ellipsoid([0, 0.662, -0.145], [0.127, 0.150, 0.160]), spineBones, 'torso');
+  add(ellipsoid([0, 0.655, -0.29], [0.140, 0.150, 0.140]), 'pelvis', 'torso');
   for (const s of [-1, 1]) {
-    add(ellipsoid([s * 0.085, 0.640, 0.27], [0.065, 0.130, 0.100]), 'body', 'torso', 0.05);
-    add(ellipsoid([s * 0.088, 0.585, -0.29], [0.070, 0.140, 0.130]), 'pelvis', 'torso', 0.05);
+    add(ellipsoid([s * 0.087, 0.640, 0.26], [0.065, 0.130, 0.100]), 'body', 'torso', 0.05);
+    add(ellipsoid([s * 0.090, 0.585, -0.27], [0.072, 0.140, 0.130]), 'pelvis', 'torso', 0.05);
   }
 
   /* — cou et collerette — épais, de longueur moyenne, porté haut. */
@@ -317,16 +324,16 @@ function bodyPrims() {
     const k = s < 0 ? 'L' : 'R';
     const W = (p) => [s * p[0], p[1], p[2]];
     const F = LEG.F, B = LEG.B;
-    add(cone(W(F.hip), W(F.knee), 0.068, 0.050), 'hipF' + k, 'leg', 0.045);
-    add(cone(W(F.knee), W(F.paw), 0.045, 0.033), 'kneeF' + k, 'leg', 0.03);
-    add(cone(W(F.paw), W([0.093, 0.040, 0.318]), 0.033, 0.031), 'pawF' + k, 'paw', 0.025);
-    add(ellipsoid(W([0.093, 0.030, 0.338]), [0.044, 0.034, 0.056]), 'pawF' + k, 'paw', 0.03);
+    add(cone(W(F.hip), W(F.knee), 0.080, 0.062), 'hipF' + k, 'leg', 0.045);
+    add(cone(W(F.knee), W(F.paw), 0.056, 0.043), 'kneeF' + k, 'leg', 0.03);
+    add(cone(W(F.paw), W([0.098, 0.040, 0.308]), 0.042, 0.040), 'pawF' + k, 'paw', 0.025);
+    add(ellipsoid(W([0.098, 0.031, 0.328]), [0.051, 0.036, 0.060]), 'pawF' + k, 'paw', 0.03);
 
-    add(cone(W(B.hip), W(B.knee), 0.088, 0.056), 'hipB' + k, 'leg', 0.05);
-    add(ellipsoid(W([0.098, 0.50, -0.275]), [0.068, 0.130, 0.105]), 'hipB' + k, 'leg', 0.05);
-    add(cone(W(B.knee), W(B.paw), 0.052, 0.030), 'kneeB' + k, 'leg', 0.03);
-    add(cone(W(B.paw), W([0.105, 0.045, -0.345]), 0.030, 0.031), 'pawB' + k, 'paw', 0.025);
-    add(ellipsoid(W([0.105, 0.030, -0.325]), [0.044, 0.034, 0.055]), 'pawB' + k, 'paw', 0.03);
+    add(cone(W(B.hip), W(B.knee), 0.098, 0.068), 'hipB' + k, 'leg', 0.05);
+    add(ellipsoid(W([0.102, 0.50, -0.255]), [0.074, 0.135, 0.110]), 'hipB' + k, 'leg', 0.05);
+    add(cone(W(B.knee), W(B.paw), 0.064, 0.040), 'kneeB' + k, 'leg', 0.03);
+    add(cone(W(B.paw), W([0.110, 0.045, -0.325]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
+    add(ellipsoid(W([0.110, 0.031, -0.305]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
   }
   return P;
 }
@@ -367,7 +374,7 @@ const PAINT = {
     const under = ss(-0.10, -0.50, ny + j);
     const bib = ss(0.30, 0.42, z + j * 0.3) * ss(0.20, 0.55, nz + j) * ss(0.74, 0.62, y)
       * ss(0.13, 0.06, Math.abs(x));
-    const vent = ss(-0.38, -0.46, z) * ss(-0.2, -0.6, nz) * ss(0.72, 0.62, y + j * 0.2);
+    const vent = ss(-0.36, -0.44, z) * ss(-0.2, -0.6, nz) * ss(0.72, 0.62, y + j * 0.2);
     out.lerp(COAT.cream, Math.max(under, bib, vent));
   },
   neck(x, y, z, nx, ny, nz, out) {

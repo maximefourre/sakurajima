@@ -23,7 +23,7 @@
  * Console : __st.pose('sit'), __st.view('side'), __st.animate('trot', 0.5). */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildBody } from '../src/shiba-geom.js';
+import { buildBody, SIT_POSE } from '../src/shiba-geom.js';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(devicePixelRatio);
@@ -74,11 +74,12 @@ const POSES = {
   swim: { swimPose: true },
 };
 function apply(p, legFn) {
+  // Le tronc AVANT les pattes, comme animate() : le pied compense son tangage.
+  rig.poseBody(p.y, p.pitch, p.roll, { sit: p.sit, flex: p.flex });
   rig.legs.forEach((leg, i) => {
     const [h, k] = legFn ? legFn(leg, i) : [p.hip, p.knee];
     rig.poseLeg(leg, h, k, { sit: p.sit, swim: p.swim });
   });
-  rig.poseBody(p.y, p.pitch, p.roll, { sit: p.sit, flex: p.flex });
   rig.poseHead({ dt: 0, headYaw: p.headYaw, headPitch: p.headPitch, headRoll: p.headRoll, neckPitch: p.neckPitch, neckRoll: 0 });
   rig.poseTail(p.tailX, p.tailY, 0);
 }
@@ -90,8 +91,8 @@ const api = {
     anim = null;
     const p = neutral();
     if (name === 'sit') {
-      p.sit = 1; p.pitch = -0.60; p.y = -0.03; p.neckPitch = -0.28; p.headPitch = -0.05; p.tailX = 0.04;
-      apply(p, (leg) => (leg.front ? [0.52, -0.04] : [-0.31, 1.24]));
+      p.sit = 1; p.pitch = SIT_POSE.pitch; p.y = SIT_POSE.drop; p.neckPitch = -0.28; p.headPitch = -0.05; p.tailX = 0.04;
+      apply(p, (leg) => (leg.front ? [SIT_POSE.frontHip, SIT_POSE.frontKnee] : [SIT_POSE.hindHip, SIT_POSE.hindKnee]));
     } else if (name === 'swim') {
       p.swim = 1; p.pitch = -0.18; p.neckPitch = -0.12; p.headPitch = -0.24; p.tailX = -0.62;
       apply(p, (leg, i) => [0.8 * (i % 2 ? 1 : -1), -0.9]);

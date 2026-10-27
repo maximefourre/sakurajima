@@ -65,7 +65,7 @@ import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { createPetals, isPetalSand, forEachCarpetLeaf, airbornePetalAt, nearestAirbornePetal } from '../src/petals.js';
 import { trunkHits } from '../src/sakura.js';
-import { SHIBA_BUILD, buildBody } from '../src/shiba-geom.js';
+import { SHIBA_BUILD, SIT_POSE, buildBody } from '../src/shiba-geom.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry, computeSnagSite, makeSnagGeometry } from '../src/poi.js';
@@ -891,11 +891,13 @@ try {
 
 /* ── 11. il nage, il n'est pas un sous-marin ─────────────────────────────── */
 {
-  const centre = SHIBA_BUILD.standHeight * SHIBA_BUILD.scale;
+  // Le garrot nominal, pas standHeight (pivot du tronc). Le dos MESURÉ sur la
+  // peau est vérifié par l'invariant 23.
+  const dos = SHIBA_BUILD.withers * SHIBA_BUILD.scale;
   check('flottaison : la ligne de dos sort de l’eau',
-    centre > SHIBA.swimFloat + 0.03 && SHIBA.swimDepth >= SHIBA.swimFloat,
-    `centreline ${centre.toFixed(3)} vs flottaison ${SHIBA.swimFloat} `
-    + `(dos émergé ${(centre - SHIBA.swimFloat).toFixed(3)})`);
+    dos > SHIBA.swimFloat + 0.03 && SHIBA.swimDepth >= SHIBA.swimFloat,
+    `garrot ${dos.toFixed(3)} vs flottaison ${SHIBA.swimFloat} `
+    + `(dos émergé ${(dos - SHIBA.swimFloat).toFixed(3)})`);
 }
 
 /* ── 12. le plan des pattes est bien à position.y ────────────────────────
@@ -1686,17 +1688,17 @@ function milieuAppuis(r) {
       ['trot φπ', { hip: -0.62, knee: -0.84, sit: 0 }],
       ['galop φπ', { hip: -0.95, knee: -1.47, sit: 0, flex: -0.16 }],
       ['nage', { hip: 1.34, knee: -1.20, sit: 0, swim: 1 }],
-      ['assise', { sit: 1, pitch: -0.60 }],
+      ['assise', { sit: 1, pitch: SIT_POSE.pitch }],
       ['secouage', { hip: 0, knee: 0, sit: 0, roll: 0.42 }],
       ['galop + tête', { hip: -0.95, knee: -1.47, sit: 0, head: 0.7, tail: 0.9 }],
-      ['assise + regard', { sit: 1, pitch: -0.60, head: -0.6, headPitch: -0.6 }],
+      ['assise + regard', { sit: 1, pitch: SIT_POSE.pitch, head: -0.6, headPitch: -0.6 }],
     ];
     const poser = (p) => {
       r.poseBody(0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0, flex: p.flex || 0 });
       for (const leg of r.legs) {
-        // Assise : les angles qu'animate() envoie (sitHip / sitKnee de shiba.js).
-        const hip = p.sit ? (leg.front ? 0.52 : -0.31) : p.hip;
-        const knee = p.sit ? (leg.front ? -0.04 : 1.24) : p.knee;
+        // Assise : les angles qu'animate() envoie, depuis la même constante.
+        const hip = p.sit ? (leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip) : p.hip;
+        const knee = p.sit ? (leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee) : p.knee;
         r.poseLeg(leg, hip, knee, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0 });
       }
       r.poseHead({ dt: 0, headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
