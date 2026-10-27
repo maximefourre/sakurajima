@@ -106,6 +106,28 @@ const api = {
 };
 globalThis.__st = api;
 api.pose('stand');
+// ?live=walk|run&t=2.4 : le VRAI chien (createShiba → animate()) sur sol plat,
+// simulé à pas fixe jusqu'à t secondes, caméra de profil qui le suit.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('live')) {
+    const { createShiba } = await import('../src/shiba.js');
+    rig.root.visible = false;
+    const dog = createShiba({ seed: 7, heightAt: () => 0, water: { surfaceAt: () => null } });
+    scene.add(dog.group);
+    ground.scale.setScalar(20);
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    if (q.get('live') === 'run') dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft', shiftKey: true }));
+    const T = Number(q.get('t') ?? 2), n = Math.round(T * 60);
+    for (let i = 1; i <= n; i++) dog.update(i / 60, 1 / 60, null);
+    const p = dog.position, h = dog.heading + Math.PI / 2;
+    controls.target.set(p.x, p.y + 0.80, p.z);
+    camera.position.set(p.x + Math.sin(h) * 5.2, p.y + 1.0, p.z + Math.cos(h) * 5.2);
+    sun.target.position.copy(p); scene.add(sun.target); sun.position.set(p.x + 2.5, 4, p.z + 3);
+    controls.update();
+    globalThis.__live = dog;
+  }
+}
 // ?view=side&pose=sit&gait=trot&speed=0.5&t=0.3 : captures headless sans console.
 {
   const q = new URLSearchParams(location.search);
@@ -162,9 +184,9 @@ function frame() {
     // Mêmes intentions qu'animate() (shiba.js), allure pure.
     const g = anim.gait;
     p.flex = g === 'gallop' ? -Math.sin(anim.ph + 0.25) * 0.30 * anim.speedN : 0;
-    p.lat = g === 'walk' ? -0.13 * Math.sin(anim.ph + ph[2]) : g === 'trot' ? -0.08 * Math.sin(anim.ph + ph[2]) : 0;
+    p.lat = g === 'walk' ? -0.06 * Math.sin(anim.ph + ph[2]) : g === 'trot' ? -0.04 * Math.sin(anim.ph + ph[2]) : 0;
     p.sag = g === 'gallop' ? 0 : 0.035 * Math.sin(anim.ph * 2 + 0.9);
-    p.bounce = g === 'gallop' ? 0 : 0.016 * anim.speedN * Math.sin(anim.ph * 2 + 0.6);
+    p.bounce = g === 'gallop' ? 0 : 0.010 * anim.speedN * Math.sin(anim.ph * 2 + 0.6);
     p.tailY = Math.sin(anim.ph * 0.7) * 0.3;
     apply(p, (leg, i) => {
       const a = anim.ph + ph[i];

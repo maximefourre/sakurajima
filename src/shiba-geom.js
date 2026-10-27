@@ -857,6 +857,7 @@ export function buildBody() {
    *  - assis, l'arrière se plie en Z, jarret posé, métatarse à plat au sol. */
   let bodyPitch = 0;
   const hindHip = [0, 0];
+  const frontLift = [0, 0];
   // Butée souple de l'épaule et de la hanche : identité jusqu'à 0.8 rad, puis
   // saturation vers 1.1. Au-delà, la peau entre coude et ventre se tend en
   // nappe (×5.6 d'étirement d'arête à la nage, à 1.34 rad, banc 26). Le galop
@@ -875,13 +876,23 @@ export function buildBody() {
     // thorax, vers l'arrière quand le membre recule, et se soulève quand il se
     // replie. La hanche se lève aussi en phase aérienne. Translations du pivot
     // (repère du tronc), la peau partagée les suit.
-    const glide = leg.front ? 0.045 : 0.020;
-    const lift = (leg.front ? 0.018 : 0.022) * fold * (1 - sit);
+    const glide = leg.front ? 0.065 : 0.020;
+    // Avant : l'épaule d'APPUI monte quand la patte passe sous le corps (le
+    // poids passe dessus, le garrot se soulève), celle qui se replie retombe.
+    // Arrière : la hanche se lève en phase aérienne.
+    const lift = (leg.front
+      ? 0.026 * (1 - ss(0.0, 0.35, Math.abs(hip))) * (1 - ss(0.0, 0.25, fold)) - 0.014 * ss(0.0, 0.4, fold)
+      : 0.022 * fold) * (1 - sit) * (1 - swim);
     leg.hip.position.set(leg.hipRest.x, leg.hipRest.y + lift, leg.hipRest.z - glide * hip * (1 - sit));
+    if (leg.front) {
+      frontLift[leg.key === 'FL' ? 0 : 1] = lift;
+      // Le poitrail roule vers l'épaule qui porte : c'est elle qui monte.
+      if (leg.key === 'FR') body.rotation.z += 1.6 * (frontLift[1] - frontLift[0]);
+    }
     if (!leg.front) {
       hindHip[leg.key === 'BL' ? 0 : 1] = hip;
       // Bascule du bassin : il roule vers la patte d'appui à chaque pas.
-      if (leg.key === 'BR') pelvis.rotation.z = 0.10 * (hindHip[0] - hindHip[1]) * (1 - sit);
+      if (leg.key === 'BR') pelvis.rotation.z = 0.05 * (hindHip[0] - hindHip[1]) * (1 - sit);
     }
     if (leg.front) {
       const elbow = -0.42 * fold;
@@ -920,7 +931,9 @@ export function buildBody() {
     sit = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
   } = {}) => {
     bodyPitch = pitch;
-    chestYaw = -0.45 * lat + bend + 0.6 * sway;
+    // La torsion se partage à parts presque égales : le poitrail porte autant
+    // le geste que le bassin (sinon tout le mouvement part dans l'arrière-train).
+    chestYaw = -0.9 * lat + bend + 0.6 * sway;
     pelvisYaw = lat - bend - 0.4 * sway;
     body.rotation.set(pitch, chestYaw, roll);
     _v.copy(SIT_PIVOT).multiplyScalar(sit);
@@ -932,22 +945,28 @@ export function buildBody() {
     pelvis.position.set(pelvisRest.x, pelvisRest.y + bounce, pelvisRest.z);
   };
 
-  // La tête est STABILISÉE : un chien garde le regard de niveau quand son corps
-  // tangue. Neck + tête compensent ensemble ~85 % du tangage du tronc. Les
-  // montées brusques (lookUp saute d'un coup) sont lissées sur TAU_TETE.
-  const TAU_TETE = 0.22;
-  let lissTete = 0, lissCou = 0, lastDt = 1 / 60;
+  // La tête n'est stabilisée qu'à MOITIÉ : un chien garde le regard à peu
+  // près de niveau, mais sa tête vit — elle hoche avec les antérieurs et
+  // suit le corps avec retard. Un lissage exponentiel de 0.22 s (version
+  // précédente) écrasait tout ce qui bat à la cadence du pas (2–3 Hz) : tête
+  // figée. Un ressort sous-amorti laisse passer le hochement, le retarde un
+  // peu et adoucit quand même les sauts de `lookUp`.
+  const W_TETE = 13, Z_TETE = 0.55;
+  let hP = 0, hV = 0, nP = 0, nV = 0, lastDt = 1 / 60;
   const poseHead = (p) => {
     lastDt = p.dt > 0 ? Math.min(p.dt, 0.1) : 0;
-    const k = lastDt > 0 ? 1 - Math.exp(-lastDt / TAU_TETE) : 1;
-    lissTete += (p.headPitch - lissTete) * k;
-    lissCou += (p.neckPitch - lissCou) * k;
-    neck.rotation.x = lissCou - 0.45 * bodyPitch;
-    // Le cou contre-tourne la torsion du poitrail : le regard reste dans l'axe
-    // de la marche pendant que les épaules roulent.
-    neck.rotation.y = -0.75 * chestYaw;
+    if (lastDt <= 0) { hP = p.headPitch; nP = p.neckPitch; hV = nV = 0; }
+    else {
+      hV += (W_TETE * W_TETE * (p.headPitch - hP) - 2 * Z_TETE * W_TETE * hV) * lastDt; hP += hV * lastDt;
+      nV += (W_TETE * W_TETE * (p.neckPitch - nP) - 2 * Z_TETE * W_TETE * nV) * lastDt; nP += nV * lastDt;
+    }
+    const lissTete = hP, lissCou = nP;
+    neck.rotation.x = lissCou - 0.25 * bodyPitch;
+    // Le cou contre-tourne une PARTIE de la torsion du poitrail : la tête
+    // suit les épaules sans que le regard ne quitte l'axe de la marche.
+    neck.rotation.y = -0.40 * chestYaw;
     neck.rotation.z = p.neckRoll;
-    head.rotation.set(lissTete - 0.40 * bodyPitch, p.headYaw, p.headRoll, 'YXZ');
+    head.rotation.set(lissTete - 0.25 * bodyPitch, p.headYaw, p.headRoll, 'YXZ');
   };
 
   // Queue : un ressort sous-amorti sur le battement. La brosse est lourde, elle
@@ -958,7 +977,7 @@ export function buildBody() {
     const dt = lastDt;
     // La queue est portée par le bassin : elle suit son lacet, avec le retard
     // du ressort (action superposée) au lieu de bouger d'un bloc avec lui.
-    y += 0.9 * pelvisYaw;
+    y += 0.5 * pelvisYaw;
     if (dt <= 0) { tY = y; tX = x; vY = vX = 0; }
     else {
       const w = 15, zeta = 0.5;

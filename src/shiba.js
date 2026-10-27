@@ -611,12 +611,13 @@ export function createShiba({
     // gauche quand celui-ci se pose (sa hanche est au plus avant). Plus ample
     // au pas qu'au trot, nulle au galop (plan sagittal seulement).
     const moving = smoothstep(0.02, 0.18, speedN);
-    const lat = -(walkW * 0.13 * Math.sin(state.gait + GAITS.walk.ph[2])
-      + trotW * 0.08 * Math.sin(state.gait + GAITS.trot.ph[2])) * moving * free;
+    // Retour utilisateur : à 0.13 / 0.08 il « balançait trop son derrière ».
+    const lat = -(walkW * 0.06 * Math.sin(state.gait + GAITS.walk.ph[2])
+      + trotW * 0.04 * Math.sin(state.gait + GAITS.trot.ph[2])) * moving * free;
     // Sagittal biphasique (deux fois par foulée) et rebond du bassin, plus
     // marqué que celui du poitrail.
     const sag = 0.035 * (walkW + trotW) * moving * Math.sin(state.gait * 2 + 0.9) * free;
-    const bounce = 0.016 * (walkW + trotW) * speedN * Math.sin(state.gait * 2 + 0.6) * free;
+    const bounce = 0.010 * (walkW + trotW) * speedN * Math.sin(state.gait * 2 + 0.6) * free;
     // Dos arqué dans le virage : la vitesse de lacet, lissée.
     let dHead = state.heading - lastHeading;
     dHead = Math.atan2(Math.sin(dHead), Math.cos(dHead));
@@ -766,6 +767,16 @@ export function createShiba({
     headPitch = mix(headPitch, lookHeadPitch, state.look);
     let neckPitch = mix(0, -0.12, swim);
     neckPitch = mix(neckPitch, -0.28, sit);
+    // Hochement : la tête descend quand un antérieur se pose — deux fois par
+    // foulée au pas et au trot, une fois (et fort) au galop, où le cou pompe
+    // avec l'avant-main. Au pas, elle balaie aussi un peu de côté.
+    const nodFree = (1 - swim) * (1 - sit) * (1 - shake);
+    const nod = (walkW * 0.085 * Math.sin(state.gait * 2 + 1.2)
+      + trotW * 0.075 * Math.sin(state.gait * 2 + 0.9)) * moving
+      + gallopW * speedN * 0.16 * Math.sin(state.gait + 0.6);
+    neckPitch += nod * 0.6 * nodFree;
+    headPitch += nod * 0.4 * nodFree;
+    headYaw += walkW * moving * 0.07 * Math.sin(state.gait + 0.4) * nodFree;
     const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
     const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;
     headPitch += barkEnv * 0.22;
