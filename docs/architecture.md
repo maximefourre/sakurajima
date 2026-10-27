@@ -32,7 +32,9 @@ crabs.js    — crabes de laisse (fuite, enfouissement)
 gulls.js    — goélands posés sur stacks / nuki du torii marin
 shiba-geom.js — le chien, modelé ici : SDF → surface nets → peau skinnée (21 os),
               oreilles/queue/mâchoire/yeux rigides, hooks de pose à 3 articulations
-              (pied à plat à l'appui, omoplate qui glisse, assise sur les épaules).
+              (pied à plat à l'appui, omoplate qui glisse, assise sur les épaules),
+              colonne vivante : flexion latérale au pas/trot, flexion/extension
+              au galop, dos arqué en virage, queue qui suit le bassin.
               `SIT_POSE` = seule source des angles d'assise. Aucun asset tiers.
               Atelier : tools/shiba-studio.html (?view=side&pose=sit&stretch)
 touch.js / boot.js — commandes tactiles, voile d'erreur

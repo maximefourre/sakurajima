@@ -1681,12 +1681,12 @@ function milieuAppuis(r) {
   if (r) {
     const POSES = [
       ['repos', { hip: 0, knee: 0, sit: 0 }],
-      ['marche φ0', { hip: 0.30, knee: -0.36, sit: 0 }],
+      ['marche φ0', { hip: 0.30, knee: -0.36, sit: 0, lat: 0.13 }],
       ['trot φ0', { hip: 0.62, knee: -0.84, sit: 0 }],
-      ['galop φ0', { hip: 0.95, knee: -1.47, sit: 0, flex: 0.16 }],
-      ['marche φπ', { hip: -0.30, knee: -0.36, sit: 0 }],
+      ['galop φ0', { hip: 0.95, knee: -1.47, sit: 0, flex: -0.30 }],
+      ['marche φπ', { hip: -0.30, knee: -0.36, sit: 0, lat: -0.13, bend: 0.16 }],
       ['trot φπ', { hip: -0.62, knee: -0.84, sit: 0 }],
-      ['galop φπ', { hip: -0.95, knee: -1.47, sit: 0, flex: -0.16 }],
+      ['galop φπ', { hip: -0.95, knee: -1.47, sit: 0, flex: 0.30 }],
       ['nage', { hip: 1.34, knee: -1.20, sit: 0, swim: 1 }],
       ['assise', { sit: 1, pitch: SIT_POSE.pitch }],
       ['secouage', { hip: 0, knee: 0, sit: 0, roll: 0.42 }],
@@ -1694,7 +1694,8 @@ function milieuAppuis(r) {
       ['assise + regard', { sit: 1, pitch: SIT_POSE.pitch, head: -0.6, headPitch: -0.6 }],
     ];
     const poser = (p) => {
-      r.poseBody(0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0, flex: p.flex || 0 });
+      r.poseBody(0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0,
+        flex: p.flex || 0, lat: p.lat || 0, bend: p.bend || 0 });
       for (const leg of r.legs) {
         // Assise : les angles qu'animate() envoie, depuis la même constante.
         const hip = p.sit ? (leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip) : p.hip;

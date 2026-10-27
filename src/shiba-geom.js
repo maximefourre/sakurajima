@@ -903,15 +903,33 @@ export function buildBody() {
   // L'assise pivote autour des ÉPAULES, pas du milieu du tronc : un chien qui
   // s'assied laisse ses antérieurs où ils sont et descend l'arrière-train.
   const SIT_PIVOT = new THREE.Vector3(0, LEG.F.hip[1] - SHIBA_BUILD.standHeight, LEG.F.hip[2]);
-  const poseBody = (y, pitch, roll, { sit = 0, flex = 0 } = {}) => {
+  // La colonne n'a que deux os (tronc → bassin), mais la peau du rein les
+  // mélange : tourner le bassin contre le tronc COURBE le dos. Trois plans :
+  //  - latéral (lacet) : le plus grand mouvement de la colonne aux allures
+  //    symétriques — le bassin part du côté du postérieur qui se pose, le
+  //    poitrail contre-tourne vers l'antérieur qui mène ; plus la courbe d'un
+  //    virage, dos arqué dans le sens où il tourne ;
+  //  - sagittal (tangage) : fléchi au posé des postérieurs, étendu à leur
+  //    décollage — faible au pas / trot, majeur au galop (`flex`) ;
+  //  - le bassin rebondit plus que le poitrail.
+  // Les INTENTIONS viennent d'animate() (qui connaît les phases) ; ici on les
+  // répartit sur les os.
+  const pelvisRest = pelvis.position.clone();
+  let chestYaw = 0, pelvisYaw = 0;
+  const poseBody = (y, pitch, roll, {
+    sit = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
+  } = {}) => {
     bodyPitch = pitch;
-    body.rotation.set(pitch, 0, roll);
+    chestYaw = -0.45 * lat + bend + 0.6 * sway;
+    pelvisYaw = lat - bend - 0.4 * sway;
+    body.rotation.set(pitch, chestYaw, roll);
     _v.copy(SIT_PIVOT).multiplyScalar(sit);
-    _w.copy(_v).applyEuler(_e.set(pitch, 0, roll));
+    _w.copy(_v).applyEuler(_e.set(pitch, chestYaw, roll));
     body.position.set(0, y, 0).add(_v).sub(_w);
-    // Le rein fléchit au galop (dos qui se voûte / s'étire une fois par foulée)
-    // et le bassin bascule un peu sous lui à l'assise.
-    pelvis.rotation.x = flex + 0.12 * sit;
+    // Le bassin est l'enfant du tronc : son lacet RELATIF porte la différence.
+    pelvis.rotation.y = pelvisYaw - chestYaw;
+    pelvis.rotation.x = flex + sag + 0.12 * sit;
+    pelvis.position.set(pelvisRest.x, pelvisRest.y + bounce, pelvisRest.z);
   };
 
   // La tête est STABILISÉE : un chien garde le regard de niveau quand son corps
@@ -925,6 +943,9 @@ export function buildBody() {
     lissTete += (p.headPitch - lissTete) * k;
     lissCou += (p.neckPitch - lissCou) * k;
     neck.rotation.x = lissCou - 0.45 * bodyPitch;
+    // Le cou contre-tourne la torsion du poitrail : le regard reste dans l'axe
+    // de la marche pendant que les épaules roulent.
+    neck.rotation.y = -0.75 * chestYaw;
     neck.rotation.z = p.neckRoll;
     head.rotation.set(lissTete - 0.40 * bodyPitch, p.headYaw, p.headRoll, 'YXZ');
   };
@@ -935,6 +956,9 @@ export function buildBody() {
   let tY = 0, vY = 0, tX = 0, vX = 0;
   const poseTail = (x, y, z) => {
     const dt = lastDt;
+    // La queue est portée par le bassin : elle suit son lacet, avec le retard
+    // du ressort (action superposée) au lieu de bouger d'un bloc avec lui.
+    y += 0.9 * pelvisYaw;
     if (dt <= 0) { tY = y; tX = x; vY = vX = 0; }
     else {
       const w = 15, zeta = 0.5;

@@ -354,6 +354,8 @@ export function createShiba({
 
   /** Head-up idle beat: he looks up at the falling petals now and then. */
   let lookUpTimer = R.range(rng, 3, 9);
+  let lastHeading = SPAWN.heading;
+  let turnBend = 0;
   let lookUp = 0;
 
   /** Seeded irregular blink, separated from the idle-look random stream. */
@@ -599,9 +601,35 @@ export function createShiba({
     const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
     const bodyPitchF = mix(bodyPitch, 0, shake);
     // Le rein se voûte et s'étire une fois par foulée de galop.
-    const flex = Math.sin(state.gait + 0.6) * 0.16 * gallopW * speedN * (1 - swim) * (1 - shake);
+    // La colonne, d'après la cinématique du chien (et des petits mammifères) :
+    // au galop, flexion maximale au POSÉ des postérieurs (ils passent sous le
+    // ventre : sin(gait) > 0 avec GAITS.gallop.ph) et extension à leur
+    // décollage ; ±0.30 rad. L'ancien signe était inversé.
+    const free = (1 - swim) * (1 - shake) * (1 - sit);
+    const flex = -Math.sin(state.gait + 0.25) * 0.30 * gallopW * speedN * free;
+    // Flexion LATÉRALE, une fois par foulée : bassin du côté du postérieur
+    // gauche quand celui-ci se pose (sa hanche est au plus avant). Plus ample
+    // au pas qu'au trot, nulle au galop (plan sagittal seulement).
+    const moving = smoothstep(0.02, 0.18, speedN);
+    const lat = -(walkW * 0.13 * Math.sin(state.gait + GAITS.walk.ph[2])
+      + trotW * 0.08 * Math.sin(state.gait + GAITS.trot.ph[2])) * moving * free;
+    // Sagittal biphasique (deux fois par foulée) et rebond du bassin, plus
+    // marqué que celui du poitrail.
+    const sag = 0.035 * (walkW + trotW) * moving * Math.sin(state.gait * 2 + 0.9) * free;
+    const bounce = 0.016 * (walkW + trotW) * speedN * Math.sin(state.gait * 2 + 0.6) * free;
+    // Dos arqué dans le virage : la vitesse de lacet, lissée.
+    let dHead = state.heading - lastHeading;
+    dHead = Math.atan2(Math.sin(dHead), Math.cos(dHead));
+    lastHeading = state.heading;
+    const turnRate = dt > 0 ? dHead / dt : 0;
+    turnBend += (clamp(turnRate * 0.035, -0.16, 0.16) * (1 - swim) - turnBend) * Math.min(1, dt * 8);
+    // Au repos : le poids passe d'un pied sur l'autre, lentement.
+    const idleW = (1 - moving) * (1 - shake) * (1 - swim);
+    const sway = idleW * (0.035 * Math.sin(t * 0.37) + 0.015 * Math.sin(t * 0.91 + 1.3));
     if (rig.poseBody) {
-      rig.poseBody(bodyYF, bodyPitchF, bodyRollF, { swim, sit, shake, speedN, flex });
+      rig.poseBody(bodyYF, bodyPitchF, bodyRollF + idleW * (1 - sit) * 0.015 * Math.sin(t * 0.37 + 0.8), {
+        swim, sit, shake, speedN, flex, lat, sag, bounce, bend: turnBend * (1 - sit), sway,
+      });
     } else {
       rig.body.position.y = bodyYF;
       rig.body.rotation.z = bodyRollF;

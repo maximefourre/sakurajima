@@ -75,7 +75,7 @@ const POSES = {
 };
 function apply(p, legFn) {
   // Le tronc AVANT les pattes, comme animate() : le pied compense son tangage.
-  rig.poseBody(p.y, p.pitch, p.roll, { sit: p.sit, flex: p.flex });
+  rig.poseBody(p.y, p.pitch, p.roll, { sit: p.sit, flex: p.flex, lat: p.lat || 0, sag: p.sag || 0, bounce: p.bounce || 0 });
   rig.legs.forEach((leg, i) => {
     const [h, k] = legFn ? legFn(leg, i) : [p.hip, p.knee];
     rig.poseLeg(leg, h, k, { sit: p.sit, swim: p.swim });
@@ -159,7 +159,12 @@ function frame() {
     const p = neutral();
     p.y = Math.sin(anim.ph * 2) * 0.056 * anim.speedN;
     p.pitch = -0.05 * anim.speedN + (anim.gait === 'gallop' ? Math.sin(anim.ph) * 0.09 : 0);
-    p.flex = anim.gait === 'gallop' ? Math.sin(anim.ph + 0.6) * 0.16 * anim.speedN : 0;
+    // Mêmes intentions qu'animate() (shiba.js), allure pure.
+    const g = anim.gait;
+    p.flex = g === 'gallop' ? -Math.sin(anim.ph + 0.25) * 0.30 * anim.speedN : 0;
+    p.lat = g === 'walk' ? -0.13 * Math.sin(anim.ph + ph[2]) : g === 'trot' ? -0.08 * Math.sin(anim.ph + ph[2]) : 0;
+    p.sag = g === 'gallop' ? 0 : 0.035 * Math.sin(anim.ph * 2 + 0.9);
+    p.bounce = g === 'gallop' ? 0 : 0.016 * anim.speedN * Math.sin(anim.ph * 2 + 0.6);
     p.tailY = Math.sin(anim.ph * 0.7) * 0.3;
     apply(p, (leg, i) => {
       const a = anim.ph + ph[i];
