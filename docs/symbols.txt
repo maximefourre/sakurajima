@@ -1,0 +1,218 @@
+# Généré par tools/gen-symbols.py — ne pas éditer à la main.
+# grep -i <mot> docs/symbols.txt
+
+airbornePetalAt             src/petals.js:93          (i, t, pack)
+AMBIENCE                    src/config.js:721         = Object.freeze({
+ambientWeights              src/audio.js:20           ({
+ARCHETYPE_NAMES             src/sakura.js:377         = Object.keys( ARCHETYPES );
+AREA                        src/config.js:126         = LAND_SCALE * LAND_SCALE;
+AREA_SOFT                   src/config.js:137         = Math.pow(AREA, 0.75);
+AUTUMN_DOMINANT_SEQUENCE    src/seasonal-foliage.js:9  = Object.freeze([
+AUTUMN_PALETTES             src/seasonal-foliage.js:14  = Object.freeze({
+BAMBOO                      src/config.js:705         = Object.freeze({
+buildBody                   src/shiba-geom.js:280     (material)
+BUTTERFLIES                 src/config.js:433         = Object.freeze({
+butterflyActivity           src/butterflies.js:72     (phase)
+CAMERA                      src/config.js:293         = {
+carvePonds                  src/ponds.js:95           (x, z, h)
+CHASHITSU_POSTS             src/chashitsu.js:35       = Object.freeze([
+chashitsuKeepOut            src/chashitsu.js:194      (site, x, z, r = POI.chashitsuKeepOut)
+chashitsuKeepOut            src/poi.js:26             (re-export)
+chashitsuPosts              src/chashitsu.js:184      (site)
+clamp                       src/noise.js:160          = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+CLOUD_SHADOW_GLSL           src/cloud-shadow.js:10    =  `
+COAT                        src/shiba-geom.js:13      = {
+coatAt                      src/shiba-geom.js:218     (upness, out, creamBias = 0, jitter = 0)
+computeBambooSpawns         src/bamboo.js:125         ({
+computeButterflySpawns      src/butterflies.js:30     ({ flowerSpots, heightAt, count, seed = 1 } = {})
+computeChashitsuSite        src/chashitsu.js:123      ({ heightAt, isOnPath, isInPond, slopeAt } = {})
+computeChashitsuSite        src/poi.js:26             (re-export)
+computeCrabSpawns           src/crabs.js:102          ({ heightAt, isInPond, count, seed = SEED } = {})
+computeDragonflySpots       src/dragonflies.js:17     ({
+computeFireflySpots         src/fireflies.js:34       ({ ponds, heightAt, isInPond, count, seed = 1 } = {})
+computeGullSpawns           src/gulls.js:113          ({
+computeHeronSpawns          src/herons.js:309         ({
+computeIwakuraSite          src/poi.js:589            ()
+computeJizoSite             src/poi.js:531            ({ heightAt, isOnPath, isInPond } = {})
+computeJunctionPad          src/details.js:752        (heightAt, heightGrid = null)
+computeLanternSpots         src/details.js:318        (heightAt, slopeAt = null, inWater = null)
+computeMidgeSpots           src/midges.js:38          ({
+computeMothSpots            src/moths.js:45           ({ lanternSpots, count, seed = 1, heightAt } = {})
+computeOverlookTerrace      src/details.js:790        (heightAt, heightGrid = null, slopeAt = null)
+computeRibbonMeshes         src/details.js:641        (heightAt, heightGrid = null)
+computeSeaToriiSite         src/poi.js:100            ({ heightAt } = {})
+computeShorePineSite        src/poi.js:66             ({ heightAt, isOnPath, isInPond } = {})
+computeSnagSite             src/poi.js:302            ({ heightAt, isOnPath, isInPond, slopeAt } = {})
+computeSteppingStones       src/poi.js:783            ({
+computeTsukubaiSite         src/poi.js:562            ({ heightAt, isOnPath, isInPond } = {})
+computeWrackSpawns          src/details.js:276        ({
+CRABS                       src/config.js:553         = Object.freeze({
+createAudio                 src/audio.js:92           ()
+createBamboo                src/bamboo.js:242         ({
+createBirds                 src/birds.js:145          ({ seed, quality, heightAt, wind, ponds, canopies = [] } = {})
+createButterflies           src/butterflies.js:130    ({
+createChashitsu             src/chashitsu.js:443      ({ seed = SEED, site } = {})
+createClouds                src/clouds.js:184         ({ seed, wind, quality })
+createCloudShadow           src/cloud-shadow.js:28    ()
+createCrabs                 src/crabs.js:129          ({ seed = SEED, quality, heightAt, isInPond } = {})
+createDetails               src/details.js:1407       ({
+createDragonflies           src/dragonflies.js:64     ({
+createFireflies             src/fireflies.js:133      ({ seed = 1, quality, heightAt, ponds, isInPond } = {})
+createGrass                 src/grass.js:627          ( options = {} )
+createGulls                 src/gulls.js:149          ({
+createHerons                src/herons.js:405         ({
+createIsland                src/island.js:534         ({ seed = 1337, quality = null, carve = null, isInPond = null, season = 'spring', cloudSha
+createMidges                src/midges.js:97          ({
+createMoths                 src/moths.js:87           ({ seed = 1, quality, heightAt, lanternSpots } = {})
+createParticles             src/particles.js:250      ({ quality = null, seed = 1337, season = 'spring' } = {})
+createPetals                src/petals.js:170         ({ seed, quality, season = 'spring', canopies = [], wind, heightAt, slopeAt = null, exclud
+createPOI                   src/poi.js:975            ({
+createPonds                 src/ponds.js:816          ({ seed = 1337, wind, quality, heightAt = null, season = 'spring' } = {})
+createSakuraForest          src/sakura.js:1608        ( options = {} )
+createShiba                 src/shiba.js:204          ({
+createSky                   src/sky.js:472            ({ scene, renderer, camera, quality = {}, season = 'spring', islandRadius = null } = {})
+createTouchControls         src/touch.js:14           ({ shiba, onJump, onCamera, onPause })
+createWind                  src/wind.js:53            ()
+createWindUniforms          src/sakura.js:152         ( opts = {} )
+DAY_LENGTH                  src/config.js:112         = 180;
+DEFAULT_QUALITY             src/config.js:228         = 'ultra';
+DEFAULT_QUALITY_MOBILE      src/config.js:237         = 'high';
+DEFAULT_SEASON              src/config.js:241         = 'spring';
+DOG_SLOTS                   src/ponds.js:125          = 3;
+dominantForIndex            src/seasonal-foliage.js:32  (index, seed = 0)
+DRAGONFLIES                 src/config.js:630         = Object.freeze({
+dragonflyActivity           src/dragonflies.js:59     (phase)
+fbm2                        src/noise.js:117          (x, y, oct = 5, lac = 2.03, gain = 0.5)
+FIELD_HALF                  src/clouds.js:54          (re-export)
+FIREFLIES                   src/config.js:328         = Object.freeze({
+fireflyActivity             src/fireflies.js:118      (phase)
+flowerSpots                 src/details.js:394        = new Float32Array(0);
+forEachCarpetLeaf           src/petals.js:139         (carpet, fn)
+furEdge                     src/shiba-geom.js:194     (p, amp = 0.10)
+GULLS                       src/config.js:687         = Object.freeze({
+HEIGHT_SCALE                src/config.js:40          = 1.4;
+HERONS                      src/config.js:612         = Object.freeze({
+inBambooGrove               src/bamboo.js:24          (x, z, pad = 0)
+initPath                    src/details.js:191        (opts = {})
+isAutumnDominant            src/seasonal-foliage.js:23  (value)
+isOnPath                    src/details.js:206        (x, z, extra = 0.25)
+isPetalSand                 src/petals.js:82          (h)
+isSeason                    src/season.js:14          (value)
+KOI_SLOTS                   src/ponds.js:124          = 8;
+LAND_SCALE                  src/config.js:31          = 1.42 * Math.sqrt(5); // ≈3.175 — the √5 multiplies the original foot
+lanternSpots                src/details.js:384        = [];
+loadShibaBody               src/shiba-gltf.js:504     ({ url = URL_DEFAUT } = {})
+lodKeepHi                   src/grass.js:380          ( r, cut )
+makeBambooGeometry          src/bamboo.js:52          (rng)
+makeChashitsuFrameGeometry  src/chashitsu.js:280      (seed = SEED)
+makeChashitsuRoofGeometry   src/chashitsu.js:340      (seed = SEED)
+makeCoatBump                src/shiba-geom.js:35      (seed)
+makeCrabGeometry            src/crabs.js:40           ()
+makeGrainBump               src/detailtex.js:53       (seed, size = 256)
+makeGullGeometry            src/gulls.js:40           ()
+makeHeronFlyGeometry        src/herons.js:200         ()
+makeHeronGeometry           src/herons.js:157         ()
+makeIwakuraGeometry         src/poi.js:710            (site = {})
+makeJizoGeometry            src/poi.js:605            ()
+makeKuromatsuGeometry       src/poi.js:212            ()
+makeRng                     src/sakura.js:63          ( seed )
+makeSittingRockGeometry     src/poi.js:411            (seed = SEED)
+makeSnagGeometry            src/poi.js:353            ()
+makeSteppingStoneGeometry   src/poi.js:935            (seed = SEED)
+makeToriiGeometry           src/details.js:1360       ()
+makeTree                    src/sakura.js:739         ( archetype = 'somei', rng = makeRng( 1 ), opts = {} )
+makeTsukubaiGeometry        src/poi.js:657            ()
+makeWoodBump                src/detailtex.js:64       (seed, w = 256, h = 64)
+MAPLE_SHAPE_GLSL            src/seasonal-foliage.js:46  =  `
+measureRibbonTriangleExact  src/details.js:469        (heightAt, heightGrid, pos, iA, iB, iC)
+midgeActivity               src/midges.js:91          (phase)
+MIDGES                      src/config.js:648         = Object.freeze({
+mix                         src/noise.js:161          = (a, b, t) => a + (b - a) * t;
+mothActivity                src/moths.js:79           (phase)
+MOTHS                       src/config.js:576         = Object.freeze({
+mulberry32                  src/grass.js:29           ( seed )
+mulberry32                  src/noise.js:30           (seed)
+mulberry32                  src/sakura.js:48          ( seed )
+nearestAirbornePetal        src/petals.js:122         (pack, x, z, t, maxD = 6)
+noise2                      src/noise.js:97           (x, y)
+NOISE_GLSL                  src/noise.js:172          =  `
+NORM                        src/shiba-gltf.js:35      = Object.freeze({ K: 0.823, DZ: 0.300 });
+oceanSwellY                 src/island.js:320         (x, z, t)
+paintBy                     src/shiba-geom.js:203     (geo, fn)
+paintSolid                  src/shiba-geom.js:180     (geo, col)
+PARTICLE_KIND               src/particles.js:12       = Object.freeze({
+PATH_HALF                   src/details.js:33         = PATHS.width * 0.5 * 1.28;
+PATH_SURFACE_LIFT           src/details.js:245        = 0.13;
+pathLitterOk                src/details.js:233        (x, z, rng01, extra = PATHS.shoulder)
+pathProximity               src/details.js:246        (x, z)
+PATHS                       src/config.js:253         = {
+pathSurfaceLiftAt           src/details.js:592        (heightAt, x, z)
+placeRock                   src/poi.js:467            (pine, heightAt, isOnPath, isInPond)
+POI                         src/config.js:500         = Object.freeze({
+QUALITY                     src/config.js:139         = {
+qualityCount                src/config.js:217         (quality, key)
+R                           src/noise.js:55           = {
+resolveSeason               src/season.js:18          ({ search = '', storage = null } = {})
+RIBBON_COLS                 src/details.js:624        = 9;
+ridged2                     src/noise.js:132          (x, y, oct = 4, lac = 2.07, gain = 0.5)
+RIPPLE_SLOTS                src/ponds.js:123          = 11;
+rockMossAmount              src/island.js:49          (up, nx, ny, nz, noise01)
+SEA_STACK_RANDOM            src/island.js:43          = 5;
+SEA_TORII                   src/config.js:668         = Object.freeze({
+SEASON_QUERY_PARAM          src/season.js:11          = 'season';
+SEASON_STORAGE_KEY          src/season.js:12          = 'sakurajima.season';
+SEASONS                     src/config.js:240         = Object.freeze({ spring: 'printemps', autumn: 'automne' });
+SEED                        src/config.js:10          = 20260727;
+seedNoise                   src/noise.js:75           (seed)
+sfxOut                      src/audio.js:88           (ctx, masterNode)
+shadowEnvelope              src/sky.js:467            (islandR)
+SHIBA                       src/shiba.js:22           = {
+SHIBA_BUILD                 src/shiba-geom.js:32      = { scale: 1.35, standHeight: 0.66, hipDrop: 0.10, thigh: 0.17, shin:
+SKY_TUNE                    src/sky.js:55             = {
+smoothstep                  src/noise.js:155          (edge0, edge1, x)
+spine                       src/shiba-geom.js:167     (triples, n)
+springReefSite              src/island.js:505         ()
+START_PAUSED                src/config.js:118         = true;
+START_TIME                  src/config.js:115         = 0.5; // noon — frozen until P, so the postcard stays put
+STONES                      src/config.js:595         = Object.freeze({
+stoneYAt                    src/poi.js:48             (x, z, slabs = _slabs)
+streamFor                   src/noise.js:46           (seed, tag)
+sweep                       src/shiba-geom.js:66      (pts, o)
+TAU                         src/shiba-geom.js:5       = Math.PI * 2;
+trunkHits                   src/sakura.js:1590        ( instances, prototypes, x, z, pad = 0 )
+UP                          src/shiba-geom.js:6       = new THREE.Vector3(0, 1, 0);
+warp2                       src/noise.js:148          (x, y, strength = 1, scale = 1)
+WIND                        src/config.js:84          = {
+WIND_GLSL                   src/sakura.js:119         = `
+WIND_GLSL                   src/wind.js:186           =  `
+WORLD                       src/config.js:55          = {
+
+## Câblage main.js (ordre d'appel)
+src/main.js:419  createWind
+src/main.js:420  createCloudShadow
+src/main.js:421  createAudio
+src/main.js:424  createPonds
+src/main.js:430  createIsland
+src/main.js:445  initPath
+src/main.js:467  ponds.attach
+src/main.js:475  createPOI
+src/main.js:486  createCrabs
+src/main.js:494  createHerons
+src/main.js:502  createDragonflies
+src/main.js:510  createMidges
+src/main.js:519  createGulls
+src/main.js:530  createSakuraForest
+src/main.js:561  createBamboo
+src/main.js:572  createGrass
+src/main.js:611  createPetals
+src/main.js:636  createSky
+src/main.js:642  createClouds
+src/main.js:646  createBirds
+src/main.js:655  ponds.attach
+src/main.js:663  createFireflies
+src/main.js:672  createDetails
+src/main.js:692  createButterflies
+src/main.js:706  createMoths
+src/main.js:734  createParticles
+src/main.js:747  createShiba
+src/main.js:817  createTouchControls

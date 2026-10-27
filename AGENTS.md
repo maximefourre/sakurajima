@@ -1,225 +1,30 @@
 # Sakurajima — doc projet pour agents
 
 Scène Three.js (0.185.1 vendorisé dans `vendor/three/`, importmap local,
-**aucun build**) : île japonaise
-procédurale, cerisiers en fleur, réseau de chemins lanternés, cycle jour/nuit, shiba
-jouable. Direction artistique longue dans `PLAN.md` ; journal des sessions et
-pièges dans `REPRISE.md` (**convention : y consigner chaque session**).
+**aucun build**) : île japonaise procédurale, cerisiers, chemins lanternés,
+cycle jour/nuit, shiba jouable.
 
-## Rôles de l'équipe d'agents (convention utilisateur)
+**Chercher avant de lire** : `grep -i <mot> docs/INDEX.md docs/symbols.txt`
+donne le doc/la section ou le `fichier:ligne` exact ; ne lire que ça.
+`symbols.txt` est généré (`python3 tools/gen-symbols.py`, à relancer après
+ajout/renommage d'exports).
+Avant de coder : `docs/pieges.md` (règles et pièges appris à l'usage).
 
-**Depuis le 01/09/2026 : Grok seul.** Plus d'abonnement Claude ni Codex —
-ne pas les appeler, ne pas attendre un plugin `codex-rescue` / Fable / Opus.
+## Workflow
 
-- **Grok (Grok Build / session principale)** : planifie, implémente, review.
-  C'est le seul modèle autorisé. Il écrit le code lui-même. Les sous-agents
-  d'implémentation, s'il y en a, sont aussi Grok (`general-purpose` ou
-  `grok-delegate`), un chantier à la fois, brief précis (fichiers, ancrages,
-  contraintes AGENTS).
-- **INTERDICTION de sous-traiter** pour tout sous-agent d'implémentation :
-  laissé libre, il re-délègue et attend une réponse qui n'arrive pas
-  (40 min perdues le 02/08 avec Codex, zéro octet écrit — le piège reste).
-- **Review adversariale** après chaque passe substantielle : second passage
-  Grok (skill `review` ou sous-agent lecture seule), **pas** Codex. Le
-  rapport va dans `ADVERSARIAL_REVIEW_CLAUDE.md` (nom de fichier historique,
-  ids `ADV-...`) ; la table de suivi se remplit au traitement.
-- Après chaque chantier : `git diff` relu, `node --check`,
-  `test/invariants.html` (tous les invariants pass), vérification visuelle
-  navigateur, PUIS commit.
-- Les journaux / plans / ADV d'avant le 01/09 qui parlent de Claude ou
-  Codex sont **historiques**. Ne pas relancer ces outils.
+Après chaque chantier : `git diff` relu, `node --check`,
+`test/invariants.html` (0 fail), vérification visuelle navigateur, PUIS commit.
 
 ## Lancer
 
 ```sh
 python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
-# http://127.0.0.1:5173/index.html
+# http://127.0.0.1:5173/index.html   (?q=low|high|ultra)
 ```
 
 - Debug : `globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock }`.
-- `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
-- Chargement ultra ≈ 20 s (bake terrain 769² + placements). Printemps ultra
-  sur M4 Max, caméra verrouillée, `readPixels` (piège 9), canvas **2490×2008**
-  (01/09, post-impostors, herbe 420k·AREA_SOFT) : **53.8 fps** ouverture,
-  **29.1** au sol ; automne **54.5 / 42.7**. Même chiffres avec ou sans
-  garde drift (autoRotate déjà off). L'étalon 31/07 (33.7 / 24.6 à
-  3600×1896) n'est plus le contrat live — pas la même résolution. Le poste
-  dominant reste le FEUILLAGE (piège 10).
-- Contrôles : ZQSD promène le shiba, `Maj` court, `C` bascule la caméra,
-  Espace saut, `P` pause du temps, `H` masque le HUD **sauf** le crédit CC-BY,
-  `Échap`/`Suppr` reset (midi + postcard). Boot à midi figé (`START_TIME=0.5`,
-  `START_PAUSED=true`) jusqu'à `P`.
-- Vercel : `outputDirectory: "."`, `.vercelignore` enlève `*.md`, `docs/`,
-  `designs/`, `tools/`, `serve.py`. **`test/` est public** (QA, voulu).
-  `assets/shiba/LICENSE.txt` reste (CC-BY).
-
-## Architecture (qui fait quoi, qui dépend de qui)
-
-```
-config.js   — TOUTES les constantes d'art direction + presets qualité
-noise.js    — PRNG seedé (streamFor), noise2/fbm2/ridged2, smoothstep/clamp/mix
-island.js   — heightfield analytique → grille bakée → mesh terrain + océan + rochers
-ponds.js    — 3 étangs à koi (seul carve composé dans le heightfield)
-grass.js    — brins instanciés, LOD par chunks, plancher 0.55 là où il y a des brins
-sakura.js   — 5 archétypes sakura/momiji, feuillage instancié (saison au boot)
-details.js  — fleurs sauvages, RÉSEAU DE CHEMINS (4 routes) + TORII + LANTERNES
-              générées le long des routes, galets (exporte isOnPath, initPath)
-bamboo.js   — bosquet instancié à l'est (fût + feuillage, vent partagé)
-detailtex.js— bump maps GÉNÉRÉES (bruit périodique seedé) : grain sol/roche, veinage bois
-sky.js      — soleil/lune/étoiles/brouillard/ombres (courbes keyframées par heure)
-clouds.js / birds.js / petals.js / wind.js / season.js / seasonal-foliage.js
-cloud-shadow.js — fbm XZ dérivé du vent, uniforms partagés terrain/rochers/herbe
-fireflies.js / butterflies.js / moths.js / particles.js — faune, pétales, poussière
-audio.js     — SFX call/flush/bark + lits d'ambiance (surf, bambou, cigales, grenouilles)
-herons.js   — hérons échassiers des bas-fonds, envol si shiba proche
-              (`onFlush` / `lastFlush` / `forEach` pour le regard du chien)
-shiba.js    — gestes aboie / secoue / regard : `onEvent('bark')`,
-              `setLookTargets([{x,y,z,kind}])`, `notify('heron-flush')`
-dragonflies.js — libellules GPU au-dessus des bassins (jour)
-midges.js   — moucherons : essaims de berge au crépuscule (N fixe par tier, contre-jour)
-poi.js      — landmarks authorés (côte, pas japonais, signes, torii marin, chashitsu) + stoneYAt
-chashitsu.js — pièce de thé abandonnée (lot 7), site lisière étangs, importée par poi.js
-crabs.js    — crabes de laisse (fuite, enfouissement)
-gulls.js    — goélands posés sur stacks / nuki du torii marin
-shiba-geom.js / shiba-gltf.js — corps procédural et rig glTF du chien
-touch.js / boot.js — commandes tactiles, voile d'erreur
-main.js     — le SEUL endroit où tout est câblé + boucle de rendu
-```
-
-Deux GLSL de vent, volontairement. `wind.js` (train de rafales, uWindDir vec2)
-pilote herbe, pétales, fleurs, oiseaux. `sakura.js` exporte un WIND_GLSL
-sinusoïdal (uWindDir vec3) consommé par les couronnes ET `bamboo.js`.
-`main.js` possède `forestWind` : adaptateur vec2→vec3 rafraîchi chaque frame.
-Ne PAS passer `createWind().uniforms` à `createSakuraForest` (no-op silencieux).
-Ne PAS unifier les deux modèles sans demande explicite.
-
-Le cœur : main.js compose `carve = ponds(h)` dans le heightfield de l'île.
-**`island.heightAt` est la source de vérité unique** — mesh et samplers
-interpolent exactement les mêmes triangles. `world.inWater = ponds.isInPond`.
-LA RIVIÈRE ET LE PONT ONT ÉTÉ SUPPRIMÉS le 29/07 sur décision utilisateur
-(après 5 itérations d'eau) — ne pas les réintroduire sans demande explicite.
-
-## Contrats (à respecter sous peine de casse silencieuse)
-
-- **`LAND_SCALE`** (`config.js`, = 1.42·√5) : toute coordonnée XZ auteur est
-  multipliée par lui À SA DÉFINITION. Les hauteurs suivent **`HEIGHT_SCALE`**
-  (1.4), appliqué UNE fois dans `analyticHeight` — jamais les deux.
-- **`AREA` vs `AREA_SOFT`** (`config.js`) : les scatters bon marché (fleurs,
-  galets) scalent en `AREA = L²` ; les coûteux (herbe, arbres, pétales,
-  rochers) en `AREA_SOFT = AREA^0.75`, compensé par des instances plus grosses.
-  Honnêteté : `AREA_SOFT` est la POLITIQUE par défaut, pas une protection — le
-  coefficient herbe ultra a été volontairement monté puis recalé
-  (300k→560k→420k, ≈2.37 M de brins) : 560k lisait à 20 fps au sol.
-  Les vrais replis machine faible sont les tiers low/high.
-- **`sunDistance` dérive du rayon d'ombre réel** (`sky.js`, `shadowEnvelope`) :
-  `R ≈ 1.30 · island.radius + 10` (côte + rochers, pas `125 · LAND_SCALE`),
-  `D = R + 220`, near = `D − R − 80` (= 140). Changer R sans D rend le near
-  **négatif** (ombres mortes, zéro erreur). Le fallback `SKY_TUNE` utilise
-  la même formule, pour qu'un argument oublié ne puisse pas tuer les ombres.
-- **Changement de qualité = reload** : le tier est résolu AVANT le boot
-  (`?q=` → localStorage `sakurajima.quality` → défaut : `ultra`, ou `high` si
-  le pointeur est grossier — un téléphone ne survit pas au bake ultra) ; le
-  bouton persiste et recharge. Il n'existe PLUS de rebuild à chaud ni de câblage dupliqué —
-  chaque système se dimensionne à la construction, un point c'est tout.
-- **Réseau de chemins = `PATHS`** (`config.js`) : 4 routes depuis un carrefour
-  en lisière de prairie — 'torii' (grimpe à la terrasse de la falaise ouest,
-  rim rehaussé à 12.5·H pour un vrai dénivelé), 'etangs' (boucle fermée,
-  premier point = dernier), 'plage', 'bambous' (est, bosse (56,-10)·L).
-  `details.js` : un ruban par route,
-  `isOnPath(x, z, extra)` sur TOUTES les routes (demi-largeur = `PATH_HALF`,
-  le max après remap fbm), lanternes GÉNÉRÉES le
-  long des routes (quinconce, sautées si pente > 0.9, sol trop bas, **ou
-  `isInPond`** — le seuil mer rate les bassins carvés — AUCUNE
-  lanterne orpheline, consigne utilisateur), torii aux fractions `toriiAt` de
-  la route 'torii'. `main.js` appelle `initPath()` AVANT `createGrass`, et
-  les cerisiers excluent `isOnPath(x, z, 4)` (aucun arbre sur un chemin,
-  consigne utilisateur).
-- **Les rubans se posent COLLÉS puis se dégagent triangle par triangle**
-  (`clearRibbonTriangles`, details.js) : `y = heightAt + bombé`, puis chaque
-  triangle est relevé du déficit mesuré sur l'arrangement exact ruban ∩ grille
-  bakée (marge 0.02). Le treillis barycentrique n'est qu'un fallback si
-  `heightGrid` est absent — il ne prouve pas le dégagement. Relever les TROIS
-  sommets du même montant translate le plan sans le pencher — la passe est
-  monotone, donc elle converge. Ne PAS revenir à une sonde de voisinage : un max
-  (ou un résidu de plan) sur un disque paie la pente et la concavité, qui ne
-  perforent jamais, et fait FLOTTER le chemin (~1 u, deux régressions payées).
-  La terrasse du belvédère est un **patin à anneaux** (pas un éventail) : clip
-  par azimut **avant** le dégagement, sinon le sommet centre soulève toute la
-  dalle. `pathSurfaceLiftAt` — surface de marche du shiba et de la caméra — ne
-  peut pas rejouer ce dégagement par requête ponctuelle : c'est un bombé pur,
-  dont l'écart à la surface visible est BORNÉ par un invariant (≤ 0.25).
-- **`createSakuraForest` : `quality` doit être un nombre** (0.6 / 0.9 / 1.25) —
-  un objet `QUALITY` **throw**. **`createGrass` throw si on lui passe `quality`**
-  (il veut `count`, `bounds`, `exclude` / `shortZone`). Les faunes
-  (`qualityCount`) throw si on leur passe la string `'ultra'` au lieu du row
-  `QUALITY.ultra`. Sur la sente l'herbe est **rase** (`shortZone` → `isOnPath`),
-  plus une exclusion dure.
-- La falaise ouest vit dans `analyticHeight` (secteur angulaire plein-ouest,
-  rim + chute) — pas un mesh séparé, tout suit (couleurs, pente, herbe).
-
-## Pièges (payés cash — ne pas re-payer)
-
-1. **Winding des triangles** : 4 morsures (océan, corolle, ailes, ruban du
-   chemin). Une strip enroulée vers le bas sur un matériau `FrontSide` ne rend
-   RIEN, silencieusement. Diagnostic éclair : forcer `DoubleSide` à chaud.
-2. **`instanceColor`** exige `vertexColors: true` ET un attribut `color` blanc.
-3. GLSL : pas de backticks dans les commentaires ; `fog_vertex` exige une
-   variable nommée littéralement `mvPosition`.
-4. `island.update()` écrase opacité/réflectivité de l'eau chaque frame — régler
-   dans sa courbe jour/nuit, pas de l'extérieur.
-5. `OrbitControls.update()` repositionne la caméra même `enabled=false`.
-6. `preserveDrawingBuffer=false` : capturer pendant que la boucle rAF tourne.
-8. Onglet en arrière-plan = rAF ET setTimeout étranglés.
-9. **Mesurer les fps demande DEUX précautions, sinon les chiffres sont inventés.**
-   (a) `__sk.frame()` ne fait que SOUMETTRE à la GPU, il ne l'attend pas : une
-   boucle forcée annonçait 1413 fps. Resynchroniser par un
-   `gl.readPixels(0,0,1,1,…)` après chaque frame. (b) La caméra bouge toute seule
-   — `OrbitControls.autoRotate` est actif au boot, et si `world.camMode` vaut
-   `'follow'` le rig tierce personne la ramène derrière le shiba à chaque frame :
-   elle dérivait de **992 u** pendant un banc qu'on croyait cadré. Avant toute
-   mesure : `__sk.setCamMode('orbit')`, `controls.autoRotate = false`,
-   `controls.enableDamping = false`, puis VÉRIFIER que la dérive est nulle sur la
-   durée du banc. Avec les deux, les mesures tiennent à ±0.3 fps.
-10. **Le coût du feuillage est géométrique, pas fill-rate** : DPR 2 → 1 → 0.5 ne
-   change rien (21.3 / 21.6 / 21.8 fps). Baisser la résolution ne rapporte RIEN ;
-   le seul levier est le nombre d'instances soumises. Corollaire : l'ordre des
-   instances compte aussi — mélanger le feuillage par instance coûte 18 % au sol
-   par perte de localité de rasterisation (cf. `FOLIAGE_SHUFFLE_BLOCK`).
-
-## Vérification type
-
-1. **`test/invariants.html`** (via serve.py) : la console doit finir par
-   `INVARIANTS: N pass, 0 fail` (N grandit avec les chantiers, seul le
-   `0 fail` est immuable) — chemin sur terre ferme, far plane, nuages,
-   étangs carvés, routes hors étangs, la route des torii grimpe à la falaise,
-   aucune lanterne orpheline **ni dans un étang**, les trois de la terre battue (dégagée du
-   terrain, collée à ≤ 0.55 u, hauteur logique fidèle à la surface visible),
-   puis les cinq du chien et de l'eau : flottaison (le dos sort de l'eau),
-   pattes posées sur le sol logique, `pondWaterYAt` cohérent et sans route
-   mouillée, étangs nageables ET franchissables, bancs d'ondes koi/chien
-   disjoints, plus celui des lucioles, les trois signes sacrés, les pas
-   japonais (`stoneYAt` fidèle, dalles hors ruban), hérons en bas-fonds, libellules dans
-   l'habitat bassin, mites à une lanterne, shiba secoué seulement après nage,
-   regard sans lacet du corps, chashitsu hors chemin/eau/pente, bosquet de
-   bambous à l'est du carrefour hors ruban.
-   **`ponds.attach()` est appelé TÔT**, juste
-   après l'île, parce que l'habitat des lucioles en a besoin : il réécrit `PONDS`
-   avec les valeurs MESURÉES, donc l'invariant 4 travaille sur des rayons
-   mesurés et non authorés. Vérifié dans les deux ordres.
-   **Le tier du bake se choisit par `?q=low|high|ultra`, défaut low.** `heightAt`
-   interpole la grille BAKÉE : low (~4.6 u de pas) est le terrain le plus lisse,
-   donc le cas le PLUS FACILE. Toute retouche de la géométrie des chemins se
-   repasse en `?q=ultra` — c'est là que le correctif C-ter s'est fait prendre
-   (élévation 1.11 u en ultra contre 0.93 en low, pour un plafond de 0.55).
-2. Visuel — midi (`__sk.world.dayTime = 0.5`) : mer jusqu'à l'horizon sans
-   ligne rasoir, ombres présentes jusqu'à la côte (si absentes → near-plane,
-   piège sky.js). Herbe : plancher 0.55 **à la caméra suivie, sur la prairie**
-   (là où des brins existent). L'ouverture postcard peut n'être que de
-   l'albedo — `fadeEnd` 250 (330 soumettait encore la forêt depuis la plage,
-   ~20 fps, piège 10). Nuit (0.97) : lune
-   basse au sud avec halo, étoiles dans la bande 0–20°, terre lisible,
-   lanternes allumées le long des quatre routes. Vue sol : chemins de terre
-   granuleux, herbe **rase** dessus (`shortZone`), torii debout sur la montée,
-   aucun arbre sur un chemin. La laisse de mer est fermée (houle ≠ étang) ;
-   la pose de nage ne pompe pas avec la vague.
-3. Tiers : `?q=low|high|ultra` — aria-pressed reflète le tier réel au boot.
+  `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
+- Contrôles : ZQSD, `Maj` court, `C` caméra, Espace saut, `P` pause du temps,
+  `H` HUD (sauf crédit CC-BY), `Échap` reset. Boot à midi figé.
+- Vercel : servi tel quel ; `.vercelignore` exclut `*.md`, `docs/`, `tools/`,
+  `serve.py`. `test/` est public (voulu). `assets/shiba/LICENSE.txt` reste (CC-BY).
