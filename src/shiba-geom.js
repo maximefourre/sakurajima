@@ -299,8 +299,13 @@ function bodyPrims() {
   add(ellipsoid([0, 0.662, -0.145], [0.127, 0.150, 0.160]), spineBones, 'torso');
   add(ellipsoid([0, 0.655, -0.29], [0.140, 0.150, 0.140]), 'pelvis', 'torso');
   for (const s of [-1, 1]) {
-    add(ellipsoid([s * 0.087, 0.640, 0.26], [0.065, 0.130, 0.100]), 'body', 'torso', 0.05);
-    add(ellipsoid([s * 0.090, 0.585, -0.27], [0.072, 0.140, 0.130]), 'pelvis', 'torso', 0.05);
+    // Omoplate et masse de cuisse : partagées entre le tronc et l'os haut du
+    // membre, pour que le relief glisse avec la foulée.
+    const k = s < 0 ? 'L' : 'R';
+    add(ellipsoid([s * 0.087, 0.640, 0.26], [0.065, 0.130, 0.100]),
+      () => [['body', 0.5], ['hipF' + k, 0.5]], 'torso', 0.05);
+    add(ellipsoid([s * 0.090, 0.585, -0.27], [0.072, 0.140, 0.130]),
+      () => [['pelvis', 0.45], ['hipB' + k, 0.55]], 'torso', 0.05);
   }
 
   /* — cou et collerette — épais, de longueur moyenne, porté haut. */
@@ -443,8 +448,12 @@ function legGate(name, x, y) {
   // nage le tirait en nappe (banc 26). Seul l'os haut garde une porte large.
   let g = m[1] === 'hip' ? ss(0.0, 0.05, x * side) : ss(0.035, 0.07, x * side);
   if (m[1] === 'hip') {
+    // L'os haut remonte en s'effaçant jusqu'à ~16 cm au-dessus de son pivot :
+    // l'omoplate et la masse de la cuisse SUIVENT le membre, le garrot et la
+    // croupe non. À 7 cm, tout le haut restait collé au tronc et la jonction
+    // épaule / cuisse lisait comme une pièce rigide (retour utilisateur 27/10).
     const py = BONE_POS.get(name)[1];
-    g *= ss(py + 0.07, py - 0.03, y);
+    g *= ss(py + 0.16, py - 0.02, y);
   }
   return g;
 }
@@ -810,6 +819,8 @@ export function buildBody() {
     knee: par.get('knee' + key[0] + key[1]),
     paw: par.get('paw' + key[0] + key[1]),
   }));
+  // Pivots de repos, pour le glissé d'épaule et la levée de hanche.
+  for (const l of legs) l.hipRest = l.hip.position.clone();
 
   /* — semelle : le plus bas des sommets skinnés que domine l'os du pied. */
   const si = bodyGeo.attributes.skinIndex, sw = bodyGeo.attributes.skinWeight;
@@ -845,6 +856,7 @@ export function buildBody() {
    *    l'arrière) et l'arrière plie grasset + jarret ;
    *  - assis, l'arrière se plie en Z, jarret posé, métatarse à plat au sol. */
   let bodyPitch = 0;
+  const hindHip = [0, 0];
   // Butée souple de l'épaule et de la hanche : identité jusqu'à 0.8 rad, puis
   // saturation vers 1.1. Au-delà, la peau entre coude et ventre se tend en
   // nappe (×5.6 d'étirement d'arête à la nage, à 1.34 rad, banc 26). Le galop
@@ -859,6 +871,18 @@ export function buildBody() {
     const hip = hipStop(hipIn);
     const fold = Math.max(0, -knee);          // repli de phase aérienne
     leg.hip.rotation.x = hip;
+    // L'épaule d'un chien n'est pas une rotule fixe : l'omoplate GLISSE sur le
+    // thorax, vers l'arrière quand le membre recule, et se soulève quand il se
+    // replie. La hanche se lève aussi en phase aérienne. Translations du pivot
+    // (repère du tronc), la peau partagée les suit.
+    const glide = leg.front ? 0.045 : 0.020;
+    const lift = (leg.front ? 0.018 : 0.022) * fold * (1 - sit);
+    leg.hip.position.set(leg.hipRest.x, leg.hipRest.y + lift, leg.hipRest.z - glide * hip * (1 - sit));
+    if (!leg.front) {
+      hindHip[leg.key === 'BL' ? 0 : 1] = hip;
+      // Bascule du bassin : il roule vers la patte d'appui à chaque pas.
+      if (leg.key === 'BR') pelvis.rotation.z = 0.10 * (hindHip[0] - hindHip[1]) * (1 - sit);
+    }
     if (leg.front) {
       const elbow = -0.42 * fold;
       leg.knee.rotation.x = elbow;
