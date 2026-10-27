@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { streamFor, R, clamp, mix, smoothstep } from './noise.js';
 import { WORLD, LAND_SCALE } from './config.js';
-import { isOnPath } from './details.js';
+import { isOnPath, onPathDirt } from './details.js';
 import { PARTICLE_KIND } from './particles.js';
 import { TAU, UP, SHIBA_BUILD, SIT_POSE, buildBody } from './shiba-geom.js';
 
@@ -912,8 +912,9 @@ export function createShiba({
     leg.paw.getWorldPosition(_pawWorld);
     const h = heightAt(_pawWorld.x, _pawWorld.z);
     // Sable et terre battue des sentes. Pas dans l'herbe (invisible) ni sur la
-    // roche (faux).
-    const onPath = isOnPath(_pawWorld.x, _pawWorld.z);
+    // roche (faux). onPathDirt suit le bord LOBÉ visible de la terre ;
+    // isOnPath, plus large, déborderait sur l'herbe des lisières.
+    const onPath = onPathDirt(_pawWorld.x, _pawWorld.z);
     if (!onPath && (h > WORLD.beachTop || h < seaLevelLocal - 0.05)) return;
 
     if (normalAt) normalAt(_pawWorld.x, _pawWorld.z, _n); else _n.copy(UP);
