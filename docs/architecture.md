@@ -85,7 +85,10 @@ chaud : chaque système se dimensionne à la construction.
 bosse (56,-10)·L).
 
 `details.js` : un ruban par route ; `isOnPath(x, z, extra)` couvre toutes les
-routes (demi-largeur = `PATH_HALF`, le max après remap fbm). Lanternes
+routes (demi-largeur = `PATH_HALF`, le max de `pathWidthK`, borne
+conservatrice pour arbres/lanternes/POI). La largeur réelle est le champ monde
+`pathWidthK` (0.66–1.28, houle ~9 u + lobes ~2 u : sinon bords droits) ;
+`onPathDirt(x, z, extra)` suit ce bord visible (herbe rase, fleurs, épaule). Lanternes
 générées en quinconce, sautées si pente > 0.9, sol trop bas ou `isInPond`
 (le seuil mer rate les bassins carvés). Torii aux fractions `toriiAt` de la
 route 'torii'. `initPath()` est appelé avant `createGrass` ; les cerisiers

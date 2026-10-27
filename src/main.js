@@ -41,7 +41,7 @@ import { createAudio, ambientWeights } from './audio.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
-import { createDetails, isOnPath, initPath, pathSurfaceLiftAt, flowerSpots, lanternSpots } from './details.js';
+import { createDetails, isOnPath, onPathDirt, initPath, pathSurfaceLiftAt, flowerSpots, lanternSpots } from './details.js';
 
 /* ── DOM handles ─────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
@@ -591,7 +591,7 @@ async function boot() {
     exclude: (x, z) => world.inWater(x, z)
       || (world.poi && world.poi.stoneYAt(x, z) !== 0)
       || (world.poi && world.poi.keepOut(x, z)),
-    shortZone: (x, z) => isOnPath(x, z, 0.25),
+    shortZone: (x, z) => onPathDirt(x, z, 0.15),
     pathLiftAt: (x, z) => pathSurfaceLiftAt(world.heightAt, x, z),
     wind: world.wind,
     season: world.season,

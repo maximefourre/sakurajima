@@ -58,7 +58,7 @@ import { createWind } from '../src/wind.js';
 import { createPonds, RIPPLE_SLOTS, KOI_SLOTS, DOG_SLOTS } from '../src/ponds.js';
 import { createIsland, springReefSite, SEA_STACK_RANDOM, rockMossAmount } from '../src/island.js';
 import { createGrass } from '../src/grass.js';
-import { createDetails, flowerSpots, initPath, isOnPath, pathLitterOk, computeLanternSpots, computeWrackSpawns, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
+import { createDetails, flowerSpots, initPath, isOnPath, onPathDirt, pathLitterOk, computeLanternSpots, computeWrackSpawns, computeRibbonMeshes, computeJunctionPad, computeOverlookTerrace, measureRibbonTriangleExact, pathSurfaceLiftAt, RIBBON_COLS, PATH_HALF } from '../src/details.js';
 import { FIELD_HALF as CLOUD_FIELD_HALF } from '../src/clouds.js';
 import { shadowEnvelope } from '../src/sky.js';
 import * as THREE from 'three';
@@ -351,10 +351,10 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     `${covered} tris, marge ${worst.toFixed(4)}, haut ${highest.toFixed(4)}, Δlift ${liftError.toFixed(3)}`);
 }
 
-/* ── largeur de ruban : plancher 0.78 après remap ─────────────────────── */
+/* ── largeur de ruban : plancher 0.66 (pathWidthK) ─────────────────────── */
 {
   const meshes = computeRibbonMeshes(island.heightAt, island.heightGrid);
-  const floor = 0.78 * PATHS.width * 0.5 - 1e-3;
+  const floor = 0.66 * PATHS.width * 0.5 - 1e-3;
   let ok = true, detail = '';
   for (const m of meshes) {
     if (m.cols !== RIBBON_COLS) continue;
@@ -374,7 +374,7 @@ check('FIELD_HALF nuages > CAMERA.maxDistance', CLOUD_FIELD_HALF > CAMERA.maxDis
     }
     if (!ok) break;
   }
-  check('largeur de ruban ≥ 0.78 nominale', ok, ok ? `${meshes.length} routes` : detail);
+  check('largeur de ruban ≥ 0.66 nominale', ok, ok ? `${meshes.length} routes` : detail);
 }
 
 /* ── côte habitée (lot 1) : pures seulement, pas de createPOI/createCrabs ──
@@ -2035,7 +2035,7 @@ function milieuAppuisGltf(r) {
     const cx = Math.cos(ang), cz = Math.sin(ang);
     for (let t = 0.05; t < 8; t += 0.08) {
       const x = mx + cx * t, z = mz + cz * t;
-      if (!isOnPath(x, z, 0) && isOnPath(x, z, PATHS.shoulder ?? 0.8)) {
+      if (!onPathDirt(x, z, 0) && onPathDirt(x, z, PATHS.shoulder ?? 0.8)) {
         shoulder = [x, z];
         break;
       }
@@ -2050,7 +2050,7 @@ function milieuAppuisGltf(r) {
   let onRibbon = 0;
   const nf = flowerSpots.length / 3;
   for (let i = 0; i < nf; i++) {
-    if (isOnPath(flowerSpots[i * 3], flowerSpots[i * 3 + 2], 0)) onRibbon++;
+    if (onPathDirt(flowerSpots[i * 3], flowerSpots[i * 3 + 2], 0)) onRibbon++;
   }
   check('fleurs : zéro sur le ruban',
     onRibbon === 0,

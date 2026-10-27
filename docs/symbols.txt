@@ -34,20 +34,20 @@ computeGullSpawns           src/gulls.js:113          ({
 computeHeronSpawns          src/herons.js:309         ({
 computeIwakuraSite          src/poi.js:589            ()
 computeJizoSite             src/poi.js:531            ({ heightAt, isOnPath, isInPond } = {})
-computeJunctionPad          src/details.js:752        (heightAt, heightGrid = null)
-computeLanternSpots         src/details.js:318        (heightAt, slopeAt = null, inWater = null)
+computeJunctionPad          src/details.js:791        (heightAt, heightGrid = null)
+computeLanternSpots         src/details.js:350        (heightAt, slopeAt = null, inWater = null)
 computeMidgeSpots           src/midges.js:38          ({
 computeMothSpots            src/moths.js:45           ({ lanternSpots, count, seed = 1, heightAt } = {})
-computeOverlookTerrace      src/details.js:790        (heightAt, heightGrid = null, slopeAt = null)
-computeRibbonMeshes         src/details.js:641        (heightAt, heightGrid = null)
+computeOverlookTerrace      src/details.js:829        (heightAt, heightGrid = null, slopeAt = null)
+computeRibbonMeshes         src/details.js:673        (heightAt, heightGrid = null)
 computeSeaToriiSite         src/poi.js:100            ({ heightAt } = {})
 computeShorePineSite        src/poi.js:66             ({ heightAt, isOnPath, isInPond } = {})
 computeSnagSite             src/poi.js:302            ({ heightAt, isOnPath, isInPond, slopeAt } = {})
 computeSteppingStones       src/poi.js:783            ({
 computeTsukubaiSite         src/poi.js:562            ({ heightAt, isOnPath, isInPond } = {})
-computeWrackSpawns          src/details.js:276        ({
+computeWrackSpawns          src/details.js:308        ({
 CRABS                       src/config.js:553         = Object.freeze({
-createAudio                 src/audio.js:92           ()
+createAudio                 src/audio.js:151          ()
 createBamboo                src/bamboo.js:242         ({
 createBirds                 src/birds.js:145          ({ seed, quality, heightAt, wind, ponds, canopies = [] } = {})
 createButterflies           src/butterflies.js:130    ({
@@ -55,7 +55,7 @@ createChashitsu             src/chashitsu.js:443      ({ seed = SEED, site } = {
 createClouds                src/clouds.js:184         ({ seed, wind, quality })
 createCloudShadow           src/cloud-shadow.js:28    ()
 createCrabs                 src/crabs.js:129          ({ seed = SEED, quality, heightAt, isInPond } = {})
-createDetails               src/details.js:1407       ({
+createDetails               src/details.js:1446       ({
 createDragonflies           src/dragonflies.js:64     ({
 createFireflies             src/fireflies.js:133      ({ seed = 1, quality, heightAt, ponds, isInPond } = {})
 createGrass                 src/grass.js:627          ( options = {} )
@@ -86,7 +86,7 @@ fbm2                        src/noise.js:117          (x, y, oct = 5, lac = 2.03
 FIELD_HALF                  src/clouds.js:54          (re-export)
 FIREFLIES                   src/config.js:328         = Object.freeze({
 fireflyActivity             src/fireflies.js:118      (phase)
-flowerSpots                 src/details.js:394        = new Float32Array(0);
+flowerSpots                 src/details.js:426        = new Float32Array(0);
 forEachCarpetLeaf           src/petals.js:139         (carpet, fn)
 furEdge                     src/shiba-geom.js:194     (p, amp = 0.10)
 GULLS                       src/config.js:687         = Object.freeze({
@@ -100,7 +100,7 @@ isPetalSand                 src/petals.js:82          (h)
 isSeason                    src/season.js:14          (value)
 KOI_SLOTS                   src/ponds.js:124          = 8;
 LAND_SCALE                  src/config.js:31          = 1.42 * Math.sqrt(5); // ≈3.175 — the √5 multiplies the original foot
-lanternSpots                src/details.js:384        = [];
+lanternSpots                src/details.js:416        = [];
 loadShibaBody               src/shiba-gltf.js:504     ({ url = URL_DEFAUT } = {})
 lodKeepHi                   src/grass.js:380          ( r, cut )
 makeBambooGeometry          src/bamboo.js:52          (rng)
@@ -119,12 +119,12 @@ makeRng                     src/sakura.js:63          ( seed )
 makeSittingRockGeometry     src/poi.js:411            (seed = SEED)
 makeSnagGeometry            src/poi.js:353            ()
 makeSteppingStoneGeometry   src/poi.js:935            (seed = SEED)
-makeToriiGeometry           src/details.js:1360       ()
+makeToriiGeometry           src/details.js:1399       ()
 makeTree                    src/sakura.js:739         ( archetype = 'somei', rng = makeRng( 1 ), opts = {} )
 makeTsukubaiGeometry        src/poi.js:657            ()
 makeWoodBump                src/detailtex.js:64       (seed, w = 256, h = 64)
 MAPLE_SHAPE_GLSL            src/seasonal-foliage.js:46  =  `
-measureRibbonTriangleExact  src/details.js:469        (heightAt, heightGrid, pos, iA, iB, iC)
+measureRibbonTriangleExact  src/details.js:501        (heightAt, heightGrid, pos, iA, iB, iC)
 midgeActivity               src/midges.js:91          (phase)
 MIDGES                      src/config.js:648         = Object.freeze({
 mix                         src/noise.js:161          = (a, b, t) => a + (b - a) * t;
@@ -138,22 +138,24 @@ noise2                      src/noise.js:97           (x, y)
 NOISE_GLSL                  src/noise.js:172          =  `
 NORM                        src/shiba-gltf.js:35      = Object.freeze({ K: 0.823, DZ: 0.300 });
 oceanSwellY                 src/island.js:320         (x, z, t)
+onPathDirt                  src/details.js:274        (x, z, extra = 0)
 paintBy                     src/shiba-geom.js:203     (geo, fn)
 paintSolid                  src/shiba-geom.js:180     (geo, col)
 PARTICLE_KIND               src/particles.js:12       = Object.freeze({
 PATH_HALF                   src/details.js:33         = PATHS.width * 0.5 * 1.28;
-PATH_SURFACE_LIFT           src/details.js:245        = 0.13;
-pathLitterOk                src/details.js:233        (x, z, rng01, extra = PATHS.shoulder)
-pathProximity               src/details.js:246        (x, z)
+PATH_SURFACE_LIFT           src/details.js:296        = 0.13;
+pathLitterOk                src/details.js:284        (x, z, rng01, extra = PATHS.shoulder)
+pathProximity               src/details.js:297        (x, z)
 PATHS                       src/config.js:253         = {
-pathSurfaceLiftAt           src/details.js:592        (heightAt, x, z)
+pathSurfaceLiftAt           src/details.js:624        (heightAt, x, z)
+pathWidthK                  src/details.js:237        (x, z)
 placeRock                   src/poi.js:467            (pine, heightAt, isOnPath, isInPond)
 POI                         src/config.js:500         = Object.freeze({
 QUALITY                     src/config.js:139         = {
 qualityCount                src/config.js:217         (quality, key)
 R                           src/noise.js:55           = {
 resolveSeason               src/season.js:18          ({ search = '', storage = null } = {})
-RIBBON_COLS                 src/details.js:624        = 9;
+RIBBON_COLS                 src/details.js:656        = 9;
 ridged2                     src/noise.js:132          (x, y, oct = 4, lac = 2.07, gain = 0.5)
 RIPPLE_SLOTS                src/ponds.js:123          = 11;
 rockMossAmount              src/island.js:49          (up, nx, ny, nz, noise01)
@@ -164,7 +166,7 @@ SEASON_STORAGE_KEY          src/season.js:12          = 'sakurajima.season';
 SEASONS                     src/config.js:240         = Object.freeze({ spring: 'printemps', autumn: 'automne' });
 SEED                        src/config.js:10          = 20260727;
 seedNoise                   src/noise.js:75           (seed)
-sfxOut                      src/audio.js:88           (ctx, masterNode)
+sfxOut                      src/audio.js:147          (ctx, masterNode)
 shadowEnvelope              src/sky.js:467            (islandR)
 SHIBA                       src/shiba.js:22           = {
 SHIBA_BUILD                 src/shiba-geom.js:32      = { scale: 1.35, standHeight: 0.66, hipDrop: 0.10, thigh: 0.17, shin:

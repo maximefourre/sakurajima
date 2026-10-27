@@ -227,24 +227,23 @@ export function isOnPath(x, z, extra = 0.25) {
 }
 
 /**
- * Fleurs / litière : jamais sur le ruban, parfois sur l'épaule.
- * Les pétales tombés restent autorisés sur la terre battue (consigne joueur).
+ * Multiplicateur de demi-largeur, champ MONDE (0.66 → 1.28 × PATHS.width/2).
+ * Deux octaves : la houle lente (~9 u) et des LOBES de ~2 u — sans eux le bord
+ * filait en deux droites parallèles (capture joueur : « bords droits »).
+ * Partagé par le ruban (évalué au bord nominal) et `onPathDirt` (évalué au
+ * point requêté), pour que la lisière d'herbe haute épouse le bord réel.
+ * Max 1.28 = PATH_HALF, qui reste la borne conservatrice d'isOnPath.
  */
-export function pathLitterOk(x, z, rng01, extra = PATHS.shoulder) {
-  if (isOnPath(x, z, 0)) return false;
-  if (!isOnPath(x, z, extra)) return true;
-  return rng01 < PATHS.shoulderAccept;
+export function pathWidthK(x, z) {
+  const low = fbm2(x * 0.11 + 3.1, z * 0.11, 2);
+  const mid = fbm2(x * 0.45 - 6.3, z * 0.45 + 11.7, 2);
+  const u = clamp((0.55 * low + 0.45 * mid) * 1.6 + 0.5, 0, 1);
+  return 0.66 + 0.62 * u;
 }
 
-/**
- * Proximité à l'axe d'une route, 0 (hors sente) → 1 (au coeur). Sert au sol
- * composite des MOVERS : le shiba marche SUR la surface de terre battue
- * (terrain + ~pathSurfaceLift·proximité), pas sur le terrain en dessous —
- * sinon ses pattes traversent le ruban (capture joueur). Lisse au bord.
- */
-export const PATH_SURFACE_LIFT = 0.13;
-export function pathProximity(x, z) {
-  if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return 0;
+/** Distance² au plus proche échantillon d'axe (Infinity hors index). */
+function pathD2(x, z) {
+  if (x < _pMinX || x > _pMaxX || z < _pMinZ || z > _pMaxZ) return Infinity;
   const cx = Math.min(P_NX - 1, Math.max(0, Math.floor((x - _pMinX) / P_CELL)));
   const cz = Math.min(P_NZ - 1, Math.max(0, Math.floor((z - _pMinZ) / P_CELL)));
   let best2 = Infinity;
@@ -264,6 +263,39 @@ export function pathProximity(x, z) {
       }
     }
   }
+  return best2;
+}
+
+/**
+ * Sur la terre battue VISIBLE (largeur locale pathWidthK), pas sur la bande
+ * max d'isOnPath. Pour l'herbe rase et les fleurs, qui doivent suivre le bord
+ * lobé ; arbres, lanternes et POI gardent isOnPath (conservateur).
+ */
+export function onPathDirt(x, z, extra = 0) {
+  const d2 = pathD2(x, z);
+  if (d2 >= (PATH_HALF + extra) ** 2) return false;
+  return Math.sqrt(d2) < PATHS.width * 0.5 * pathWidthK(x, z) + extra;
+}
+
+/**
+ * Fleurs / litière : jamais sur le ruban, parfois sur l'épaule.
+ * Les pétales tombés restent autorisés sur la terre battue (consigne joueur).
+ */
+export function pathLitterOk(x, z, rng01, extra = PATHS.shoulder) {
+  if (onPathDirt(x, z, 0)) return false;
+  if (!onPathDirt(x, z, extra)) return true;
+  return rng01 < PATHS.shoulderAccept;
+}
+
+/**
+ * Proximité à l'axe d'une route, 0 (hors sente) → 1 (au coeur). Sert au sol
+ * composite des MOVERS : le shiba marche SUR la surface de terre battue
+ * (terrain + ~pathSurfaceLift·proximité), pas sur le terrain en dessous —
+ * sinon ses pattes traversent le ruban (capture joueur). Lisse au bord.
+ */
+export const PATH_SURFACE_LIFT = 0.13;
+export function pathProximity(x, z) {
+  const best2 = pathD2(x, z);
   if (best2 === Infinity) return 0;
   const halfW = PATH_HALF;
   return clamp(1 - (Math.sqrt(best2) - halfW * 0.5) / (halfW * 0.7), 0, 1);
@@ -693,10 +725,17 @@ export function computeRibbonMeshes(heightAt, heightGrid = null) {
       // l'autre et du patin.
       const edgeK = route.closed ? 1 : smoothstep(0.015, 0.06, t);
       const wk = 0.02 + 0.98 * tap;
-      // fbm2 est signé (≈ −0.7..0.7). Remap 0..1 puis plancher 0.78.
-      const unit = (ox, oz) => clamp(fbm2(p.x * 0.11 + ox, p.z * 0.11 + oz, 2) * 0.5 + 0.5, 0, 1);
-      const wL = wk * PATHS.width * 0.5 * (0.78 + 0.50 * unit(3.1, 0));
-      const wR = wk * PATHS.width * 0.5 * (0.78 + 0.50 * unit(-9.4, 5.2));
+      // Largeur lue AU BORD de chaque cote (meme champ que onPathDirt) :
+      // deux iterations de point fixe w = h0·K(axe + n·w), assez pour que le
+      // bord du ruban et la lisiere d'herbe rase coincident.
+      const h0 = PATHS.width * 0.5;
+      const sideW = (s) => {
+        let w = h0;
+        for (let it = 0; it < 2; it++) w = h0 * pathWidthK(p.x + nx * w * s, p.z + nz * w * s);
+        return w;
+      };
+      const wL = wk * sideW(1);
+      const wR = wk * sideW(-1);
       for (let c = 0; c < RIBBON_COLS; c++) {
         const f = 1 - (2 * c) / (RIBBON_COLS - 1);
         const w = f >= 0 ? wL : wR;
@@ -1748,15 +1787,17 @@ export function createDetails({
           //    FIN, confines au dernier quart du demi-ruban. Les versions
           //    larges (amplitude 0.5, frequences basses) envoyaient des
           //    langues vertes jusqu'au coeur — lues comme des trous.
-          float fray = pvn(q * 7.0) * 0.5 + pvn(q * 18.0) * 0.5;
+          // Trois echelles : dents de ~0.6 u (mi-frequence, lisibles de pres),
+          // grain fin 7 et 18. Les lobes de 2 u sont dans la GEOMETRIE (pathWidthK).
+          float fray = pvn(q * 1.7 + 4.2) * 0.45 + pvn(q * 7.0) * 0.35 + pvn(q * 18.0) * 0.20;
           float verge = smoothstep(0.66, 0.97, vPathEdge + (fray - 0.5) * 0.20);
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.80, 0.86, 0.62), verge * 0.6);
-          float cut = vPathEdge + (fray - 0.5) * 0.26;
-          if (cut > 0.90) discard;
+          float cut = vPathEdge + (fray - 0.5) * 0.36;
+          if (cut > 0.88) discard;
         }`
       );
     };
-    pathMat.customProgramCacheKey = () => 'sakurajima-path-v5';
+    pathMat.customProgramCacheKey = () => 'sakurajima-path-v6';
     disposables.push(pathMat);
 
     const p = new THREE.Vector3(), tn = new THREE.Vector3();

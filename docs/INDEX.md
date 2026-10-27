@@ -14,7 +14,7 @@ falaise ouest cliff rim → architecture.md#terrain ; island.js analyticHeight
 échelle LAND_SCALE HEIGHT_SCALE AREA AREA_SOFT densité → architecture.md#échelles ; config.js
 ombres shadow near sunDistance shadowEnvelope SKY_TUNE → architecture.md#ombres ; sky.js
 qualité tier low high ultra ?q= localStorage reload → architecture.md#qualité ; config.js QUALITY
-chemins routes PATHS isOnPath PATH_HALF initPath → architecture.md#chemins ; details.js
+chemins routes PATHS isOnPath onPathDirt pathWidthK bords lobes PATH_HALF initPath → architecture.md#chemins ; details.js
 lanternes torii toriiAt orpheline → architecture.md#chemins ; details.js
 ruban chemin flotte perfore clearRibbonTriangles pathSurfaceLiftAt patin belvédère → architecture.md#dégagement-des-rubans
 vent wind rafales WIND_GLSL forestWind uWindDir → architecture.md#deux-modèles-de-vent ; wind.js ; sakura.js
