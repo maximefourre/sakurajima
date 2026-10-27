@@ -35,6 +35,8 @@ shiba-geom.js — le chien, modelé ici : SDF → surface nets → peau skinnée
               (pied à plat à l'appui, omoplate qui glisse, assise sur les épaules),
               colonne vivante : flexion latérale au pas/trot, flexion/extension
               au galop, dos arqué en virage, queue qui suit le bassin.
+              Omoplates = os `scapF?` (pivot du garrot). Au repos : assis →
+              couché en sphinx (`idleBeforeLie`) → toilette de la patte.
               `SIT_POSE` = seule source des angles d'assise. Aucun asset tiers.
               Atelier : tools/shiba-studio.html (?view=side&pose=sit&stretch)
 touch.js / boot.js — commandes tactiles, voile d'erreur

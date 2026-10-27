@@ -10,7 +10,7 @@ AREA_SOFT                   src/config.js:137         = Math.pow(AREA, 0.75);
 AUTUMN_DOMINANT_SEQUENCE    src/seasonal-foliage.js:9  = Object.freeze([
 AUTUMN_PALETTES             src/seasonal-foliage.js:14  = Object.freeze({
 BAMBOO                      src/config.js:705         = Object.freeze({
-buildBody                   src/shiba-geom.js:661     ()
+buildBody                   src/shiba-geom.js:675     ()
 BUTTERFLIES                 src/config.js:433         = Object.freeze({
 butterflyActivity           src/butterflies.js:72     (phase)
 CAMERA                      src/config.js:293         = {
@@ -68,7 +68,7 @@ createPetals                src/petals.js:170         ({ seed, quality, season =
 createPOI                   src/poi.js:975            ({
 createPonds                 src/ponds.js:816          ({ seed = 1337, wind, quality, heightAt = null, season = 'spring' } = {})
 createSakuraForest          src/sakura.js:1608        ( options = {} )
-createShiba                 src/shiba.js:219          ({
+createShiba                 src/shiba.js:220          ({
 createSky                   src/sky.js:472            ({ scene, renderer, camera, quality = {}, season = 'spring', islandRadius = null } = {})
 createTouchControls         src/touch.js:14           ({ shiba, onJump, onCamera, onPause })
 createWind                  src/wind.js:53            ()

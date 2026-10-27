@@ -1667,7 +1667,7 @@ function milieuAppuis(r) {
   check('rig shiba : chaque os porte de la matière, pièces rigides aucune', ok, detail);
 }
 
-/* ── 26. non-déchirure sur 12 poses, et latéralité ─────────────────────────
+/* ── 26. non-déchirure sur 14 poses, et latéralité ─────────────────────────
  * Les poses passent par les HOOKS (poseLeg / poseBody / poseHead / poseTail),
  * le chemin qu'emprunte animate(). On mesure l'ALLONGEMENT ABSOLU des arêtes
  * de la peau (unités de construction). Ni une dérive de sommets (qui confond
@@ -1692,18 +1692,22 @@ function milieuAppuis(r) {
       ['secouage', { hip: 0, knee: 0, sit: 0, roll: 0.42 }],
       ['galop + tête', { hip: -0.95, knee: -1.47, sit: 0, head: 0.7, tail: 0.9 }],
       ['assise + regard', { sit: 1, pitch: SIT_POSE.pitch, head: -0.6, headPitch: -0.6 }],
+      // Couché en sphinx, et à la toilette (angles d'animate()).
+      ['couché', { sit: 1, lie: 1, y: -0.36 }],
+      ['toilette', { sit: 1, lie: 1, y: -0.36, head: -0.5, headPitch: 0.8 }],
     ];
     const poser = (p) => {
-      r.poseBody(0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0,
+      r.poseBody(p.y || 0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0,
         flex: p.flex || 0, lat: p.lat || 0, bend: p.bend || 0 });
       for (const leg of r.legs) {
         // Assise : les angles qu'animate() envoie, depuis la même constante.
-        const hip = p.sit ? (leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip) : p.hip;
-        const knee = p.sit ? (leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee) : p.knee;
-        r.poseLeg(leg, hip, knee, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0 });
+        let hip = p.sit ? (leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip) : p.hip;
+        let knee = p.sit ? (leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee) : p.knee;
+        if (p.lie) { hip = leg.front ? -0.60 : -0.66; knee = leg.front ? -1.86 : 1.26; }
+        r.poseLeg(leg, hip, knee, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0, lie: p.lie || 0 });
       }
       r.poseHead({ dt: 0, headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
-        neckPitch: 0, neckRoll: 0 });
+        neckPitch: 0, neckRoll: 0, rest: p.sit || 0 });
       r.poseTail(0, p.tail || 0, 0);
       r.root.updateMatrixWorld(true);
     };
@@ -1750,7 +1754,7 @@ function milieuAppuis(r) {
     detail = `allongement d'arête max ${pire.toFixed(3)} sur « ${pirePose} » (plafond 0.080), `
       + `fuites latérales ${fuites}`;
   }
-  check('rig shiba : aucune déchirure sur 12 poses, pattes non collées', ok, detail);
+  check('rig shiba : aucune déchirure sur 14 poses, pattes non collées', ok, detail);
 }
 
 /* ── empreintes sur la terre battue ───────────────────────────────────────

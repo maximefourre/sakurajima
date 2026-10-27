@@ -256,6 +256,10 @@ const BONES = [
 // Avant : épaule → coude → carpe. Arrière : hanche → grasset → jarret.
 // Les clés `hip / knee / paw` sont le contrat de shiba.js, quel que soit le
 // nom anatomique de l'articulation.
+// L'omoplate est un os à part : chez le chien elle n'est pas soudée au thorax,
+// elle PIVOTE autour de son tiers haut et porte l'épaule devant / derrière.
+// C'est ce qui fait bouger le relief du garrot quand l'antérieur travaille.
+const SCAPULA = [0.088, 0.735, 0.250];
 const LEG = {
   F: { parent: 'body', hip: [0.100, 0.60, 0.28], knee: [0.100, 0.39, 0.255], paw: [0.098, 0.095, 0.29] },
   B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.38, -0.185], paw: [0.110, 0.165, -0.355] },
@@ -264,7 +268,8 @@ for (const fb of ['F', 'B']) {
   for (const [lr, s] of [['L', -1], ['R', 1]]) {
     const L = LEG[fb];
     const w = (p) => [s * p[0], p[1], p[2]];
-    BONES.push(['hip' + fb + lr, L.parent, w(L.hip)]);
+    if (fb === 'F') BONES.push(['scapF' + lr, 'body', w(SCAPULA)]);
+    BONES.push(['hip' + fb + lr, fb === 'F' ? 'scapF' + lr : L.parent, w(L.hip)]);
     BONES.push(['knee' + fb + lr, 'hip' + fb + lr, w(L.knee)]);
     BONES.push(['paw' + fb + lr, 'knee' + fb + lr, w(L.paw)]);
   }
@@ -303,7 +308,7 @@ function bodyPrims() {
     // membre, pour que le relief glisse avec la foulée.
     const k = s < 0 ? 'L' : 'R';
     add(ellipsoid([s * 0.087, 0.640, 0.26], [0.065, 0.130, 0.100]),
-      () => [['body', 0.5], ['hipF' + k, 0.5]], 'torso', 0.05);
+      () => [['body', 0.25], ['scapF' + k, 0.75]], 'torso', 0.05);
     add(ellipsoid([s * 0.090, 0.585, -0.27], [0.072, 0.140, 0.130]),
       () => [['pelvis', 0.45], ['hipB' + k, 0.55]], 'torso', 0.05);
   }
@@ -440,13 +445,22 @@ const W_FLOOR = 0.02;   // en dessous, l'influence est jetée (puis renormalisat
  *  les deux coudes, se déchire quand les pattes vont en sens opposés).
  *  Verticale : au-dessus de l'épaule / de la hanche, le flanc suit le tronc. */
 function legGate(name, x, y) {
+  const sc = /^scapF([LR])$/.exec(name);
+  // L'omoplate : jamais sur la ligne du dos (le garrot reste au tronc).
+  if (sc) return ss(0.02, 0.07, x * (sc[1] === 'L' ? -1 : 1));
   const m = /^(hip|knee|paw)[FB]([LR])$/.exec(name);
   if (!m) return 1;
   const side = m[2] === 'L' ? -1 : 1;
   // Les os bas (avant-bras, jambe, pied) n'ont rien à faire sur le sternum,
   // qui passe ENTRE les coudes à 7 cm de leur axe : à 20 % d'influence, la
   // nage le tirait en nappe (banc 26). Seul l'os haut garde une porte large.
-  let g = m[1] === 'hip' ? ss(0.0, 0.05, x * side) : ss(0.035, 0.07, x * side);
+  // Os bas : à hauteur de poitrail, porte entre 5 et 9 cm de la ligne
+  // médiane (à 3.5–7 cm l'avant-bras gardait 13 % du pli d'aisselle et
+  // l'étirait au galop, banc 26). Vers le sol elle s'ouvre dès 1 cm : la face
+  // intérieure du pied est à 4.7 cm, la fermer laisse le pied au sol.
+  const chest = ss(0.22, 0.36, y);
+  let g = m[1] === 'hip' ? ss(0.0, 0.05, x * side)
+    : ss(mix(0.0, 0.05, chest), mix(0.03, 0.09, chest), x * side);
   if (m[1] === 'hip') {
     // L'os haut remonte en s'effaçant jusqu'à ~16 cm au-dessus de son pivot :
     // l'omoplate et la masse de la cuisse SUIVENT le membre, le garrot et la
@@ -818,9 +832,13 @@ export function buildBody() {
     hip: par.get('hip' + key[0] + key[1]),
     knee: par.get('knee' + key[0] + key[1]),
     paw: par.get('paw' + key[0] + key[1]),
+    scap: front ? par.get('scapF' + key[1]) : null,
   }));
   // Pivots de repos, pour le glissé d'épaule et la levée de hanche.
-  for (const l of legs) l.hipRest = l.hip.position.clone();
+  for (const l of legs) {
+    l.hipRest = l.hip.position.clone();
+    if (l.scap) l.scapRest = l.scap.position.clone();
+  }
 
   /* — semelle : le plus bas des sommets skinnés que domine l'os du pied. */
   const si = bodyGeo.attributes.skinIndex, sw = bodyGeo.attributes.skinWeight;
@@ -868,22 +886,34 @@ export function buildBody() {
     if (a <= HIP_KNEE) return x;
     return Math.sign(x) * (HIP_KNEE + (HIP_LIM - HIP_KNEE) * Math.tanh((a - HIP_KNEE) / (HIP_LIM - HIP_KNEE)));
   };
-  const poseLeg = (leg, hipIn, knee, { sit = 0, swim = 0 } = {}) => {
+  const poseLeg = (leg, hipIn, knee, { sit = 0, swim = 0, lie = 0 } = {}) => {
     const hip = hipStop(hipIn);
     const fold = Math.max(0, -knee);          // repli de phase aérienne
     leg.hip.rotation.x = hip;
+    if (leg.front) {
+      // L'omoplate prend ~35 % de l'angle et l'épaule le reste : la SOMME est
+      // inchangée (le pied à plat compense toujours hip + elbow), mais le
+      // pivot de l'épaule avance / recule réellement sous la peau.
+      const scap = 0.35 * hip * (1 - lie);
+      leg.scap.rotation.x = scap;
+      leg.hip.rotation.x = hip - scap;
+    }
     // L'épaule d'un chien n'est pas une rotule fixe : l'omoplate GLISSE sur le
     // thorax, vers l'arrière quand le membre recule, et se soulève quand il se
     // replie. La hanche se lève aussi en phase aérienne. Translations du pivot
     // (repère du tronc), la peau partagée les suit.
     const glide = leg.front ? 0.065 : 0.020;
-    // Avant : l'épaule d'APPUI monte quand la patte passe sous le corps (le
-    // poids passe dessus, le garrot se soulève), celle qui se replie retombe.
-    // Arrière : la hanche se lève en phase aérienne.
-    const lift = (leg.front
-      ? 0.026 * (1 - ss(0.0, 0.35, Math.abs(hip))) * (1 - ss(0.0, 0.25, fold)) - 0.014 * ss(0.0, 0.4, fold)
-      : 0.022 * fold) * (1 - sit) * (1 - swim);
-    leg.hip.position.set(leg.hipRest.x, leg.hipRest.y + lift, leg.hipRest.z - glide * hip * (1 - sit));
+    // Avant : l'épaule de la patte qui se replie RETOMBE (elle n'est plus
+    // chargée) ; celle d'appui reste, sinon on soulèverait un pied posé —
+    // le garrot qui monte à mi-appui vient du rebond du tronc, pas de
+    // l'omoplate. Arrière : la hanche se lève en phase aérienne.
+    const lift = (leg.front ? -0.022 * ss(0.0, 0.4, fold) : 0.022 * fold) * (1 - sit) * (1 - swim);
+    if (leg.front) {
+      // Le glissé et la levée portent sur l'OMOPLATE (le relief du garrot).
+      leg.scap.position.set(leg.scapRest.x, leg.scapRest.y + 1.3 * lift, leg.scapRest.z - glide * hip * (1 - sit));
+    } else {
+      leg.hip.position.set(leg.hipRest.x, leg.hipRest.y + lift, leg.hipRest.z - glide * hip * (1 - sit));
+    }
     if (leg.front) {
       frontLift[leg.key === 'FL' ? 0 : 1] = lift;
       // Le poitrail roule vers l'épaule qui porte : c'est elle qui monte.
@@ -898,7 +928,9 @@ export function buildBody() {
       const elbow = -0.42 * fold;
       leg.knee.rotation.x = elbow;
       const plant = -(bodyPitch + hip + elbow);
-      leg.paw.rotation.x = plant + fold * mix(1.55, 0.9, swim);
+      // Couché en sphinx, l'avant-bras est au sol et le pied le prolonge vers
+      // l'avant (≈ -1.45 rad monde) au lieu de se replier.
+      leg.paw.rotation.x = mix(plant + fold * mix(1.55, 0.9, swim), -1.45 - (bodyPitch + hip + elbow), lie);
     } else {
       const stifle = knee > 0 ? knee : 0.70 * fold;
       leg.knee.rotation.x = stifle;
@@ -952,6 +984,7 @@ export function buildBody() {
   // figée. Un ressort sous-amorti laisse passer le hochement, le retarde un
   // peu et adoucit quand même les sauts de `lookUp`.
   const W_TETE = 13, Z_TETE = 0.55;
+  const neckRest = neck.position.clone();
   let hP = 0, hV = 0, nP = 0, nV = 0, lastDt = 1 / 60;
   const poseHead = (p) => {
     lastDt = p.dt > 0 ? Math.min(p.dt, 0.1) : 0;
@@ -961,12 +994,18 @@ export function buildBody() {
       nV += (W_TETE * W_TETE * (p.neckPitch - nP) - 2 * Z_TETE * W_TETE * nV) * lastDt; nP += nV * lastDt;
     }
     const lissTete = hP, lissCou = nP;
-    neck.rotation.x = lissCou - 0.25 * bodyPitch;
+    // Assis, le tronc est basculé de 0.60 : à 25 % de compensation le chien
+    // fixait le ciel. Posé (assis / couché) il compense presque tout.
+    // `comp` = part TOTALE du tangage compensée, partagée moitié cou, moitié tête.
+    const comp = mix(0.5, 0.85, clamp01(p.rest ?? 0));
+    neck.rotation.x = lissCou - 0.5 * comp * bodyPitch;
+    // Balancier vertical de la tête, porté par la base du cou.
+    neck.position.set(neckRest.x, neckRest.y + (p.bob ?? 0), neckRest.z);
     // Le cou contre-tourne une PARTIE de la torsion du poitrail : la tête
     // suit les épaules sans que le regard ne quitte l'axe de la marche.
     neck.rotation.y = -0.40 * chestYaw;
     neck.rotation.z = p.neckRoll;
-    head.rotation.set(lissTete - 0.25 * bodyPitch, p.headYaw, p.headRoll, 'YXZ');
+    head.rotation.set(lissTete - 0.5 * comp * bodyPitch, p.headYaw, p.headRoll, 'YXZ');
   };
 
   // Queue : un ressort sous-amorti sur le battement. La brosse est lourde, elle

@@ -34,6 +34,7 @@ export const SHIBA = {
   wadeSlow: 0.55,      // speed factor at half swimDepth
   idleBeforeSit: 4.2,     // seconds of stillness before he sits down
   idleBeforeBark: 9.5,    // long sit before a spontaneous woof
+  idleBeforeLie: 12.0,    // assis depuis longtemps : il se couche en sphinx
   wetBeforeShake: 1.2,    // swim/wade seconds before a dry-land shake
   lookHeron: 18,          // look at a heron inside this XZ radius
   lookPoi: 10,            // hokora / jizō / pin
@@ -291,6 +292,8 @@ export function createShiba({
     swimBlend: 0,      // 0..1 animation blend, deliberately not another state
     depth: 0,          // one surface query per frame; 0 means dry
     sitting: 0,        // 0..1 blend, not a boolean — he folds down over ~0.8 s
+    lying: 0,          // 0..1, couché en sphinx (sous-état de l'assise)
+    lick: 0,           // 0..1, se lèche la patte avant gauche (couché)
     excitement: 0,     // decays after a run; drives the tail
     tailPhase: 0,      // integrated wag phase — sin(t*rate) with a moving rate whips
     vy: 0,             // vertical velocity while airborne
@@ -354,6 +357,7 @@ export function createShiba({
 
   /** Head-up idle beat: he looks up at the falling petals now and then. */
   let lookUpTimer = R.range(rng, 3, 9);
+  let lickTimer = 3.0, lickLeft = 0;
   let lastHeading = SPAWN.heading;
   let turnBend = 0;
   let lookUp = 0;
@@ -549,6 +553,7 @@ export function createShiba({
   function animate(t, dt, speedN) {
     const swim = state.swimBlend;
     const sit = state.sitting;
+    const lie = state.lying;
     const shake = state.shake;
     const stride = 5.2 + speedN * 7.5;
     // One integrated land phase feeds every gait output. In particular, never
@@ -589,11 +594,13 @@ export function createShiba({
 
     let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
     bodyY = mix(bodyY, SIT_POSE.drop, sit);
+    bodyY = mix(bodyY, -0.36, lie);
     let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
     bodyRoll = mix(bodyRoll, 0, sit);
     // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
     let bodyPitch = mix(locomotionPitch, -0.18, swim);
     bodyPitch = mix(bodyPitch, SIT_POSE.pitch, sit);
+    bodyPitch = mix(bodyPitch, 0, lie);
     // Même contrat que poseLeg : les trois valeurs sont FINALES. L'assise ne
     // descend presque pas le tronc (-0.03) : c'est le tangage, pivoté sur les
     // épaules par poseBody, qui pose l'arrière-train au sol.
@@ -650,11 +657,15 @@ export function createShiba({
       const walkCos = Math.cos(walkPh);
       const trotCos = Math.cos(trotPh);
       const gallopCos = Math.cos(gallopPh);
-      const locomotionHip =
+      // L'amplitude s'éteint à l'arrêt. La phase, elle, continue d'avancer
+      // (0.25 × stride) : sans ce facteur, le chien immobile piétinait sur
+      // place, pieds levés jusqu'à 10 cm, jusqu'à ce qu'il s'assoie.
+      const stepping = smoothstep(0.0, 0.12, speedN);
+      const locomotionHip = stepping * (
         walkW * walkSwing * GAITS.walk.amp
         + trotW * trotSwing * GAITS.trot.amp
-        + gallopW * gallopSwing * GAITS.gallop.amp;
-      const locomotionKnee = -(
+        + gallopW * gallopSwing * GAITS.gallop.amp);
+      const locomotionKnee = -stepping * (
         walkW * Math.max(0, -walkCos) * GAITS.walk.amp * GAITS.walk.knee
         + trotW * Math.max(0, -trotCos) * GAITS.trot.amp * GAITS.trot.knee
         + gallopW * Math.max(0, -gallopCos) * GAITS.gallop.amp * GAITS.gallop.knee
@@ -678,6 +689,10 @@ export function createShiba({
       let knee = mix(locomotionKnee, swimKnee, swim);
       hip = mix(hip, sitHip, sit);
       knee = mix(knee, sitKnee, sit);
+      // Sphinx : antérieurs allongés devant (avant-bras au sol), postérieurs
+      // repliés sous la hanche, métatarses à plat. Tronc posé, de niveau.
+      hip = mix(hip, leg.front ? -0.60 : -0.66, lie);
+      knee = mix(knee, leg.front ? -1.86 : 1.26, lie);
       // Le mélange de secouage est appliqué ICI, en amont du hook : si chaque
       // rig devait y penser, l'oubli ferait régresser le chien procédural. Le
       // hook reçoit donc les angles FINAUX ; les poids ne sont passés qu'à
@@ -685,7 +700,7 @@ export function createShiba({
       const hipF = mix(hip, 0, shake);
       const kneeF = mix(knee, 0, shake);
       if (rig.poseLeg) {
-        rig.poseLeg(leg, hipF, kneeF, { swim, sit, shake, speedN });
+        rig.poseLeg(leg, hipF, kneeF, { swim, sit, shake, speedN, lie });
       } else {
         leg.hip.rotation.x = hipF;
         leg.knee.rotation.x = kneeF;
@@ -761,12 +776,22 @@ export function createShiba({
     const fullScan = Math.sin(t * 0.42) * 0.30 * (1 - speedN);
     let headYaw = mix(fullScan * 0.4, 0, swim);
     headYaw = mix(headYaw, fullScan, sit);
-    let headPitch = mix(-0.06 * speedN - lookUp * 0.62, -0.24, swim);
-    headPitch = mix(headPitch, -0.05 - lookUp * 0.62, sit);
+    // lookUp : il lève le nez vers ce qui passe. Debout, franchement ; assis
+    // ou couché, à peine — 0.62 rad sur un tronc déjà basculé le faisait
+    // fixer le ciel (retour utilisateur).
+    let headPitch = mix(-0.06 * speedN - lookUp * 0.38, -0.24, swim);
+    headPitch = mix(headPitch, 0.02 - lookUp * 0.16, sit);
+    headPitch = mix(headPitch, 0.10 - lookUp * 0.10, lie);
     headYaw = mix(headYaw, lookHeadYaw, state.look);
     headPitch = mix(headPitch, lookHeadPitch, state.look);
     let neckPitch = mix(0, -0.12, swim);
-    neckPitch = mix(neckPitch, -0.28, sit);
+    neckPitch = mix(neckPitch, -0.10, sit);
+    neckPitch = mix(neckPitch, 0.05, lie);
+    // Toilette : tête tournée et baissée vers l'antérieur gauche.
+    const lick = state.lick;
+    headYaw = mix(headYaw, -0.50, lick);
+    headPitch = mix(headPitch, 0.80, lick);
+    neckPitch = mix(neckPitch, 0.55, lick);
     // Hochement : la tête descend quand un antérieur se pose — deux fois par
     // foulée au pas et au trot, une fois (et fort) au galop, où le cou pompe
     // avec l'avant-main. Au pas, elle balaie aussi un peu de côté.
@@ -777,6 +802,11 @@ export function createShiba({
     neckPitch += nod * 0.6 * nodFree;
     headPitch += nod * 0.4 * nodFree;
     headYaw += walkW * moving * 0.07 * Math.sin(state.gait + 0.4) * nodFree;
+    // Balancier VERTICAL de la tête (unités de construction), en retard d'un
+    // quart de temps sur le rebond du corps : c'est ce petit flottement qui
+    // fait lire une tête portée par un cou, et pas vissée au poitrail.
+    const bob = ((walkW * 0.016 + trotW * 0.022) * moving * Math.sin(state.gait * 2 + 2.2)
+      + gallopW * speedN * 0.032 * Math.sin(state.gait + 1.4)) * nodFree;
     const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
     const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;
     headPitch += barkEnv * 0.22;
@@ -792,6 +822,8 @@ export function createShiba({
       headRoll: mix(state.look * 0.20 * (1 - speedN), -shakeWave * 0.38, shake),
       neckPitch: mix(neckPitch, 0, shake),
       neckRoll: mix(0, shakeWave * 0.55, shake),
+      rest: sit * (1 - shake),
+      bob,
     };
     if (rig.poseHead) {
       rig.poseHead(pose);
@@ -843,7 +875,7 @@ export function createShiba({
       // +X penche la pointe vers l'avant (le port du shiba au repos), -X la
       // couche en arrière : à la course il les plaque, à la nage aussi.
       // -side * z les ouvre vers l'extérieur.
-      const landEarX = 0.24 - 0.80 * speedN + flick;
+      const landEarX = 0.24 - 0.80 * speedN + flick - 0.22 * lie;
       const landEarZ = -side * (0.08 + 0.08 * gust + 0.18 * speedN);
       rig.ears[i].rotation.x = mix(landEarX, -0.75, swim);
       rig.ears[i].rotation.z = mix(landEarZ, -side * 0.32, swim);
@@ -854,7 +886,9 @@ export function createShiba({
     const pant = smoothstep(0.48, 0.82, state.excitement) * (1 - swim);
     const jawOpen = pant * (0.14 + 0.06 * (0.5 + 0.5 * Math.sin(t * 6.4)))
       + barkEnv * 0.34;
-    rig.jaw.rotation.x = mix(jawOpen, 0, shake);
+    // Coups de langue : la gueule s'entrouvre en rythme.
+    const lickJaw = lick * (0.07 + 0.08 * Math.max(0, Math.sin(t * 10.5)));
+    rig.jaw.rotation.x = mix(jawOpen + lickJaw, 0, shake);
     if (barkEnv > 0) rig.head.rotation.x += barkEnv * 0.06;
 
     blinkTimer -= dt;
@@ -1152,6 +1186,23 @@ export function createShiba({
     const wantSit = !state.wading && state.idleTime > SHIBA.idleBeforeSit ? 1 : 0;
     state.sitting += clamp(wantSit - state.sitting, -dt * 3.0, dt * 1.35);
     state.sitting = clamp(state.sitting, 0, 1);
+    // Assis depuis longtemps, il se couche ; couché, il se lèche une patte par
+    // moments. Tout mouvement remet idleTime à zéro : il se relève d'un coup.
+    const wantLie = wantSit && state.sitting > 0.95 && state.shake <= 0
+      && state.idleTime > SHIBA.idleBeforeLie ? 1 : 0;
+    state.lying = clamp(state.lying + clamp(wantLie - state.lying, -dt * 3.2, dt * 0.75), 0, 1);
+    if (state.lying > 0.95 && state.bark <= 0) {
+      lickTimer -= dt;
+      if (lickTimer <= 0 && lickLeft <= 0) {
+        lickLeft = R.range(rng, 2.2, 3.6);
+        lickTimer = R.range(rng, 7, 13);
+      }
+    } else {
+      lickLeft = 0;
+      lickTimer = Math.max(lickTimer, 3.0);
+    }
+    lickLeft = Math.max(0, lickLeft - dt);
+    state.lick = clamp(state.lick + clamp((lickLeft > 0 ? 1 : 0) - state.lick, -dt * 2.5, dt * 2.5), 0, 1);
 
     /* — excitement — */
     const speedN = clamp(state.speed / SHIBA.runSpeed, 0, 1);
@@ -1234,6 +1285,9 @@ export function createShiba({
       state.swimBlend = 0;
       state.depth = 0;
       state.sitting = 0;
+      state.lying = 0;
+      state.lick = 0;
+      lickLeft = 0;
       state.excitement = 0;
       state.vy = 0;
       state.airborne = false;
