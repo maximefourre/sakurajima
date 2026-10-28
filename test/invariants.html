@@ -1693,8 +1693,8 @@ function milieuAppuis(r) {
       ['galop + tête', { hip: -0.95, knee: -1.47, sit: 0, head: 0.7, tail: 0.9 }],
       ['assise + regard', { sit: 1, pitch: SIT_POSE.pitch, head: -0.6, headPitch: -0.6 }],
       // Couché en sphinx, et à la toilette (angles d'animate()).
-      ['couché', { sit: 1, lie: 1, y: -0.36 }],
-      ['toilette', { sit: 1, lie: 1, y: -0.36, head: -0.5, headPitch: 0.8 }],
+      ['couché', { sit: 1, lie: 1, y: -0.32 }],
+      ['toilette', { sit: 1, lie: 1, y: -0.32, head: -0.5, headPitch: 0.8 }],
     ];
     const poser = (p) => {
       r.poseBody(p.y || 0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0,
@@ -1755,6 +1755,134 @@ function milieuAppuis(r) {
       + `fuites latérales ${fuites}`;
   }
   check('rig shiba : aucune déchirure sur 14 poses, pattes non collées', ok, detail);
+}
+
+/* ── 26 bis. proportions shiba ─────────────────────────────────────────────
+ * Rapports mesurés sur la PEAU skinnée (repère du root, donc indépendants de
+ * l'échelle) puis comparés à des photos de shibas adultes (Wikimedia Commons ;
+ * URL et valeurs dans le bloc « Références » de src/shiba-geom.js). Les
+ * fourchettes sont celles des photos, sauf trois exceptions voulues :
+ *  - longueur : le standard (10 : 11) l'emporte sur les photos, plus longues ;
+ *  - tête : les photos × 1.15, la tête est stylisée (lisibilité à distance) ;
+ *  - membre avant : ≤ 12° du droit, exigé par la demande (photos ~150-165°).
+ * Une fourchette trop large ne mesure rien : le cou, la gorge et la hauteur du
+ * garrot sont ceux qui ont échoué sur le modèle d'avant (cou long et mince,
+ * tête haute, membre avant à 166°).
+ */
+function mesurerProportions(root, mesh) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const geo = mesh.geometry, n = geo.attributes.position.count;
+  const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+  const bones = mesh.skeleton.bones;
+  const t = new THREE.Vector3();
+  const V = [], dom = [];
+  for (let v = 0; v < n; v++) {
+    mesh.getVertexPosition(v, t); mesh.localToWorld(t); t.applyMatrix4(inv);
+    V.push(t.clone());
+    let b = -1, bi = 0;
+    for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > b) { b = w; bi = si.getComponent(v, c); } }
+    dom.push(bones[bi].name);
+  }
+  const osMonde = (nom) => bones.find((o) => o.name === nom).getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+  const paire = (k) => osMonde(k + 'L').add(osMonde(k + 'R')).multiplyScalar(0.5);
+  const axe = (v) => Math.abs(v.x) < 0.04;
+  const dYZ = (a, b) => Math.hypot(a.y - b.y, a.z - b.z);
+  const angle = (a, b, c) => {
+    const u = a.clone().sub(b), w = c.clone().sub(b);
+    return Math.acos(u.dot(w) / (u.length() * w.length())) * 180 / Math.PI;
+  };
+  // Garrot : le plus haut du dos entre le milieu du tronc et l'omoplate ; le
+  // cou commence à z = 0.22, là où la ligne de dos se met à monter vers la tête.
+  let H = -Infinity, Hz = 0.22, yCou = -Infinity;
+  V.forEach((v) => {
+    if (!axe(v)) return;
+    if (v.z > 0.0 && v.z < 0.22 && v.y > H) H = v.y;
+    if (v.z > 0.20 && v.z < 0.24 && v.y > yCou) yCou = v.y;
+  });
+  const tete = (d) => d === 'head' || d === 'jaw';
+  let occ = null, nez = null, crane = -Infinity;
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || !axe(v)) return;
+    if (!occ || v.y - v.z > occ.y - occ.z) occ = v;   // arrière-haut du crâne
+    if (!nez || v.z > nez.z) nez = v;
+    crane = Math.max(crane, v.y);
+  });
+  let poitrail = -Infinity, croupe = Infinity, sternum = null, gorge = null;
+  V.forEach((v, i) => {
+    if (!axe(v)) return;
+    if (v.y > 0.35 && v.y < 0.62 && v.z > poitrail) { poitrail = v.z; sternum = v; }
+    if (v.y > 0.45 && v.y < 0.85 && v.z < croupe) croupe = v.z;
+  });
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || !axe(v) || v.z > nez.z - 0.17 || v.z < nez.z - 0.33) return;
+    if (!gorge || v.y < gorge.y) gorge = v;           // dessous de la tête, côté gorge
+  });
+  const lCou = dYZ({ y: yCou, z: Hz }, occ);
+  // Épaisseur du cou : perpendiculairement à l'axe garrot → occiput, à mi-cou.
+  const ax = new THREE.Vector2(occ.z - Hz, occ.y - yCou).normalize();
+  const pr = new THREE.Vector2(-ax.y, ax.x);
+  const mi = new THREE.Vector2((occ.z + Hz) / 2, (occ.y + yCou) / 2);
+  let pMin = Infinity, pMax = -Infinity;
+  V.forEach((v) => {
+    if (!axe(v)) return;
+    const d = new THREE.Vector2(v.z, v.y).sub(mi);
+    if (Math.abs(d.dot(ax)) > 0.015 || Math.abs(d.dot(pr)) > 0.45) return;
+    pMin = Math.min(pMin, d.dot(pr)); pMax = Math.max(pMax, d.dot(pr));
+  });
+  const epaule = paire('hipF'), coude = paire('kneeF'), carpe = paire('pawF');
+  const hanche = paire('hipB'), grasset = paire('kneeB'), jarret = paire('pawB');
+  let pieds = Infinity, piedsZ = 0;
+  V.forEach((v, i) => { if (dom[i] === 'pawBL' && v.y < pieds) { pieds = v.y; piedsZ = v.z; } });
+  return {
+    H,
+    longueur: (poitrail - croupe) / H,
+    cou: lCou / H,
+    coupEpais: (pMax - pMin) / lCou,
+    gorge: dYZ(gorge, sternum) / H,
+    tete: dYZ(occ, nez) / H,
+    crane: crane / H,
+    coude: coude.y / H,
+    jarret: jarret.y / H,
+    angAvant: angle(epaule, coude, carpe),
+    angGrasset: angle(hanche, grasset, jarret),
+    angJarret: angle(grasset, jarret, new THREE.Vector3(jarret.x, pieds, piedsZ)),
+  };
+}
+{
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
+  if (r) {
+    const m = mesurerProportions(r.root, r.mesh);
+    // Le chien VIVANT, à l'arrêt : le crouch de marche ne doit pas l'accroupir.
+    const dog = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+    dog.update(0, 0.016, null);
+    dog.group.updateMatrixWorld(true);
+    let meshVivant = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) meshVivant = o; });
+    const vivant = mesurerProportions(meshVivant.parent.name === 'shiba' ? meshVivant.parent : dog.group.children[0], meshVivant);
+    dog.dispose();
+    const dansF = (x, lo, hi) => x >= lo && x <= hi;
+    const bornes = [
+      ['H/withers', m.H / SHIBA_BUILD.withers, 0.97, 1.03],
+      ['L/H', m.longueur, 1.04, 1.18],
+      ['cou', m.cou, 0.26, 0.34],
+      ['épais/long', m.coupEpais, 1.05, 9],
+      ['gorge', m.gorge, 0.18, 0.28],
+      ['tête', m.tete, 0.40, 0.50],
+      ['crâne', m.crane, 1.20, 1.32],
+      ['coude', m.coude, 0.38, 0.48],
+      ['jarret', m.jarret, 0.21, 0.27],
+      ['angAvant', m.angAvant, 168, 180],
+      ['grasset', m.angGrasset, 105, 130],
+      ['angJarret', m.angJarret, 120, 145],
+      ['arrêt/withers', vivant.H / SHIBA_BUILD.withers, 0.97, 1.03],
+    ];
+    const hors = bornes.filter(([, x, lo, hi]) => !dansF(x, lo, hi));
+    ok = hors.length === 0;
+    detail = bornes.map(([k, x, lo, hi]) => `${k} ${x.toFixed(2)}${dansF(x, lo, hi) ? '' : ` ✗[${lo};${hi}]`}`).join(', ');
+  }
+  check('proportions shiba : cou court et épais, membres presque droits, mesurées sur la peau', ok, detail);
 }
 
 /* ── empreintes sur la terre battue ───────────────────────────────────────

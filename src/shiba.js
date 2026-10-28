@@ -669,7 +669,7 @@ export function createShiba({
 
     let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
     bodyY = mix(bodyY, SIT_POSE.drop, sit);
-    bodyY = mix(bodyY, -0.36, lie);
+    bodyY = mix(bodyY, -0.32, lie);
     let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
     bodyRoll = mix(bodyRoll, 0, sit);
     // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
