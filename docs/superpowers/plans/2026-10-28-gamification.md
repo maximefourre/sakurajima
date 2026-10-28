@@ -11,6 +11,21 @@ uniquement dans `main.js`.
 **Tech :** Three.js 0.185.1 vendorisé, modules ES, aucun build, aucune dépendance ajoutée.
 **Spec :** `docs/superpowers/specs/2026-10-28-gamification-design.md`
 
+## Exécution (Orca)
+
+Run `run_69c51b745937`. Un worker par tâche, chacun dans son worktree enfant
+(`--worktree new-child`), **effort `high` pour tous** :
+
+| Tâche | Agent / modèle | Effort | Vague |
+|---|---|---|---|
+| T1 quest.js | claude / sonnet 5.5 | high | 1 |
+| T2 journal-ui | claude / sonnet 5.5 (+ skill frontend-design) | high | 1 |
+| T3 crochets faune + shiba | grok / grok 4.7 | high | 1 |
+| T4 treasures.js | grok / grok 4.7 | high | 1 |
+| T5 câblage + docs | claude / sonnet 5.5 | high | 2 (après fusion T1–T4) |
+
+Si un worker échoue : rapport, pas de relance avec un autre modèle.
+
 ## Global Constraints
 
 - Aucun build, aucune dépendance externe, import `three` via l'importmap existant.
