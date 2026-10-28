@@ -1,9 +1,7 @@
 # Index — une ligne par sujet
 
-Usage : `grep -i <mot> docs/INDEX.md docs/symbols.txt`, puis lire seulement
-la cible (`sed -n` sur la ligne, ou la section du doc).
-`symbols.txt` = tous les exports de `src/` avec fichier:ligne + ordre de
-câblage de `main.js` (régénérer : `python3 tools/gen-symbols.py`).
+Usage : `grep -i <mot> docs/INDEX.md`, puis lire seulement la section du doc.
+Symboles, appelants, `fichier:ligne` : MCP `codebase-memory-mcp` (AGENTS.md).
 
 ## Sujet → où
 
@@ -22,7 +20,7 @@ cerisiers arbres sakura momiji feuillage createSakuraForest quality nombre → a
 herbe grass shortZone rase plancher fadeEnd createGrass → architecture.md#signatures-piégeuses ; perf.md ; grass.js
 faune qualityCount QUALITY row → architecture.md#signatures-piégeuses
 modules qui fait quoi fichier → architecture.md#modules
-câblage ordre boot main.js → symbols.txt#câblage
+câblage ordre boot main.js → cablage.txt
 fps perf banc mesure readPixels autoRotate dérive → perf.md#mesurer-sans-inventer-les-chiffres
 feuillage coût géométrie fill-rate DPR shuffle FOLIAGE_SHUFFLE_BLOCK → perf.md#le-feuillage-est-géométrique-pas-fill-rate
 chiffres référence M4 Max chargement 20 s → perf.md#référence
