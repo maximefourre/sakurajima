@@ -20,8 +20,8 @@ Run `run_69c51b745937`. Un worker par tâche, chacun dans son worktree enfant
 |---|---|---|---|
 | T1 quest.js | claude / sonnet 5.5 | high | 1 |
 | T2 journal-ui | claude / sonnet 5.5 (+ skill frontend-design) | high | 1 |
-| T3 crochets faune + shiba | grok / grok 4.7 | high | 1 |
-| T4 treasures.js | grok / grok 4.7 | high | 1 |
+| T3 crochets faune + shiba | grok / `grok-4.7-build-fast` | high | 1 |
+| T4 treasures.js | grok / `grok-4.7-build-fast` | high | 1 |
 | T5 câblage + docs | claude / sonnet 5.5 | high | 2 (après fusion T1–T4) |
 
 Si un worker échoue : rapport, pas de relance avec un autre modèle.
