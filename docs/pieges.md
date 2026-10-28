@@ -42,4 +42,5 @@ Appris à l'usage. Le détail du pourquoi : `architecture.md`, `perf.md`.
     la longueur de foulée. L'antérieur est presque TENDU au repos : sa portée
     vient de `crouch`, du décollage par les doigts (`TOE_*`) et de `leadF`.
     Rallonger `sweep` le fait décoller du sol en fin d'appui (invariant « pattes
-    au trot / au galop »).
+    au trot / au galop »). Pour RALENTIR la cadence, baisser `duty` (plus de
+    suspension, la foulée s'allonge en l'air) : sweep .85 au trot = glissé 0.16.

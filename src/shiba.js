@@ -71,14 +71,14 @@ const GAITS = {
     amp: 0.62,
     knee: 1.35,
     bob: 1.0,
-    duty: 0.34, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.06, leadF: 0.03, leadB: 0,
+    duty: 0.17, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.06, leadF: 0.03, leadB: 0,
   },
   gallop: {
     ph: [0, 0.35, Math.PI, Math.PI + 0.35],
     amp: 0.95,
     knee: 1.55,
     bob: 1.6,
-    duty: 0.20, sweep: 0.70, lift: 0.20, fold: 1.05, crouch: 0.09, leadF: 0.03, leadB: 0.07,
+    duty: 0.095, sweep: 0.70, lift: 0.20, fold: 1.05, crouch: 0.09, leadF: 0.03, leadB: 0.07,
   },
 };
 // Cadence plancher (Hz) : à l'arrêt la phase avance encore, sans balayage

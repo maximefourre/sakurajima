@@ -9,7 +9,7 @@ Cadence liée à la vitesse, phase d'appui par patte avec ancre monde,
 IK à deux os + abduction dans `poseLeg` (`reach`), décollage par les doigts.
 Mesures sol plat : semelle min -0.007, glissé ≤ 0.023 au trot comme au galop,
 16/16/16/16 appuis au trot (invariants « pattes au trot / au galop »). Reste à
-juger en jeu : la cadence (≈ 4.0 Hz au trot, 4.2 au galop) et le virage sur place.
+juger en jeu : la cadence (≈ 2.0 Hz au trot comme au galop, duty .17 / .095 ; 4 Hz jugé « ridiculement élevé ») et le virage sur place.
 Voir `docs/pieges.md` n° 11-12. Ce qui suit est le diagnostic d'origine.
 
 ## Symptômes
