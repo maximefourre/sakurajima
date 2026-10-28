@@ -145,7 +145,7 @@ export function createTreasures({ seed, heightAt, isOnPath, isInPond, keepOut, c
 
 ### Task 5 : câblage `main.js`, tactile, docs (après T1–T4 fusionnées)
 
-**Files :** Modify `src/main.js`, `src/touch.js`, `index.html` (bouton tactile renifler seulement), `docs/INDEX.md`, `AGENTS.md` (contrôles R/J), `docs/symbols.txt` (régénéré).
+**Files :** Modify `src/main.js`, `src/touch.js`, `index.html` (bouton tactile renifler seulement), `docs/INDEX.md`, `AGENTS.md` (contrôles R/J), `docs/cablage.txt` (régénéré).
 
 - Créer `world.treasures` après `world.poi` (mêmes `heightAt`, `isOnPath`, `inWater`, `poi.keepOut`) ; `world.quest = createQuest({ sites: world.poi.sites, treasureIds: world.treasures.ids })` ; `treasures.markFound(quest.state.treasures)` ; `treasures.onFound = id => quest.report('treasure',{id})`.
 - Crochets : `herons.onFlush` (garder l'appel existant à `shiba.notify`) → `report('heron-flush')` ; `gulls.onFlush` → `'gull-flush'` ; `crabs.onFlee` → `'crab-flee'` ; `birds.onEvent('flush')` (garder audio) → `'bird-flush'` ; `butterflies.onFlee` → `'butterfly-chase'` ; `shiba.onEvent('bark')` (garder audio) → `'bark'`.
@@ -155,4 +155,4 @@ export function createTreasures({ seed, heightAt, isOnPath, isInPond, keepOut, c
 - `__sk.quest`, `__sk.treasures` ; son : `audio.handle('call')` sur `stamp`.
 - [ ] Step 1 : implémenter ; `node --check` ; `test/invariants.html` + `quest`/`hooks`/`treasures`/`journal` → 0 fail (PORT 5185).
 - [ ] Step 2 : navigateur (`?q=high`) : téléporter le shiba sur le jizō via `__sk` → toast tampon ; `R` → chien renifle + toast ; `J` carnet ; nuit (`dayTime=0.0`) lisible ; aucune erreur console ; captures dans le rapport.
-- [ ] Step 3 : `python3 tools/gen-symbols.py`, INDEX (ligne « gamification quest tampons omamori carnet → quest.js ; treasures.js ; journal-ui.js »), commit `feat: gamification câblée (carnet, omamori, défis)`.
+- [ ] Step 3 : `python3 tools/gen-cablage.py`, INDEX (ligne « gamification quest tampons omamori carnet → quest.js ; treasures.js ; journal-ui.js »), commit `feat: gamification câblée (carnet, omamori, défis)`.
