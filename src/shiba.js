@@ -50,26 +50,50 @@ export const SHIBA = {
   wakeAmp: 0.13,
 };
 
+// Pieds posés (IK) : `duty` = part de la foulée en appui, `sweep` = balayage
+// d'appui visé (u monde, ce que la patte couvre sans tirer sur l'IK), `lift`
+// = hauteur de la sole en phase aérienne (u monde), `fold` = repli du pied,
+// `crouch` = abaissement du tronc en mouvement (u modèle), marge de portée,
+// `leadF / leadB` = centre d'appui avancé (u modèle) : la fin de poussée est
+// au bout de la portée (au galop les postérieurs se posent sous le ventre).
+// La cadence en découle (vitesse × duty / sweep) : la foulée vaut ce que le
+// tronc parcourt, le pied posé ne glisse pas.
 const GAITS = {
   walk: {
     ph: [0, Math.PI, Math.PI * 0.5, Math.PI * 1.5],
     amp: 0.30,
     knee: 1.20,
     bob: 0.5,
+    duty: 0.60, sweep: 0.42, lift: 0.11, fold: 0.55, crouch: 0.02, leadF: 0, leadB: 0,
   },
   trot: {
     ph: [0, Math.PI, Math.PI, 0],
     amp: 0.62,
     knee: 1.35,
     bob: 1.0,
+    duty: 0.34, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.06, leadF: 0.03, leadB: 0,
   },
   gallop: {
     ph: [0, 0.35, Math.PI, Math.PI + 0.35],
     amp: 0.95,
     knee: 1.55,
     bob: 1.6,
+    duty: 0.20, sweep: 0.70, lift: 0.20, fold: 1.05, crouch: 0.09, leadF: 0.03, leadB: 0.07,
   },
 };
+// Cadence plancher (Hz) : à l'arrêt la phase avance encore, sans balayage
+// ni levée (pieds immobiles), pour que le premier pas parte sans à-coup.
+const CADENCE_MIN = 0.8;
+// Une ancre d'appui ne s'écarte pas de plus de ça (u modèle) de sa place
+// nominale : virage sur place, arrêt brusque, téléportation (Échap).
+const ANCHOR_SLACK = 0.10;
+const wrapPi = (a) => a - TAU * Math.round(a / TAU);
+// Décollage par les doigts : en fin d'appui le talon (carpe, jarret) se lève
+// jusqu'à TOE_PITCH rad, le pied pivote sur le bout des doigts, à TOE_LEN
+// (u modèle) devant le dessous du coussinet. Sans lui, l'antérieur — presque
+// tendu au repos — n'atteignait pas la fin de son appui.
+const TOE_PITCH = { F: 0.70, B: 0.60 };
+const TOE_LEN = { F: 0.045, B: 0.050 };
 
 const SHAKE_DURATION = 0.9;
 const SHAKE_FAILSAFE = 1.4;
@@ -365,6 +389,34 @@ export function createShiba({
   let printClock = 0;
   let nowT = 0;
 
+  // Où repose le dessous du coussinet de chaque patte, chien debout au repos,
+  // dans le repère du root (unités modèle) : le centre de chaque appui.
+  group.updateMatrixWorld(true);
+  const restSole = rig.legs.map((leg) => rig.root.worldToLocal(
+    leg.paw.localToWorld(new THREE.Vector3().fromArray(leg.front ? PAW_SOLE.F : PAW_SOLE.B))));
+  // Par patte : en appui ? ancre MONDE de l'appui en cours ; écart (repère
+  // root) entre le décollage et la trajectoire nominale, résorbé en vol.
+  const feet = rig.legs.map(() => ({
+    stance: false, init: false, anchor: new THREE.Vector3(), off: new THREE.Vector3(),
+  }));
+  const footStance = [true, true, true, true];
+  const reachArgs = rig.legs.map(() => ({ hip: 0, knee: 0, opts: null }));
+  const _rootInv = new THREE.Matrix4();
+  const _nom = new THREE.Vector3();
+  const _foot = new THREE.Vector3();
+  const _gnd = new THREE.Vector3();
+  let airW = 0;
+
+  /** Local root (y = repos + levée) → monde, en suivant le relief : la sole
+   *  se pose sur heightAt sous elle, pas sur le plan incliné du root. */
+  function footToWorld(local, restY, out) {
+    _gnd.set(local.x, restY, local.z).applyMatrix4(rig.root.matrixWorld);
+    out.copy(local).applyMatrix4(rig.root.matrixWorld);
+    const lift = clamp(heightAt(_gnd.x, _gnd.z) + restY * SHIBA_BUILD.scale - _gnd.y, -0.3, 0.3);
+    out.y += lift;
+    return out;
+  }
+
   /** Head-up idle beat: he looks up at the falling petals now and then. */
   let lookUpTimer = R.range(rng, 3, 9);
   let lickTimer = 3.0, lickLeft = 0;
@@ -568,13 +620,6 @@ export function createShiba({
     const sit = state.sitting;
     const lie = state.lying;
     const shake = state.shake;
-    const stride = 5.2 + speedN * 7.5;
-    // One integrated land phase feeds every gait output. In particular, never
-    // turn this into sin(t * rate): a changing rate would inject t * dRate/dt.
-    if (shake <= 0) state.gait += dt * stride * (0.25 + speedN);
-    // A swimming dog keeps paddling even while the player releases the stick.
-    state.swimGait += dt * 10.5;
-
     // The transition bands do not overlap. Defining trot as the remainder makes
     // the three scalar weights sum to exactly one, including at the endpoints.
     const trotGate = smoothstep(0.26, 0.42, speedN);
@@ -582,9 +627,22 @@ export function createShiba({
     const walkW = 1 - trotGate;
     const gallopW = gallopGate;
     const trotW = 1 - walkW - gallopW;
-    let dominantGait = GAITS.walk;
-    if (trotW > walkW && trotW >= gallopW) dominantGait = GAITS.trot;
-    else if (gallopW > walkW) dominantGait = GAITS.gallop;
+    const gaitMix = (k) => walkW * GAITS.walk[k] + trotW * GAITS.trot[k] + gallopW * GAITS.gallop[k];
+
+    // Cadence : vitesse × duty / sweep, pour que le pied posé ne glisse pas.
+    // Avant (28/10) une cadence fixée par speedN donnait 0.9 foulée/s à
+    // 6.4 u/s : 3.5 u parcourus pendant un appui, par une patte de 0.85 u.
+    const duty = gaitMix('duty');
+    const cadence = Math.max(CADENCE_MIN, state.speed * duty / gaitMix('sweep'));
+    // One integrated land phase feeds every gait output. In particular, never
+    // turn this into sin(t * rate): a changing rate would inject t * dRate/dt.
+    if (shake <= 0) state.gait += dt * TAU * cadence;
+    // A swimming dog keeps paddling even while the player releases the stick.
+    state.swimGait += dt * 10.5;
+    // Poids des pieds posés (IK) : au sol seulement — ni nage, ni assise,
+    // ni secouage, ni saut.
+    airW += ((state.airborne ? 1 : 0) - airW) * Math.min(1, dt * 14);
+    const ikW = rig.poseLeg ? (1 - swim) * (1 - sit) * (1 - lie) * (1 - shake) * (1 - airW) : 0;
 
     // Body carriage AVANT les pattes : poseLeg garde le pied à plat en
     // compensant le tangage du tronc — posé après, il compenserait celui de la
@@ -595,7 +653,11 @@ export function createShiba({
       walkW * GAITS.walk.bob
       + trotW * GAITS.trot.bob
       + gallopW * GAITS.gallop.bob;
-    const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob;
+    // Pieds posés, le tronc s'abaisse un peu en mouvement et rebondit moins :
+    // l'antérieur est presque tendu au repos, sans cette marge il ne couvre
+    // pas la fin de l'appui (le pied quittait le sol à mi-poussée).
+    const crouch = gaitMix('crouch') * smoothstep(0.0, 0.3, speedN) * ikW;
+    const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob * mix(1, 0.4, ikW) - crouch;
     const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
     const locomotionPitch = -0.05 * speedN
       + Math.sin(state.gait) * 0.09 * gallopW
@@ -657,6 +719,21 @@ export function createShiba({
       rig.body.rotation.x = bodyPitchF;
     }
 
+    // Pieds posés (IK) : poids (au sol seulement, ni nage, ni assise, ni saut),
+    // demi-balayage d'appui et levée en unités modèle, mêlés comme les allures.
+    // L'amplitude s'éteint à l'arrêt. La phase, elle, continue d'avancer
+    // (CADENCE_MIN) : sans ce facteur, le chien immobile piétinait sur place.
+    const stepping = smoothstep(0.0, 0.12, speedN);
+    // Un virage sur place lève aussi les pieds, sinon ils se tordent sous lui.
+    const stepAmt = Math.max(stepping, smoothstep(0.4, 2.0, Math.abs(turnRate)));
+    const half = 0.5 * state.speed * duty / cadence / SHIBA_BUILD.scale;
+    const liftH = gaitMix('lift') * stepAmt / SHIBA_BUILD.scale;
+    const foldMax = gaitMix('fold') * stepAmt;
+    // Aux allures rapides les pistes se rapprochent de l'axe du corps.
+    const narrow = 1 - 0.3 * speedN;
+    rig.root.updateWorldMatrix(true, false);
+    _rootInv.copy(rig.root.matrixWorld).invert();
+
     for (let i = 0; i < 4; i++) {
       const leg = rig.legs[i];
       // Blend complete curve OUTPUTS. Blending the phase offsets themselves
@@ -670,10 +747,6 @@ export function createShiba({
       const walkCos = Math.cos(walkPh);
       const trotCos = Math.cos(trotPh);
       const gallopCos = Math.cos(gallopPh);
-      // L'amplitude s'éteint à l'arrêt. La phase, elle, continue d'avancer
-      // (0.25 × stride) : sans ce facteur, le chien immobile piétinait sur
-      // place, pieds levés jusqu'à 10 cm, jusqu'à ce qu'il s'assoie.
-      const stepping = smoothstep(0.0, 0.12, speedN);
       const locomotionHip = stepping * (
         walkW * walkSwing * GAITS.walk.amp
         + trotW * trotSwing * GAITS.trot.amp
@@ -712,24 +785,94 @@ export function createShiba({
       // titre indicatif, pour qu'un rig puisse traiter l'assise à part.
       const hipF = mix(hip, 0, shake);
       const kneeF = mix(knee, 0, shake);
+
+      // Pied posé. Phase propre à la patte : les décalages d'allure se mêlent
+      // sur le cercle (une transition décale les pas, sans les téléporter) ;
+      // milieu d'appui à ph = 0, où le balancier passe la verticale.
+      const ph = gallopW > 0
+        ? GAITS.trot.ph[i] + gallopW * wrapPi(GAITS.gallop.ph[i] - GAITS.trot.ph[i])
+        : GAITS.walk.ph[i] + trotW * wrapPi(GAITS.trot.ph[i] - GAITS.walk.ph[i]);
+      const u = (((state.gait + ph) / TAU + duty / 2) % 1 + 1) % 1;
+      const stance = u < duty;
+      footStance[i] = stance;
+      const opts = { swim, sit, shake, speedN, lie };
+      const ft = feet[i];
+      if (ikW > 0) {
+        const rest = restSole[i];
+        const sw = stance ? 0 : (u - duty) / (1 - duty);
+        // Le pied se lève d'abord, avance, puis RECULE en se posant : un pied
+        // qui descend en suivant le tronc arrive en glissant (constaté : 5 à
+        // 13 cm au trot sous 3 cm de hauteur). Hermite : départ vif (m0), et
+        // arrivée à la vitesse de l'appui dans le repère du root (m1 < 0),
+        // c.-à-d. immobile au sol — le léger dépassement est la rétraction de
+        // fin de vol des quadrupèdes. Bornée à -2 : au galop elle poserait le
+        // pied hors de portée devant.
+        const arc = Math.sin(Math.PI * sw) ** 0.6;
+        const x = clamp((sw - 0.12) / 0.88, 0, 1);
+        const m1 = Math.max(-1.2, -0.88 * (1 - duty) / duty);
+        const ease = (3 - 2 * x) * x * x + 1.5 * (x * x * x - 2 * x * x + x) + m1 * (x * x * x - x * x);
+        const z0 = rest.z + gaitMix(leg.front ? 'leadF' : 'leadB') * stepping;
+        _nom.set(rest.x * narrow, rest.y + liftH * arc,
+          z0 + half * (stance ? 1 - 2 * u / duty : 2 * ease - 1));
+        if (stance) {
+          // Posé là où le vol a amené le pied, sur le sol.
+          if (!ft.init) footToWorld(_nom, rest.y, ft.anchor);
+          if (!ft.stance || !ft.init) {
+            ft.anchor.y = heightAt(ft.anchor.x, ft.anchor.z) + rest.y * SHIBA_BUILD.scale;
+          }
+          // Garde : l'ancre reste à ANCHOR_SLACK de sa place nominale.
+          _foot.copy(ft.anchor).applyMatrix4(_rootInv);
+          const dx = _foot.x - _nom.x, dz = _foot.z - _nom.z, dd = Math.hypot(dx, dz);
+          if (dd > ANCHOR_SLACK) {
+            _foot.set(_nom.x + dx * ANCHOR_SLACK / dd, rest.y, _nom.z + dz * ANCHOR_SLACK / dd);
+            footToWorld(_foot, rest.y, ft.anchor);
+          }
+        } else {
+          // Décollage : l'écart à la trajectoire nominale se résorbe en vol.
+          if (!ft.init) ft.off.set(0, 0, 0);
+          else if (ft.stance) {
+            // Mesuré contre le DÉBUT du vol (z0 - half), pas contre _nom,
+            // déjà avancé d'une image : au galop c'est 0.25 u de trop.
+            ft.off.copy(ft.anchor).applyMatrix4(_rootInv);
+            ft.off.set(ft.off.x - _nom.x, 0, ft.off.z - (z0 - half));
+          }
+          _foot.copy(ft.off).multiplyScalar(1 - ease).add(_nom);
+          footToWorld(_foot, rest.y, ft.anchor);
+        }
+        ft.stance = stance;
+        ft.init = true;
+        opts.reach = ft.anchor;
+        opts.ik = ikW;
+        opts.fold = foldMax * arc;
+        // Talon levé en fin d'appui, relâché au début du vol ; puis le repli :
+        // le carpe retourne la sole vers l'arrière, le métatarse pend.
+        const fb = leg.front ? 'F' : 'B';
+        const heel = stepping * (stance ? smoothstep(0.55, 1.0, u / duty) : 1 - smoothstep(0.0, 0.35, sw));
+        opts.toe = TOE_LEN[fb] * heel;
+        opts.footPitch = TOE_PITCH[fb] * heel + (leg.front ? 1.55 : -0.55) * opts.fold;
+      } else {
+        ft.init = false;
+      }
+      reachArgs[i].hip = hipF;
+      reachArgs[i].knee = kneeF;
+      reachArgs[i].opts = opts;
       if (rig.poseLeg) {
-        rig.poseLeg(leg, hipF, kneeF, { swim, sit, shake, speedN, lie });
+        rig.poseLeg(leg, hipF, kneeF, opts);
       } else {
         leg.hip.rotation.x = hipF;
         leg.knee.rotation.x = kneeF;
       }
+    }
+    // FR roule le poitrail et BR le bassin APRÈS la pose de FL et de BL :
+    // on les repose sur leurs parents définitifs.
+    if (ikW > 0) {
+      for (const i of [0, 2]) rig.poseLeg(rig.legs[i], reachArgs[i].hip, reachArgs[i].knee, reachArgs[i].opts);
+    }
 
-      // Every ground-reaction consumer keys off one coherent contact curve: the
-      // phase of the gait with the largest visual weight for this frame.
-      let contactSwing = walkSwing;
-      let contactCos = walkCos;
-      if (dominantGait === GAITS.trot) {
-        contactSwing = trotSwing;
-        contactCos = trotCos;
-      } else if (dominantGait === GAITS.gallop) {
-        contactSwing = gallopSwing;
-        contactCos = gallopCos;
-      }
+    // Every ground-reaction consumer keys off the same stance as the IK: a
+    // planted foot is a foot on the ground.
+    for (let i = 0; i < 4; i++) {
+      const leg = rig.legs[i];
       // Poussière et empreinte : quand le dessous du coussinet atteint le sol
       // (< 3 cm), réarmé au-dessus de 8 cm. Hystérésis assez large pour le
       // rebond de 1 à 2 cm des appuis, assez basse pour les foulées courtes.
@@ -747,7 +890,7 @@ export function createShiba({
         soleDown[i] = false;
       }
 
-      const down = contactSwing < 0 && contactCos > 0;
+      const down = footStance[i];
       if (down && !legPlanted[i]) {
         legPlanted[i] = true;
         // Dans l'eau la sole ne touche pas toujours le fond (nage) : les

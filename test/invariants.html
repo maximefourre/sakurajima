@@ -65,7 +65,7 @@ import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { createPetals, isPetalSand, forEachCarpetLeaf, airbornePetalAt, nearestAirbornePetal } from '../src/petals.js';
 import { trunkHits } from '../src/sakura.js';
-import { SHIBA_BUILD, SIT_POSE, buildBody } from '../src/shiba-geom.js';
+import { SHIBA_BUILD, SIT_POSE, PAW_SOLE, buildBody } from '../src/shiba-geom.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry, computeSnagSite, makeSnagGeometry } from '../src/poi.js';
@@ -1776,6 +1776,47 @@ function milieuAppuis(r) {
   check('empreintes : le chien marque la terre battue des sentes',
     terre >= 2, `${terre} empreintes de terre sur ${n} en 3 s de marche (plancher 2)`);
   dog.dispose();
+}
+
+/* ── appuis des pattes, sol plat ──────────────────────────────────────────
+ * Dessous du coussinet (PAW_SOLE, le point qui pose les empreintes), au trot
+ * (KeyW) et au galop (+ Maj), régime établi (images 120 à 360). Un APPUI est
+ * une suite d'images où il est à moins de 3 cm du sol. Trois règles :
+ *  - il ne s'enfonce pas (≥ -0.02) ;
+ *  - il ne glisse pas pendant l'appui (déplacement horizontal) ;
+ *  - une seule pose par foulée : autant d'appuis devant que derrière.
+ * Avant l'IK de pied (28/10) : -0.05 / -0.13 sous le sol, 0.24–0.65 u de
+ * glissé, deux appuis avant par foulée.
+ */
+{
+  const allures = [['trot', ['KeyW'], 0.03], ['galop', ['KeyW', 'ShiftLeft'], 0.06]];
+  for (const [nom, touches, glisseMax] of allures) {
+    const dog = createShiba({ heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    const p = new THREE.Vector3();
+    const pose = [null, null, null, null], appuis = [0, 0, 0, 0];
+    let bas = Infinity, glisse = 0, t = 0;
+    for (let i = 0; i < 360; i++) {
+      t += 1 / 60; dog.update(t, 1 / 60, null);
+      if (i < 120) continue;
+      dog.group.updateMatrixWorld(true);
+      ['FL', 'FR', 'BL', 'BR'].forEach((k, j) => {
+        dog.group.getObjectByName('paw' + k).localToWorld(p.fromArray(PAW_SOLE[k[0]]));
+        if (p.y < 0.03) {
+          bas = Math.min(bas, p.y);
+          if (!pose[j]) { pose[j] = p.clone(); appuis[j]++; }
+          glisse = Math.max(glisse, Math.hypot(p.x - pose[j].x, p.z - pose[j].z));
+        } else pose[j] = null;
+      });
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    dog.dispose();
+    const avant = appuis[0] + appuis[1], arriere = appuis[2] + appuis[3];
+    check(`pattes au ${nom} : appui sans enfoncement ni glissé, une pose par foulée`,
+      bas >= -0.02 && glisse <= glisseMax && Math.abs(avant - arriere) <= 2 && arriere >= 4,
+      `semelle min ${bas.toFixed(3)} (plancher -0.020), glissé ${glisse.toFixed(3)} `
+      + `(plafond ${glisseMax}), appuis FL FR BL BR ${appuis.join(' ')}`);
+  }
 }
 
 /* ── lot 6. shiba : aboie, se secoue, regarde ─────────────────────────────

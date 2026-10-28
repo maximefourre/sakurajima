@@ -879,7 +879,7 @@ export function buildBody() {
    *  - en phase aérienne, l'avant replie le CARPE (le pied se retourne vers
    *    l'arrière) et l'arrière plie grasset + jarret ;
    *  - assis, l'arrière se plie en Z, jarret posé, métatarse à plat au sol. */
-  let bodyPitch = 0;
+  let bodyPitch = 0, bodyRoll = 0;
   const hindHip = [0, 0];
   const frontLift = [0, 0];
   // Butée souple de l'épaule et de la hanche : identité jusqu'à 0.8 rad, puis
@@ -892,9 +892,86 @@ export function buildBody() {
     if (a <= HIP_KNEE) return x;
     return Math.sign(x) * (HIP_KNEE + (HIP_LIM - HIP_KNEE) * Math.tanh((a - HIP_KNEE) / (HIP_LIM - HIP_KNEE)));
   };
-  const poseLeg = (leg, hipIn, knee, { sit = 0, swim = 0, lie = 0 } = {}) => {
-    const hip = hipStop(hipIn);
-    const fold = Math.max(0, -knee);          // repli de phase aérienne
+  /* — IK de pied —
+   * Les angles seuls (balancier en sinus) ne posent pas un pied : il touche au
+   * fond d'un V, s'enfonce, glisse. Quand shiba.js fournit `reach` (le point
+   * MONDE où doit être le dessous du coussinet, PAW_SOLE), on résout la patte
+   * à deux os dans le plan sagittal de son parent (omoplate devant, bassin
+   * derrière), pied tenu à `footPitch` du plan du root. L'écart latéral (roulis
+   * du tronc, lacet du bassin) est rattrapé par une abduction de la hanche
+   * (rotation.z, ordre ZXY : elle s'applique APRÈS le balancier). */
+  const ang = (y, z) => Math.atan2(y, z);
+  const _ikT = new THREE.Vector3(), _ikZ = new THREE.Vector3();
+  const _ikQ = new THREE.Quaternion(), _ikR = new THREE.Quaternion();
+  const ik = { h: 0, k: 0, p: 0, g: 0 };
+  for (const l of legs) {
+    const K0 = l.knee.position, A0 = l.paw.position, S = PAW_SOLE[l.front ? 'F' : 'B'];
+    // Côté du genou : celui du repos (coude derrière, grasset devant).
+    const Dz = K0.z + A0.z, Dy = K0.y + A0.y;
+    l.bend = Math.sign(Dz * K0.y - Dy * K0.z);
+    l.chainAng = ang(Dy + S[1], Dz + S[2]);
+    l.hip.rotation.order = 'ZXY';
+  }
+  /** Angle d'épaule / de hanche (repère du tronc) qui pointe vers `target` :
+   *  sert au partage omoplate / épaule et aux glissés de pivot, AVANT la
+   *  résolution exacte. */
+  const guessHip = (leg, target) => {
+    const par = leg.hip.parent;
+    par.updateWorldMatrix(true, false);
+    _ikT.copy(target); par.worldToLocal(_ikT).sub(leg.hipRest);
+    return leg.chainAng - ang(_ikT.y, _ikT.z) + (leg.front ? leg.scap.rotation.x : 0);
+  };
+  /** `toe` : distance (u modèle) entre le dessous du coussinet et le bout des
+   *  doigts. Non nul, `target` est la sole À PLAT et le pied pivote autour des
+   *  DOIGTS (décollage : le talon se lève, la portée s'allonge). */
+  const solveLeg = (leg, target, footPitch, toe) => {
+    const par = leg.hip.parent;
+    par.updateWorldMatrix(true, false);
+    // Tangage du parent dans le repère du root : le pied est tenu à plat sur
+    // le plan du root (pente partielle), bassin fléchi au galop compris.
+    root.getWorldQuaternion(_ikR).invert().multiply(par.getWorldQuaternion(_ikQ));
+    _ikZ.set(0, 0, 1).applyQuaternion(_ikR);
+    const flat = -Math.atan2(-_ikZ.y, _ikZ.z);
+    const rel = footPitch + flat;
+    const S = PAW_SOLE[leg.front ? 'F' : 'B'];
+    const c = Math.cos(rel), s = Math.sin(rel);
+    _ikT.copy(target); par.worldToLocal(_ikT).sub(leg.hip.position);
+    if (toe) {
+      // Doigts = sole à plat + toe vers l'avant ; sole = doigts - toe tourné.
+      _ikT.y += toe * (Math.sin(rel) - Math.sin(flat));
+      _ikT.z += toe * (Math.cos(flat) - Math.cos(rel));
+    }
+    // Cible de la cheville / du jarret : la sole moins son décalage tourné.
+    const Px = _ikT.x - S[0], Py = _ikT.y - (S[1] * c - S[2] * s), Pz = _ikT.z - (S[1] * s + S[2] * c);
+    const K0 = leg.knee.position, A0 = leg.paw.position;
+    const x0 = K0.x + A0.x;
+    const yl = -Math.sqrt(Math.max(Px * Px + Py * Py - x0 * x0, 1e-6));
+    ik.g = Math.atan2(Py, Px) - Math.atan2(yl, x0);
+    const a = Math.hypot(K0.y, K0.z), b = Math.hypot(A0.y, A0.z);
+    // Hors de portée (fin d'appui, pied loin derrière) : on garde la HAUTEUR
+    // et on rapproche le pied à l'horizontale. Raccourcir le long de la
+    // droite hanche → pied le soulèverait en plein appui.
+    const R = (a + b) * 0.9995;
+    let Pzr = Pz;
+    if (Pz * Pz + yl * yl > R * R) Pzr = Math.sign(Pz) * Math.sqrt(Math.max(R * R - yl * yl, 0));
+    const d = Math.min(Math.max(Math.hypot(Pzr, yl), Math.abs(a - b) + 1e-4), R);
+    const aD = ang(yl, Pzr);
+    const aK = aD + leg.bend * Math.acos(Math.min(1, Math.max(-1, (a * a + d * d - b * b) / (2 * a * d))));
+    ik.h = ang(K0.y, K0.z) - aK;
+    const Kz = a * Math.cos(aK), Ky = a * Math.sin(aK);
+    ik.k = ang(A0.y, A0.z) - ang(d * Math.sin(aD) - Ky, d * Math.cos(aD) - Kz) - ik.h;
+    ik.p = rel - ik.h - ik.k;
+    return ik;
+  };
+
+  const poseLeg = (leg, hipIn, knee, {
+    sit = 0, swim = 0, lie = 0, reach = null, ik: ikW = 0, fold: reachFold = 0, footPitch = 0, toe = 0,
+  } = {}) => {
+    const w = reach ? ikW : 0;
+    // Sous IK, l'intention (balancier, repli) vient de la cible : le partage
+    // d'omoplate, les glissés de pivot et le roulis du poitrail la suivent.
+    const hip = w > 0 ? mix(hipStop(hipIn), guessHip(leg, reach), w) : hipStop(hipIn);
+    const fold = mix(Math.max(0, -knee), reachFold, w);    // repli de phase aérienne
     leg.hip.rotation.x = hip;
     if (leg.front) {
       // L'omoplate prend ~35 % de l'angle et l'épaule le reste : la SOMME est
@@ -923,7 +1000,8 @@ export function buildBody() {
     if (leg.front) {
       frontLift[leg.key === 'FL' ? 0 : 1] = lift;
       // Le poitrail roule vers l'épaule qui porte : c'est elle qui monte.
-      if (leg.key === 'FR') body.rotation.z += 1.6 * (frontLift[1] - frontLift[0]);
+      // Posé (pas cumulé) : l'IK repose FL après FR, sans doubler le roulis.
+      if (leg.key === 'FR') body.rotation.z = bodyRoll + 1.6 * (frontLift[1] - frontLift[0]);
     }
     if (!leg.front) {
       hindHip[leg.key === 'BL' ? 0 : 1] = hip;
@@ -947,6 +1025,14 @@ export function buildBody() {
       const sitFoot = -1.21 - (bodyPitch + hip + stifle);
       leg.paw.rotation.x = mix(walk, sitFoot, sit);
     }
+    leg.hip.rotation.z = 0;
+    if (w > 0) {
+      const s = solveLeg(leg, reach, footPitch, toe);
+      leg.hip.rotation.x = mix(leg.hip.rotation.x, s.h, w);
+      leg.hip.rotation.z = w * s.g;
+      leg.knee.rotation.x = mix(leg.knee.rotation.x, s.k, w);
+      leg.paw.rotation.x = mix(leg.paw.rotation.x, s.p, w);
+    }
   };
 
   // L'assise pivote autour des ÉPAULES, pas du milieu du tronc : un chien qui
@@ -969,6 +1055,7 @@ export function buildBody() {
     sit = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
   } = {}) => {
     bodyPitch = pitch;
+    bodyRoll = roll;
     // La torsion se partage à parts presque égales : le poitrail porte autant
     // le geste que le bassin (sinon tout le mouvement part dans l'arrière-train).
     chestYaw = -0.9 * lat + bend + 0.6 * sway;
