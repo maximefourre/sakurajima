@@ -4,10 +4,15 @@ Scène Three.js (0.185.1 vendorisé dans `vendor/three/`, importmap local,
 **aucun build**) : île japonaise procédurale, cerisiers, chemins lanternés,
 cycle jour/nuit, shiba jouable.
 
-**Chercher avant de lire** : `grep -i <mot> docs/INDEX.md docs/symbols.txt`
-donne le doc/la section ou le `fichier:ligne` exact ; ne lire que ça.
-`symbols.txt` est généré (`python3 tools/gen-symbols.py`, à relancer après
-ajout/renommage d'exports).
+**Chercher avant de lire** :
+- Code (où est un symbole, qui l'appelle, son source) : MCP
+  `codebase-memory-mcp` — `search_graph`, `trace_path`, `get_code_snippet`.
+  Index propre à chaque worktree : si `list_projects` ne liste pas le dossier
+  courant, lancer `index_repository` dessus (quelques secondes).
+- Règles, contrats, « pourquoi » : `grep -i <mot> docs/INDEX.md` donne le
+  doc/la section ; ne lire que ça.
+- Ordre de boot : `docs/cablage.txt` (généré : `python3 tools/gen-cablage.py`,
+  à relancer après modification du câblage de `main.js`).
 Avant de coder : `docs/pieges.md` (règles et pièges appris à l'usage).
 
 ## Workflow

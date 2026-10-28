@@ -1,0 +1,31 @@
+# Généré par tools/gen-cablage.py — ne pas éditer à la main.
+# Câblage main.js (ordre d'appel)
+
+src/main.js:418  createWind
+src/main.js:419  createCloudShadow
+src/main.js:420  createAudio
+src/main.js:423  createPonds
+src/main.js:429  createIsland
+src/main.js:444  initPath
+src/main.js:466  ponds.attach
+src/main.js:474  createPOI
+src/main.js:485  createCrabs
+src/main.js:493  createHerons
+src/main.js:501  createDragonflies
+src/main.js:509  createMidges
+src/main.js:518  createGulls
+src/main.js:529  createSakuraForest
+src/main.js:560  createBamboo
+src/main.js:571  createGrass
+src/main.js:610  createPetals
+src/main.js:635  createSky
+src/main.js:641  createClouds
+src/main.js:645  createBirds
+src/main.js:654  ponds.attach
+src/main.js:662  createFireflies
+src/main.js:671  createDetails
+src/main.js:725  createButterflies
+src/main.js:739  createMoths
+src/main.js:767  createParticles
+src/main.js:769  createShiba
+src/main.js:839  createTouchControls
