@@ -17,8 +17,8 @@ const QUIET_MS = 2400;
 const FADE_MS = 450;
 const QUEUE_MAX = 6;
 
-// Libellés des défis, repris du plan. totals().challenges ne porte que
-// { id, count, tier, next } ; si une entrée apporte name/kanji, elle prime.
+// Repli seulement : totals().challenges porte name/kanji/hidden (source unique
+// = CHALLENGES de quest.js) et prime. Sert aux quests factices sans libellés.
 const CHALLENGE_LABELS = {
   'heron-flush':     { name: 'Envol des aosagi',  kanji: '鷺' },
   'gull-flush':      { name: 'Goélands dispersés', kanji: '鴎' },
@@ -76,7 +76,7 @@ function describe(kind, p) {
         ? { key: 'complete:treasures', kanji: '守', gold: true, title: 'Tous les omamori', sub: 'Le shiba noue un foulard rouge', ms: TOAST_MS + 800 }
         : { key: 'complete:stamps', kanji: '満', gold: true, round: true, title: 'Carnet complet', sub: 'Tous les sceaux réunis — sceau doré', ms: TOAST_MS + 800 };
     case 'sniff':
-      return { key: 'sniff', quiet: true, title: sniffText(p.strength), ms: QUIET_MS };
+      return { key: 'sniff', quiet: true, title: p.text || sniffText(p.strength), ms: QUIET_MS };
     default:
       return null;
   }
@@ -233,7 +233,7 @@ export function createJournalUI({ quest, root = document } = {}) {
     for (const c of t.challenges || []) {
       const lab = CHALLENGE_LABELS[c.id] || {};
       const count = c.count || 0;
-      if (lab.hidden && count < 1) { secret = true; continue; }
+      if ((c.hidden ?? lab.hidden) && count < 1) { secret = true; continue; }
       const name = c.name || lab.name || c.id;
       const kanji = c.kanji || lab.kanji || '印';
       const next = TIERS.find((n) => n > count);

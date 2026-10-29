@@ -201,7 +201,7 @@ export function createQuest({ storage, sites = {}, treasureIds = [] } = {}) {
       if (count >= c.tiers[i]) tier = c.tiers[i];
       else if (next === null) next = c.tiers[i];
     }
-    return { id: c.id, count, tier, next, hidden: !!c.hidden };
+    return { id: c.id, name: c.name, kanji: c.kanji, count, tier, next, hidden: !!c.hidden };
   };
 
   return {
@@ -210,7 +210,7 @@ export function createQuest({ storage, sites = {}, treasureIds = [] } = {}) {
     /** Tampons des sites présents, avec .x .z .got (tableau stable, tenu à jour). */
     stamps() { return entries; },
 
-    /** `tier` = dernier palier atteint (0 si aucun), `next` = palier suivant ou null. */
+    /** Défis : `name`/`kanji` viennent de CHALLENGES (source unique). `tier` = dernier palier atteint (0 si aucun), `next` = palier suivant ou null. */
     totals() {
       return {
         stamps: { got: stampsGot(), total: entries.length },
