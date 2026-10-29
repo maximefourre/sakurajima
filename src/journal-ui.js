@@ -6,7 +6,7 @@
  * stamps(), totals() et on() — jamais son état interne.
  *
  * Les touches globales (J / Échap / H) sont câblées dans main.js : ici on
- * expose toggle() / close() / setHidden(). Seule exception : Échap pressé
+ * expose toggle() / close() / setHidden() et le crochet onOpenChange(open). Seule exception : Échap pressé
  * DANS le carnet le ferme et s'arrête là, sinon le reset de vue de main.js le
  * verrait en même temps.
  */
@@ -272,6 +272,7 @@ export function createJournalUI({ quest, root = document } = {}) {
     journalEl.hidden = false;
     if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
     sheet.focus({ preventScroll: true });
+    if (typeof api.onOpenChange === 'function') api.onOpenChange(true);
   }
 
   function close() {
@@ -282,6 +283,7 @@ export function createJournalUI({ quest, root = document } = {}) {
     restoreFocus = null;
     if (back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
     else if (document.activeElement && journalEl.contains(document.activeElement)) document.activeElement.blur();
+    if (typeof api.onOpenChange === 'function') api.onOpenChange(false);
   }
 
   const open = () => openInternal(true);
@@ -371,5 +373,8 @@ export function createJournalUI({ quest, root = document } = {}) {
     if (openBtn) openBtn.removeEventListener('click', onOpenBtn);
   }
 
-  return { toast, open, close, toggle, isOpen, refresh, setHidden, dispose };
+  // onOpenChange(open) : branché par main.js (suspend le chien carnet ouvert),
+  // appelé à chaque ouverture/fermeture, quelle que soit la voie (touche, bouton, voile, H).
+  const api = { toast, open, close, toggle, isOpen, refresh, setHidden, dispose, onOpenChange: null };
+  return api;
 }

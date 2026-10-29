@@ -309,6 +309,21 @@ check('dispose() : désabonné, plus aucun toast', quest.listeners() === 0 && to
   ui2.dispose();
 }
 
+// T8 : onOpenChange (main.js y branche shiba.setEnabled) — ouverture/fermeture par toutes les voies.
+{
+  const ui4 = createJournalUI({ quest, root });
+  const calls = [];
+  ui4.onOpenChange = (open) => calls.push(open);
+  ui4.open(); ui4.open();
+  ui4.close(); ui4.close();
+  $('#journal-btn').click();                       // bouton 帳
+  $('.j-close').click();                           // bouton fermer
+  ui4.open(); ui4.setHidden(true); ui4.setHidden(false);   // H masque → ferme
+  check('onOpenChange : un appel par changement réel (true,false) ×3, pas de doublon',
+    calls.join() === 'true,false,true,false,true,false', calls.join());
+  ui4.dispose();
+}
+
 // T8 : 'reset' du quest → le sceau doré vu en session et le sceau choisi sont oubliés.
 {
   const gotBefore = STAMPS.map((st) => st.got);

@@ -847,6 +847,14 @@ async function boot() {
   quest.on('stamp', () => world.audio?.handle('call'));
   quest.on('complete', ({ reward }) => { if (reward === 'bandana') world.shiba.setBandana(true); });
   if (quest.state.rewards.has('bandana')) world.shiba.setBandana(true);
+  // Carnet ouvert : le chien n'obéit plus au clavier (ZQSD, Maj).
+  world.ui.onOpenChange = (open) => world.shiba.setEnabled(!open);
+  // Reset de la progression : omamori remis en place, foulard retiré, carnet redessiné.
+  quest.on('reset', () => {
+    world.treasures.unmarkAll();
+    world.shiba.setBandana(false);
+    world.ui.refresh();
+  });
 
   // Prime the cycle once before the first frame so we never flash a black scene.
   world.sky.update(world.dayTime, 0);
@@ -1252,7 +1260,9 @@ for (const b of $('s-season').children) {
 
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
-  if (e.code === 'Space') { e.preventDefault(); world.shiba?.jump?.(); }
+  const journalOpen = !!world.ui?.isOpen();
+  // Carnet ouvert : Espace garde son rôle de bouton, le chien ne saute pas.
+  if (e.code === 'Space' && !journalOpen) { e.preventDefault(); world.shiba?.jump?.(); }
   if (e.code === 'KeyP') setPaused();
   if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
   if (e.code === 'Escape' || e.code === 'Delete') {
@@ -1263,7 +1273,7 @@ addEventListener('keydown', (e) => {
     else resetViewAndTime();
   }
   const plain = !(e.ctrlKey || e.metaKey || e.altKey);
-  if (plain && (e.key === 'r' || e.key === 'R')) sniff();
+  if (plain && !journalOpen && (e.key === 'r' || e.key === 'R')) sniff();
   if (plain && (e.key === 'j' || e.key === 'J')) world.ui?.toggle();
   if (e.key === 'h' || e.key === 'H') {
     const hidden = hud.style.opacity === '0';
