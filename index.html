@@ -362,6 +362,259 @@
     line-height: 1.8; white-space: pre-wrap; overflow: auto;
   }
 </style>
+
+<style id="journal-css">
+  /* ── carnet goshuin + toasts (src/journal-ui.js) ───────────────
+     Un carnet de sceaux : papier washi, reliure au fil indigo, sceaux
+     vermillon pressés à la main (filtre #j-ink). Le papier reste clair de
+     nuit comme de jour ; c'est le voile derrière lui qui s'assombrit. */
+  :root {
+    --vermilion: #c8372d;
+    --sumi:      #251e1b;
+    --washi:     #f0e6d1;
+    --kon:       #2b3552;
+    --kin:       #c79a3c;
+  }
+
+  /* sceau : carré par défaut, .round en cercle, deux signes → colonne */
+  .seal {
+    --s: 2.2rem;
+    display: inline-grid; place-items: center; flex: 0 0 auto;
+    width: var(--s); height: var(--s);
+    font-size: calc(var(--s) * .58); line-height: 1; font-weight: 700;
+    color: var(--washi); background: var(--vermilion);
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 calc(var(--s) * .05) var(--vermilion),
+                inset 0 0 0 calc(var(--s) * .075) rgba(240,230,209,.5);
+    filter: url(#j-ink);
+    user-select: none; -webkit-user-select: none;
+  }
+  .seal[data-n="2"] { font-size: calc(var(--s) * .38); writing-mode: vertical-rl; letter-spacing: .06em; }
+  .seal[data-n="3"], .seal[data-n="4"] { font-size: calc(var(--s) * .27); }
+  .seal.round { border-radius: 50%; }
+  .seal.gold {
+    color: #4a3410;
+    background: radial-gradient(circle at 34% 28%, #f0d58a 0%, #d6ae4e 52%, #b08428 100%);
+    box-shadow: inset 0 0 0 calc(var(--s) * .05) #b08428,
+                inset 0 0 0 calc(var(--s) * .075) rgba(255,244,205,.65);
+  }
+  @keyframes j-press {
+    0%   { opacity: 0; transform: scale(1.55) rotate(-7deg); }
+    55%  { opacity: 1; transform: scale(.93); }
+    100% { opacity: 1; transform: none; }
+  }
+
+  /* ── toasts : bas-centre, file d'attente, jamais cliquables ── */
+  #toasts {
+    position: fixed; z-index: 30;
+    left: 50%; transform: translateX(-50%);
+    bottom: clamp(5.4rem, 15vh, 9rem);
+    width: min(92vw, 24rem);
+    display: flex; flex-direction: column; align-items: center; gap: .5rem;
+    pointer-events: none;
+  }
+  #toasts[hidden] { display: none; }
+  .toast {
+    display: flex; align-items: center; gap: .8rem;
+    max-width: 100%;
+    padding: .5rem 1.15rem .5rem .55rem;
+    border: 1px solid rgba(244,236,226,.10); border-radius: 3px;
+    background: rgba(16,13,18,.62);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    color: var(--paper);
+    opacity: 0; transform: translateY(6px);
+    transition: opacity .45s ease, transform .45s ease;
+  }
+  .toast.on { opacity: 1; transform: none; }
+  .toast.on .seal { animation: j-press .5s cubic-bezier(.2,.7,.3,1) .12s both; }
+  .toast .t-body { display: grid; gap: .12rem; min-width: 0; }
+  .toast .t-title { font-size: .95rem; letter-spacing: .06em; line-height: 1.35; }
+  .toast .t-sub { font-size: .7rem; letter-spacing: .08em; opacity: .62; }
+  /* le flair : une simple phrase, sans cadre ni sceau */
+  .toast.quiet {
+    padding: .3rem .6rem; border-color: transparent; background: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    text-shadow: 0 1px 14px rgba(0,0,0,.8);
+  }
+  .toast.quiet.on { opacity: .78; }
+  .toast.quiet .t-title { font-size: .8rem; font-style: italic; letter-spacing: .14em; }
+
+  /* ── bouton 帳 dans la tête du panneau ── */
+  .j-open {
+    display: inline-grid; place-items: center;
+    width: 1.5rem; height: 1.5rem; padding: 0;
+    font-family: inherit; font-size: .82rem; line-height: 1;
+    letter-spacing: 0; text-transform: none;
+    color: var(--washi); background: var(--vermilion);
+    border: 0; border-radius: 2px; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .j-open:hover { filter: brightness(1.12); }
+  .j-open:focus-visible { outline: 2px solid var(--paper); outline-offset: 2px; }
+  :root.touch .j-open { width: 2.2rem; height: 2.2rem; font-size: 1.05rem; }
+
+  /* ── le carnet ── */
+  #journal {
+    position: fixed; inset: 0; z-index: 60;
+    display: flex; align-items: center; justify-content: center;
+    padding: max(.75rem, env(safe-area-inset-top, 0px)) max(.75rem, env(safe-area-inset-right, 0px))
+             max(.75rem, env(safe-area-inset-bottom, 0px)) max(.75rem, env(safe-area-inset-left, 0px));
+    background: rgba(10,8,12,.6);
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+    touch-action: none;
+  }
+  #journal[hidden] { display: none; }
+  #journal:not([hidden]) { animation: j-fade .3s ease both; }
+  @keyframes j-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes j-lift { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .j-sheet {
+    position: relative;
+    width: min(100%, 33rem);
+    max-height: min(100%, 52rem);
+    display: flex; flex-direction: column;
+    color: var(--sumi);
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .36  0 0 0 0 .28  0 0 0 0 .17  0 0 0 .11 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),
+      radial-gradient(ellipse at 22% 0%, rgba(255,251,238,.75), transparent 62%),
+      linear-gradient(172deg, #f4ebd8 0%, #ecdfc3 100%);
+    border-radius: 2px 5px 5px 2px;
+    box-shadow: 0 24px 64px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+    outline: none;
+  }
+  #journal:not([hidden]) .j-sheet { animation: j-lift .34s cubic-bezier(.2,.7,.3,1) both; }
+  /* reliure : bande indigo cousue au fil clair */
+  .j-sheet::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1rem;
+    border-radius: 2px 0 0 2px;
+    background:
+      linear-gradient(90deg, rgba(0,0,0,.28), transparent 45%),
+      repeating-linear-gradient(180deg, var(--kon) 0 .65rem, #36426a .65rem .72rem);
+  }
+  .j-sheet::after {
+    content: ""; position: absolute; left: .5rem; top: .7rem; bottom: .7rem;
+    border-left: 1.5px dashed rgba(240,230,209,.55);
+  }
+
+  .j-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: 1.3rem 3.6rem .5rem 2.3rem;
+  }
+  .j-head h2 { font-weight: 400; line-height: 1.2; }
+  .j-head h2 span { display: block; font-size: 1.9rem; letter-spacing: .26em; text-indent: .02em; }
+  .j-head h2 small { display: block; margin-top: .25rem; font-size: .8rem; letter-spacing: .12em; color: rgba(37,30,27,.68); }
+  .j-gold[hidden] { display: none; }
+  .j-gold { --s: 2.7rem; }
+  .j-close {
+    position: absolute; top: .45rem; right: .45rem;
+    width: 2.75rem; height: 2.75rem; padding: 0;
+    font-family: inherit; font-size: 1.15rem;
+    color: rgba(37,30,27,.62); background: none; border: 0; border-radius: 3px;
+    cursor: pointer; touch-action: manipulation;
+  }
+  .j-close:hover { color: var(--vermilion); }
+
+  .j-scroll {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    touch-action: pan-y; -webkit-overflow-scrolling: touch;
+    padding: 0 1.3rem 1.4rem 2.3rem;
+  }
+  .j-scroll h3 {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 1.2rem 0 .75rem; padding-bottom: .35rem;
+    font-size: .98rem; font-weight: 400; letter-spacing: .14em;
+    border-bottom: 1px solid rgba(37,30,27,.2);
+  }
+  .j-scroll h3 b { font-weight: 400; font-size: .85rem; letter-spacing: .08em; font-variant-numeric: tabular-nums; color: rgba(37,30,27,.72); }
+  .j-scroll ul { list-style: none; }
+
+  /* sceaux */
+  .j-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+  .j-cell button {
+    width: 100%; display: flex; flex-direction: column; align-items: center; gap: .4rem;
+    padding: .55rem .2rem .5rem;
+    font: inherit; color: inherit; background: none;
+    border: 1px solid transparent; border-radius: 3px; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .j-cell button:hover { background: rgba(37,30,27,.04); }
+  .j-cell button[aria-pressed="true"] { background: rgba(37,30,27,.05); border-color: rgba(200,55,45,.4); }
+  .j-slot {
+    --slot: clamp(3rem, 13vw, 3.7rem);
+    position: relative; display: grid; place-items: center;
+    width: var(--slot); height: var(--slot);
+  }
+  .j-slot .seal { --s: var(--slot); }
+  .j-slot .seal { rotate: -1.4deg; }
+  .j-cell:nth-child(3n+2) .j-slot .seal { rotate: 1.2deg; }
+  .j-cell:nth-child(3n) .j-slot .seal { rotate: -.5deg; }
+  .j-slot .seal.fresh { animation: j-press .55s cubic-bezier(.2,.7,.3,1) .3s both; }
+  .j-slot .ghost {
+    display: grid; place-items: center; width: 100%; height: 100%;
+    border: 1.5px dashed rgba(37,30,27,.24); border-radius: 3px;
+    font-size: calc(var(--slot) * .44); color: rgba(37,30,27,.16); line-height: 1;
+  }
+  .j-slot .ghost[data-n="2"] { writing-mode: vertical-rl; font-size: calc(var(--slot) * .3); }
+  .j-cell .nm { font-size: .74rem; letter-spacing: .05em; line-height: 1.35; text-align: center; color: rgba(37,30,27,.68); }
+  .j-cell.got .nm { color: var(--sumi); }
+
+  .j-haiku {
+    min-height: 6.2em; margin-top: .4rem; padding: .5rem .5rem 0;
+    text-align: center; font-size: .96rem; line-height: 1.8; letter-spacing: .04em;
+  }
+  .j-haiku .l { display: block; font-style: italic; }
+  .j-haiku .by { display: block; margin-top: .35rem; font-size: .72rem; letter-spacing: .1em; color: rgba(37,30,27,.66); }
+  .j-haiku .hint { display: block; font-size: .84rem; color: rgba(37,30,27,.68); }
+
+  /* omamori */
+  .j-charms { display: grid; grid-template-columns: repeat(6, 1fr); gap: .5rem .45rem; justify-items: center; }
+  @media (min-width: 30rem) { .j-charms { grid-template-columns: repeat(12, 1fr); } }
+  .j-charms li {
+    width: 100%; max-width: 2.3rem; aspect-ratio: 3 / 4;
+    display: grid; place-items: center;
+    font-size: .95rem; line-height: 1;
+    border: 1.5px dashed rgba(37,30,27,.24); border-radius: 3px 3px 8px 8px;
+    color: rgba(37,30,27,.16);
+  }
+  .j-charms li.got {
+    color: var(--washi); background: var(--vermilion); border: 0;
+    box-shadow: inset 0 .34rem 0 rgba(0,0,0,.17), inset 0 -2px 0 rgba(0,0,0,.1);
+  }
+  .j-note { margin-top: .7rem; font-size: .76rem; font-style: italic; letter-spacing: .05em; text-align: center; color: rgba(37,30,27,.68); }
+
+  /* défis */
+  .j-chal li {
+    display: grid; grid-template-columns: 2.2rem 1fr auto; align-items: center; gap: .75rem;
+    padding: .55rem 0; border-bottom: 1px dotted rgba(37,30,27,.2);
+  }
+  .j-chal li:last-child { border-bottom: 0; }
+  .j-chal .seal { --s: 2.2rem; }
+  .j-chal .seal.ghost { background: none; box-shadow: none; filter: none; color: rgba(37,30,27,.2); border: 1.5px dashed rgba(37,30,27,.24); font-weight: 400; }
+  .j-chal .nm { display: block; font-size: .94rem; letter-spacing: .05em; }
+  .j-chal .sub { display: block; margin-top: .12rem; font-size: .74rem; letter-spacing: .04em; color: rgba(37,30,27,.68); }
+  .j-chal li.secret .nm { color: rgba(37,30,27,.68); font-style: italic; }
+  .j-pips { display: inline-flex; gap: .3rem; }
+  .j-pips i { width: .6rem; height: .6rem; border-radius: 50%; border: 1.5px solid var(--vermilion); }
+  .j-pips i.on { background: var(--vermilion); }
+
+  .j-sheet :focus-visible { outline: 2px solid var(--vermilion); outline-offset: 2px; }
+
+  @media (max-width: 30rem) {
+    .j-head { padding: 1.1rem 3.2rem .4rem 1.9rem; }
+    .j-head h2 span { font-size: 1.6rem; }
+    .j-scroll { padding: 0 1rem 1.2rem 1.9rem; }
+    .j-sheet::before { width: .8rem; }
+    .j-sheet::after { left: .4rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #journal:not([hidden]), #journal:not([hidden]) .j-sheet,
+    .toast.on .seal, .j-slot .seal.fresh { animation: none; }
+    .toast { transition: opacity .2s linear; transform: none; }
+  }
+</style>
 </head>
 <body>
 
@@ -388,7 +641,7 @@
 </div>
 
 <div id="panel" class="folded">
-  <div class="head" id="panel-head"><span>réglages</span><span class="chev">▾</span></div>
+  <div class="head" id="panel-head"><span>réglages</span><button type="button" class="j-open" id="journal-btn" aria-label="Ouvrir le carnet de sceaux" aria-haspopup="dialog" aria-expanded="false" title="Carnet de sceaux (J)">帳</button><span class="chev">▾</span></div>
 
   <div class="panel-body">
     <div class="row">
@@ -452,6 +705,41 @@
   <div id="touch-hint">joystick : promener le shiba</div>
 </div>
 
+<!-- carnet goshuin + toasts : peuplés par src/journal-ui.js -->
+<svg id="j-defs" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <filter id="j-ink" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency=".07" numOctaves="2" seed="7" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+
+<div id="toasts" role="status" aria-live="polite" hidden></div>
+
+<div id="journal" hidden>
+  <section class="j-sheet" role="dialog" aria-modal="true" aria-labelledby="j-title" tabindex="-1">
+    <header class="j-head">
+      <h2 id="j-title"><span lang="ja">御朱印帳</span><small>carnet de sceaux</small></h2>
+      <span class="seal round gold j-gold" data-n="1" role="img" aria-label="Sceau doré : tous les sceaux sont réunis" hidden>満</span>
+    </header>
+    <button type="button" class="j-close" aria-label="Fermer le carnet" title="Fermer (J ou Échap)">閉</button>
+    <div class="j-scroll">
+      <section aria-labelledby="j-h-stamps">
+        <h3 id="j-h-stamps"><span>Sceaux</span><b id="j-n-stamps"></b></h3>
+        <ul id="j-stamps" class="j-grid"></ul>
+        <p id="j-haiku" class="j-haiku" aria-live="polite"></p>
+      </section>
+      <section id="j-sec-charms" aria-labelledby="j-h-charms">
+        <h3 id="j-h-charms"><span>Omamori</span><b id="j-n-charms"></b></h3>
+        <ul id="j-charms" class="j-charms"></ul>
+        <p id="j-note" class="j-note"></p>
+      </section>
+      <section aria-labelledby="j-h-chal">
+        <h3 id="j-h-chal"><span>Défis</span></h3>
+        <ul id="j-challenges" class="j-chal"></ul>
+      </section>
+    </div>
+  </section>
+</div>
 
 <div id="fatal"></div>
 
