@@ -1071,12 +1071,13 @@ export function buildBody() {
   // Les INTENTIONS viennent d'animate() (qui connaît les phases) ; ici on les
   // répartit sur les os.
   const pelvisRest = pelvis.position.clone();
-  let chestYaw = 0, pelvisYaw = 0;
+  let chestYaw = 0, pelvisYaw = 0, bodySwim = 0;
   const poseBody = (y, pitch, roll, {
-    sit = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
+    sit = 0, swim = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
   } = {}) => {
     bodyPitch = pitch;
     bodyRoll = roll;
+    bodySwim = swim;
     // La torsion se partage à parts presque égales : le poitrail porte autant
     // le geste que le bassin (sinon tout le mouvement part dans l'arrière-train).
     chestYaw = -0.9 * lat + bend + 0.6 * sway;
@@ -1114,7 +1115,12 @@ export function buildBody() {
     const comp = mix(0.5, 0.85, clamp01(p.rest ?? 0));
     neck.rotation.x = lissCou - 0.5 * comp * bodyPitch;
     // Balancier vertical de la tête, porté par la base du cou.
-    neck.position.set(neckRest.x, neckRest.y + (p.bob ?? 0), neckRest.z);
+    // Le tangage du tronc (±0.13 au galop) fait battre la tête de ±5 cm autour
+    // du garrot : le cou paraissait s'allonger et se raccourcir à chaque foulée,
+    // alors qu'un chien qui court garde la tête à peu près en place. On rend
+    // 0.24 rad⁻¹ de ce mouvement à la base du cou ; seulement en locomotion.
+    const tasse = 0.24 * Math.max(-0.16, Math.min(0.08, bodyPitch)) * (1 - clamp01(p.rest ?? 0)) * (1 - bodySwim);
+    neck.position.set(neckRest.x, neckRest.y + (p.bob ?? 0) + tasse, neckRest.z);
     // Le cou contre-tourne une PARTIE de la torsion du poitrail : la tête
     // suit les épaules sans que le regard ne quitte l'axe de la marche.
     neck.rotation.y = -0.40 * chestYaw;

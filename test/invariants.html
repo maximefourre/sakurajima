@@ -1838,6 +1838,7 @@ function mesurerProportions(root, mesh) {
     H,
     longueur: (poitrail - croupe) / H,
     cou: lCou / H,
+    angTete: Math.atan2(nez.y - occ.y, nez.z - occ.z) * 180 / Math.PI,
     coupEpais: (pMax - pMin) / lCou,
     gorge: dYZ(gorge, sternum) / H,
     tete: dYZ(occ, nez) / H,
@@ -1883,6 +1884,62 @@ function mesurerProportions(root, mesh) {
     detail = bornes.map(([k, x, lo, hi]) => `${k} ${x.toFixed(2)}${dansF(x, lo, hi) ? '' : ` ✗[${lo};${hi}]`}`).join(', ');
   }
   check('proportions shiba : cou court et épais, membres presque droits, mesurées sur la peau', ok, detail);
+}
+
+/* ── port de tête en mouvement ────────────────────────────────────────────
+ * « Le cou paraît long » en jeu alors que le banc de repos (« proportions
+ * shiba », chien à l'arrêt, tête neutre) mesure cou 0.29 : ce banc ne voit pas
+ * ce que l'œil voit, un chien qui court ou qui lève le nez. Mêmes mesures sur
+ * la peau, mais sur le chien VIVANT : au galop (le hochement et le pompage du
+ * cou) et debout à regarder un pétale (look + lookUp).
+ * D'OÙ VIENNENT LES BORNES (Wikimedia Commons, shibas adultes, mesures à la
+ * main, mêmes définitions que le banc ci-dessus, ±0.03) :
+ *  - cou garrot→occiput / H ≤ 0.34 : photos de profil debout 0.27–0.35
+ *    (File:Cream_shiba_inu_dllu.jpg, File:Shiba_Inu_red.jpg, File:1Shiba_Inu_Kazumi.jpg) ;
+ *    en course la tête se TASSE sur les épaules, elle ne s'allonge pas
+ *    (File:2020-09-22_Shiba_Inu_running.jpg : occiput presque à l'aplomb du garrot) ;
+ *  - crâne haut / H ≤ 0.30 au-dessus du garrot : photos 1.23–1.29 H ;
+ *  - angle occiput→truffe ≤ −2° : la tête la plus levée de toutes les photos est
+ *    celle de Kazumi (−2°, truffe pointée vers l'avant et légèrement vers le
+ *    haut) ; au repos −18 à −31° (Shiba_Inu_red, 2021-03-19 DSC05361 en marche).
+ * Mesuré avant correction : cou 0.36 et crâne +0.33 au galop, −1.4° au regard.
+ */
+{
+  const tenir = (touches, regarde) => {
+    const dog = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    let t = 0;
+    const pire = { cou: 0, crane: 0, ang: -90 };
+    let mesh = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    for (let i = 0; i < (regarde ? 1500 : 480); i++) {
+      t += 1 / 60;
+      if (regarde) {
+        // un pétale à 1.5–3 m, à 0.9–3 m de haut, renouvelé toutes les 3 s
+        const k = Math.floor(t / 3), a = dog.heading + 0.6 * Math.sin(k * 1.7);
+        dog.setLookTargets([{ x: dog.position.x + Math.sin(a) * (1.5 + (k % 3) * 0.8), y: dog.position.y + 0.9 + ((k * 0.37) % 1) * 2.1, z: dog.position.z + Math.cos(a) * (1.5 + (k % 3) * 0.8), kind: 'petal', id: k }]);
+        dog.state.idleTime = 0;
+      }
+      dog.update(t, 1 / 60, null);
+      if (i < 150 || i % 3) continue;
+      dog.group.updateMatrixWorld(true);
+      const m = mesurerProportions(mesh.parent.name === 'shiba' ? mesh.parent : dog.group.children[0], mesh);
+      // Rapportés au garrot NOMINAL, pas à celui de l'instant : le tronc s'abaisse
+      // en foulée, et diviser par un garrot plus bas gonflerait le ratio.
+      pire.cou = Math.max(pire.cou, m.cou * m.H / SHIBA_BUILD.withers);
+      pire.crane = Math.max(pire.crane, (m.crane - 1) * m.H / SHIBA_BUILD.withers);
+      pire.ang = Math.max(pire.ang, m.angTete);
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    dog.dispose();
+    return pire;
+  };
+  const galop = tenir(['KeyW', 'ShiftLeft'], false), regard = tenir([], true);
+  const ok = galop.cou <= 0.34 && galop.crane <= 0.30 && regard.ang <= -2 && regard.cou <= 0.34;
+  check('port de tête : le cou ne s’allonge pas au galop ni quand il lève le nez',
+    ok,
+    `galop : cou ${galop.cou.toFixed(2)} (≤ 0.34), crâne +${galop.crane.toFixed(2)} (≤ 0.30) ; `
+    + `regard d’un pétale : angle ${regard.ang.toFixed(1)}° (≤ −2), cou ${regard.cou.toFixed(2)} (≤ 0.34)`);
 }
 
 /* ── empreintes sur la terre battue ───────────────────────────────────────

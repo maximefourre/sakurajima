@@ -668,7 +668,7 @@ export function createShiba({
     const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob * mix(1, 0.4, ikW) - crouch;
     const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
     const locomotionPitch = -0.05 * speedN
-      + Math.sin(state.gait) * 0.09 * gallopW
+      + Math.sin(state.gait) * 0.05 * gallopW
       + (state.airborne ? state.vy * 0.025 : 0);
     const shakeS = clamp(state.shakeElapsed / SHAKE_DURATION, 0, 1);
     const shakeEnvelope = Math.sin(Math.PI * shakeS);
@@ -977,7 +977,7 @@ export function createShiba({
     // lookUp : il lève le nez vers ce qui passe. Debout, franchement ; assis
     // ou couché, à peine — 0.62 rad sur un tronc déjà basculé le faisait
     // fixer le ciel (retour utilisateur).
-    let headPitch = mix(-0.06 * speedN - lookUp * 0.38, -0.24, swim);
+    let headPitch = mix(-0.06 * speedN - lookUp * 0.30, -0.24, swim);
     headPitch = mix(headPitch, 0.02 - lookUp * 0.16, sit);
     headPitch = mix(headPitch, 0.10 - lookUp * 0.10, lie);
     headYaw = mix(headYaw, lookHeadYaw, state.look);
@@ -996,7 +996,7 @@ export function createShiba({
     const nodFree = (1 - swim) * (1 - sit) * (1 - shake);
     const nod = (walkW * 0.05 * Math.sin(state.gait * 2 + 1.2)
       + trotW * 0.035 * Math.sin(state.gait * 2 + 0.9)) * moving
-      + gallopW * speedN * 0.16 * Math.sin(state.gait + 0.6);
+      + gallopW * speedN * 0.09 * Math.sin(state.gait + 0.6);
     neckPitch += nod * 0.6 * nodFree;
     headPitch += nod * 0.4 * nodFree;
     headYaw += walkW * moving * 0.07 * Math.sin(state.gait + 0.4) * nodFree;
@@ -1004,7 +1004,7 @@ export function createShiba({
     // quart de temps sur le rebond du corps : c'est ce petit flottement qui
     // fait lire une tête portée par un cou, et pas vissée au poitrail.
     const bob = ((walkW * 0.016 + trotW * 0.012) * moving * Math.sin(state.gait * 2 + 2.2)
-      + gallopW * speedN * 0.032 * Math.sin(state.gait + 1.4)) * nodFree;
+      + gallopW * speedN * 0.018 * Math.sin(state.gait + 1.4)) * nodFree;
     const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
     const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;
     headPitch += barkEnv * 0.22;
@@ -1391,7 +1391,7 @@ export function createShiba({
       const dy = (Number.isFinite(lookAim.y) ? lookAim.y : position.y + 1)
         - (position.y + 0.85);
       const horiz = Math.hypot(lookAim.x - position.x, lookAim.z - position.z) || 1;
-      pitchWant = clamp(-Math.atan2(dy, horiz), -0.55, 0.35);
+      pitchWant = clamp(-Math.atan2(dy, horiz), -0.30, 0.35);
     }
     const kLook = dt > 0 ? 1 - Math.exp(-dt / SHIBA.lookYawTau) : 1;
     lookHeadYaw += (yawWant - lookHeadYaw) * kLook;
