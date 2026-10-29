@@ -82,20 +82,27 @@ const STAMPS = [
   ['chashitsu', '茶室', 'Salon de thé',           ['Un bol de matcha', 'la vapeur dit le silence', 'l’heure s’est tue']],
   ['snag',      '枯木', 'Vieil arbre mort',       ['Branches sans feuilles', 'les oiseaux n’ont pas oublié', 'il est encore là']],
 ].map(([id, kanji, name, haiku], i) => ({ id, kanji, name, haiku, x: i * 10, z: -i * 7, got: i === 0 || i === 2 || i === 4 || i === 6 }));
-const CHAL = [
-  { id: 'heron-flush', count: 7 }, { id: 'gull-flush', count: 1 }, { id: 'crab-flee', count: 0 },
-  { id: 'bird-flush', count: 15 }, { id: 'butterfly-chase', count: 0 }, { id: 'bark', count: 0 },
-].map(c => ({ ...c, tier: 0, next: 1 }));
+// Comme totals() de quest.js : name/kanji/hidden/tiers + tier (dernier palier atteint) et next.
+const mkChal = (tiers, rows) => rows.map(([id, name, kanji, count, hidden]) => {
+  let tier = 0, next = null;
+  for (const t of tiers) { if (count >= t) tier = t; else if (next === null) next = t; }
+  return { id, name, kanji, count, tier, next, tiers, hidden: !!hidden };
+});
+const CHAL = mkChal([1, 5, 15], [
+  ['heron-flush', 'Envol des aosagi', '鷺', 7], ['gull-flush', 'Goélands dispersés', '鴎', 1],
+  ['crab-flee', 'Crabes en fuite', '蟹', 0], ['bird-flush', 'Moineaux effarouchés', '雀', 15],
+  ['butterfly-chase', 'Chasse aux chō', '蝶', 0], ['bark', 'Ouaf !', '吠', 0, true],
+]);
 const TREASURES = { got: 3, total: 12 };
 
-function fakeQuest() {
+function fakeQuest(chal = CHAL) {
   const subs = new Map();
   return {
     stamps: () => STAMPS,
     totals: () => ({
       stamps: { got: STAMPS.filter(s => s.got).length, total: STAMPS.length },
       treasures: { ...TREASURES },
-      challenges: CHAL,
+      challenges: chal,
     }),
     on(evt, fn) {
       if (!subs.has(evt)) subs.set(evt, new Set());
@@ -144,7 +151,7 @@ bar.appendChild(hideLabel);
 /* ── invariants ──────────────────────────────────────────────── */
 check('API complète',
   ['toast', 'open', 'close', 'toggle', 'isOpen', 'refresh', 'setHidden', 'dispose'].every(k => typeof ui[k] === 'function'));
-check('abonné aux 4 événements du quest', quest.listeners() === 4, `${quest.listeners()}`);
+check('abonné aux 5 événements du quest (stamp, treasure, challenge-tier, complete, reset)', quest.listeners() === 5, `${quest.listeners()}`);
 
 ui.refresh();
 check('carnet : 9 cases de sceaux', $$('#j-stamps .j-cell').length === 9, `${$$('#j-stamps .j-cell').length}`);
@@ -280,6 +287,44 @@ ui.setHidden(true); ui.setHidden(false);
 ui.dispose();
 quest.emit('stamp', { id: 'z', kanji: '印', name: 'Z' });
 check('dispose() : désabonné, plus aucun toast', quest.listeners() === 0 && toasts().length === 0);
+
+// T8 : paliers = ceux de totals() (ici [1,3,10]), pas une copie locale de [1,5,15].
+{
+  const q2 = fakeQuest(mkChal([1, 3, 10], [
+    ['heron-flush', 'Envol test', '鷺', 2], ['gull-flush', 'Goélands test', '鴎', 3],
+    ['crab-flee', 'Crabes test', '蟹', 10], ['bark', 'Ouaf !', '吠', 0, true],
+  ]));
+  const ui2 = createJournalUI({ quest: q2, root });
+  ui2.refresh();
+  const rows = $$('#j-challenges li');
+  const sub = (i) => rows[i].querySelector('.sub').textContent;
+  check('paliers [1,3,10] : 2 → « encore 1 avant le palier des 3 »', sub(0).includes('encore 1 avant le palier des 3'), sub(0));
+  check('paliers [1,3,10] : 3 → « encore 7 avant le palier des 10 »', sub(1).includes('encore 7 avant le palier des 10'), sub(1));
+  check('paliers [1,3,10] : 10 → tous atteints', sub(2).includes('tous les paliers'), sub(2));
+  check('paliers [1,3,10] : pips 1/3, 2/3, 3/3',
+    [0, 1, 2].map((i) => rows[i].querySelectorAll('.j-pips i.on').length).join() === '1,2,3'
+    && rows[0].querySelectorAll('.j-pips i').length === 3);
+  check('noms et kanji viennent de totals()', rows[0].textContent.includes('Envol test') && rows[0].querySelector('.seal').textContent === '鷺');
+  check('défi caché (hidden de totals) : masqué à 0', rows.length === 4 && !!rows[3].classList.contains('secret'), `${rows.length} lignes`);
+  ui2.dispose();
+}
+
+// T8 : 'reset' du quest → le sceau doré vu en session et le sceau choisi sont oubliés.
+{
+  const gotBefore = STAMPS.map((st) => st.got);
+  STAMPS.forEach((st) => { st.got = false; });
+  const ui3 = createJournalUI({ quest, root });
+  quest.emit('complete', { kind: 'stamps', reward: 'gold-seal' });
+  ui3.open();
+  const goldBefore = $('.j-gold').hidden;
+  quest.emit('reset');
+  check('reset : sceau doré retiré, compteur 0 / 9, abonnement présent',
+    goldBefore === false && $('.j-gold').hidden === true && $('#j-n-stamps').textContent === '0 / 9',
+    `gold.hidden ${goldBefore}→${$('.j-gold').hidden}, ${$('#j-n-stamps').textContent}`);
+  ui3.dispose();
+  STAMPS.forEach((st, i) => { st.got = gotBefore[i]; });
+  check('dispose() : \'reset\' aussi désabonné', quest.listeners() === 0);
+}
 
 /* ── état final pour les captures / la démo ─────────────────── */
 STAMPS[1].got = false;

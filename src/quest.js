@@ -7,7 +7,7 @@
  * Contrat (le câblage est dans main.js) :
  *   createQuest({ storage, sites, treasureIds }) →
  *     { state, stamps(), totals(), on(evt, fn), report(evt, data), update(x, z), reset() }
- *   événements : 'stamp' | 'treasure' | 'challenge-tier' | 'complete'
+ *   événements : 'stamp' | 'treasure' | 'challenge-tier' | 'complete' | 'reset'
  */
 
 export const STORAGE_KEY = 'sakurajima.quest.v1';
@@ -70,7 +70,7 @@ export const CHALLENGES = [
 const REWARD_STAMPS = 'gold-seal';
 const REWARD_TREASURES = 'bandana';
 const REWARDS = [REWARD_STAMPS, REWARD_TREASURES];
-const EVENTS = ['stamp', 'treasure', 'challenge-tier', 'complete'];
+const EVENTS = ['stamp', 'treasure', 'challenge-tier', 'complete', 'reset'];
 
 const STAMP_BY_ID = new Map(STAMPS.map(s => [s.id, s]));
 const CHALLENGE_BY_ID = new Map(CHALLENGES.map(c => [c.id, c]));
@@ -193,6 +193,10 @@ export function createQuest({ storage, sites = {}, treasureIds = [] } = {}) {
 
   load();
   syncGot();
+  /* Une sauvegarde déjà complète mais sans récompense (écrite avant le câblage,
+   * ou récompense perdue) la reçoit au chargement. Aucun écouteur encore : pas de toast. */
+  checkComplete('stamps');
+  checkComplete('treasures');
 
   const challengeRow = (c) => {
     const count = state.counts[c.id];
@@ -201,7 +205,7 @@ export function createQuest({ storage, sites = {}, treasureIds = [] } = {}) {
       if (count >= c.tiers[i]) tier = c.tiers[i];
       else if (next === null) next = c.tiers[i];
     }
-    return { id: c.id, name: c.name, kanji: c.kanji, count, tier, next, hidden: !!c.hidden };
+    return { id: c.id, name: c.name, kanji: c.kanji, count, tier, next, tiers: c.tiers, hidden: !!c.hidden };
   };
 
   return {
@@ -210,7 +214,7 @@ export function createQuest({ storage, sites = {}, treasureIds = [] } = {}) {
     /** Tampons des sites présents, avec .x .z .got (tableau stable, tenu à jour). */
     stamps() { return entries; },
 
-    /** Défis : `name`/`kanji` viennent de CHALLENGES (source unique). `tier` = dernier palier atteint (0 si aucun), `next` = palier suivant ou null. */
+    /** Défis : `name`/`kanji` viennent de CHALLENGES (source unique). `tier` = dernier palier atteint (0 si aucun), `next` = palier suivant ou null, `tiers` = tous les paliers (partagé, ne pas modifier). */
     totals() {
       return {
         stamps: { got: stampsGot(), total: entries.length },
@@ -270,8 +274,10 @@ export function createQuest({ storage, sites = {}, treasureIds = [] } = {}) {
       state.rewards.clear();
       for (let i = 0; i < CHALLENGES.length; i++) state.counts[CHALLENGES[i].id] = 0;
       syncGot();
-      if (!storage) return;
-      try { storage.removeItem(STORAGE_KEY); } catch { /* idem */ }
+      if (storage) {
+        try { storage.removeItem(STORAGE_KEY); } catch { /* idem */ }
+      }
+      emit('reset');
     },
   };
 }
