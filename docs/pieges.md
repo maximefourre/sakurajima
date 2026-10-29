@@ -44,3 +44,8 @@ Appris à l'usage. Le détail du pourquoi : `architecture.md`, `perf.md`.
     Rallonger `sweep` le fait décoller du sol en fin d'appui (invariant « pattes
     au trot / au galop »). Pour RALENTIR la cadence, baisser `duty` (plus de
     suspension, la foulée s'allonge en l'air) : sweep .85 au trot = glissé 0.16.
+    Allures naturelles (29/10) : le trot lent a son propre `dutySlow` / `sweepSlow`
+    (interpolés par la vitesse) et la porte pas → trot s'ouvre à speedN .07–.13 :
+    la cadence reste ≈ 2 Hz de 2 u/s à la course (avant : 5.6 Hz à 4 u/s). `crouch`
+    trot 0.035 : en dessous le glissé dépasse 0.03 ; au pas, `sweep` > 0.42 enfonce
+    les antérieurs (-0.02).

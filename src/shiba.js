@@ -22,8 +22,8 @@ import { TAU, UP, SHIBA_BUILD, SIT_POSE, PAW_SOLE, buildBody } from './shiba-geo
 export const SHIBA = {
   walkSpeed: 6.4,
   runSpeed: 14.8,
-  accel: 14.0,
-  brake: 18.0,
+  accel: 11.0,
+  brake: 11.0,
   turnRate: 7.0,          // rad/s the body swings toward its heading
   /** Above this terrain slope he refuses to climb — cliffs are not for dogs. */
   maxSlope: 0.72,
@@ -71,7 +71,7 @@ const GAITS = {
     amp: 0.62,
     knee: 1.35,
     bob: 1.0,
-    duty: 0.17, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.06, leadF: 0.03, leadB: 0,
+    duty: 0.17, dutySlow: 0.45, sweepSlow: 0.44, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.035, leadF: 0.03, leadB: 0,
   },
   gallop: {
     ph: [0, 0.35, Math.PI, Math.PI + 0.35],
@@ -622,18 +622,24 @@ export function createShiba({
     const shake = state.shake;
     // The transition bands do not overlap. Defining trot as the remainder makes
     // the three scalar weights sum to exactly one, including at the endpoints.
-    const trotGate = smoothstep(0.26, 0.42, speedN);
+    const trotGate = smoothstep(0.07, 0.13, speedN);
     const gallopGate = smoothstep(0.64, 0.80, speedN);
     const walkW = 1 - trotGate;
     const gallopW = gallopGate;
     const trotW = 1 - walkW - gallopW;
+    // Le trot lent s'appuie plus longtemps (un trot à 17 % d'appui n'existe qu'à
+    // pleine vitesse) : la cadence reste ≈ 2 Hz de 2 u/s à la course.
+    const trotRamp = smoothstep(0.08, 0.40, speedN);
+    const trotDuty = mix(GAITS.trot.dutySlow, GAITS.trot.duty, trotRamp);
+    const trotSweep = mix(GAITS.trot.sweepSlow, GAITS.trot.sweep, trotRamp);
     const gaitMix = (k) => walkW * GAITS.walk[k] + trotW * GAITS.trot[k] + gallopW * GAITS.gallop[k];
 
     // Cadence : vitesse × duty / sweep, pour que le pied posé ne glisse pas.
     // Avant (28/10) une cadence fixée par speedN donnait 0.9 foulée/s à
     // 6.4 u/s : 3.5 u parcourus pendant un appui, par une patte de 0.85 u.
-    const duty = gaitMix('duty');
-    const cadence = Math.max(CADENCE_MIN, state.speed * duty / gaitMix('sweep'));
+    const sweep = walkW * GAITS.walk.sweep + trotW * trotSweep + gallopW * GAITS.gallop.sweep;
+    const duty = walkW * GAITS.walk.duty + trotW * trotDuty + gallopW * GAITS.gallop.duty;
+    const cadence = Math.max(CADENCE_MIN, state.speed * duty / sweep);
     // One integrated land phase feeds every gait output. In particular, never
     // turn this into sin(t * rate): a changing rate would inject t * dRate/dt.
     if (shake <= 0) state.gait += dt * TAU * cadence;
@@ -656,7 +662,7 @@ export function createShiba({
     // Pieds posés, le tronc s'abaisse un peu en mouvement et rebondit moins :
     // l'antérieur est presque tendu au repos, sans cette marge il ne couvre
     // pas la fin de l'appui (le pied quittait le sol à mi-poussée).
-    const crouch = gaitMix('crouch') * smoothstep(0.0, 0.3, speedN) * ikW;
+    const crouch = gaitMix('crouch') * smoothstep(0.0, 0.1, speedN) * ikW;
     const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob * mix(1, 0.4, ikW) - crouch;
     const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
     const locomotionPitch = -0.05 * speedN
@@ -698,7 +704,7 @@ export function createShiba({
       + trotW * 0.04 * Math.sin(state.gait + GAITS.trot.ph[2])) * moving * free;
     // Sagittal biphasique (deux fois par foulée) et rebond du bassin, plus
     // marqué que celui du poitrail.
-    const sag = 0.035 * (walkW + trotW) * moving * Math.sin(state.gait * 2 + 0.9) * free;
+    const sag = 0.014 * (walkW + trotW) * moving * Math.sin(state.gait * 2 + 0.9) * free;
     const bounce = 0.010 * (walkW + trotW) * speedN * Math.sin(state.gait * 2 + 0.6) * free;
     // Dos arqué dans le virage : la vitesse de lacet, lissée.
     let dHead = state.heading - lastHeading;
@@ -968,8 +974,8 @@ export function createShiba({
     // foulée au pas et au trot, une fois (et fort) au galop, où le cou pompe
     // avec l'avant-main. Au pas, elle balaie aussi un peu de côté.
     const nodFree = (1 - swim) * (1 - sit) * (1 - shake);
-    const nod = (walkW * 0.085 * Math.sin(state.gait * 2 + 1.2)
-      + trotW * 0.075 * Math.sin(state.gait * 2 + 0.9)) * moving
+    const nod = (walkW * 0.05 * Math.sin(state.gait * 2 + 1.2)
+      + trotW * 0.035 * Math.sin(state.gait * 2 + 0.9)) * moving
       + gallopW * speedN * 0.16 * Math.sin(state.gait + 0.6);
     neckPitch += nod * 0.6 * nodFree;
     headPitch += nod * 0.4 * nodFree;
@@ -977,7 +983,7 @@ export function createShiba({
     // Balancier VERTICAL de la tête (unités de construction), en retard d'un
     // quart de temps sur le rebond du corps : c'est ce petit flottement qui
     // fait lire une tête portée par un cou, et pas vissée au poitrail.
-    const bob = ((walkW * 0.016 + trotW * 0.022) * moving * Math.sin(state.gait * 2 + 2.2)
+    const bob = ((walkW * 0.016 + trotW * 0.012) * moving * Math.sin(state.gait * 2 + 2.2)
       + gallopW * speedN * 0.032 * Math.sin(state.gait + 1.4)) * nodFree;
     const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
     const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;

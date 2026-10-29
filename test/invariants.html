@@ -1947,6 +1947,83 @@ function mesurerProportions(root, mesh) {
   }
 }
 
+/* ── allure shiba : trot diagonal, pas latéral, dos stable ─────────────────
+ * Sol plat, régime établi (images 150 à 480). Étalon : chiens réels (trot =
+ * diagonales synchrones à ±8 % de période, pas = séquence latérale à 4 temps
+ * BL FL BR FR espacés d'un quart ; ≈ 2 foulées/s au trot, 1.94–2.12 chez le
+ * Weimaraner, Carlisle 2019) ; le tronc ne tangue presque pas (≤ 3°) et la tête
+ * bouge peu (≤ 2.5°). Mesuré AVANT (28/10) : tangage du bassin 4.1°, tête 3.1°,
+ * creux d'appui 9 %, trot lent à 3.8 foulées/s à 2.6 u/s. Voir le rapport T2.
+ */
+{
+  const names = ['FL', 'FR', 'BL', 'BR'];
+  const mesure = (touches, vitesse) => {
+    const dog = createShiba({ heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    const G = dog.group, p = new THREE.Vector3(), d = new THREE.Vector3();
+    const get = (n) => G.getObjectByName(n);
+    const pitch = (o) => { d.set(0, 0, 1).transformDirection(o.matrixWorld); return Math.asin(d.y) * 180 / Math.PI; };
+    const on = [false, false, false, false], hits = [[], [], [], []];
+    const S = { y: [], pel: [], hp: [], hy: [] };
+    let t = 0, y0 = 0;
+    for (let i = 0; i < 480; i++) {
+      t += 1 / 60;
+      if (vitesse != null) dog.state.speed = vitesse;
+      dog.update(t, 1 / 60, null);
+      if (i === 1) { G.updateMatrixWorld(true); y0 = get('body').getWorldPosition(p).y; }
+      if (i < 150) continue;
+      G.updateMatrixWorld(true);
+      names.forEach((k, j) => {
+        get('paw' + k).localToWorld(p.fromArray(PAW_SOLE[k[0]]));
+        const down = p.y < 0.03;
+        if (down && !on[j]) hits[j].push(t);
+        on[j] = down;
+      });
+      S.y.push(get('body').getWorldPosition(p).y);
+      S.pel.push(pitch(get('pelvis'))); S.hp.push(pitch(get('head')));
+      S.hy.push(get('head').getWorldPosition(p).y);
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    dog.dispose();
+    const pk = (a) => Math.max(...a) - Math.min(...a);
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const hz = mean(hits.map((h) => (h.length - 1) / (h[h.length - 1] - h[0])));
+    const T = 1 / hz;
+    const circ = (a) => {
+      let sx = 0, sy = 0;
+      a.forEach((v) => { sx += Math.cos(v * 2 * Math.PI); sy += Math.sin(v * 2 * Math.PI); });
+      return ((Math.atan2(sy, sx) / (2 * Math.PI)) % 1 + 1) % 1;
+    };
+    const ph = hits.map((h) => circ(h.map((x) => (((x - hits[2][0]) / T) % 1 + 1) % 1)));
+    const dist = (a, b) => { const x = Math.abs(a - b) % 1; return Math.min(x, 1 - x); };
+    const sc = SHIBA_BUILD.scale;
+    return {
+      hz, ph, diag: Math.max(dist(ph[0], ph[3]), dist(ph[1], ph[2])),
+      pitch: pk(S.pel), head: pk(S.hp), headY: pk(S.hy) / sc,
+      wPct: 100 * pk(S.y) / sc / SHIBA_BUILD.withers,
+      drop: 100 * (y0 - mean(S.y)) / y0,
+    };
+  };
+  const trot = mesure(['KeyW'], null);
+  check('allure shiba : trot en diagonales synchrones, dos et tête stables',
+    trot.diag <= 0.08 && trot.pitch <= 3 && trot.head <= 2.5 && trot.headY <= 0.03
+    && trot.wPct >= 1 && trot.wPct <= 4 && trot.drop <= 6 && trot.hz >= 1.6 && trot.hz <= 2.4,
+    `diagonales ${(100 * trot.diag).toFixed(1)} % (≤ 8), tangage bassin ${trot.pitch.toFixed(2)}° (≤ 3), `
+    + `tête ${trot.head.toFixed(2)}° (≤ 2.5) / ${trot.headY.toFixed(3)} u (≤ 0.03), garrot ${trot.wPct.toFixed(2)} % (1–4), `
+    + `creux d'appui ${trot.drop.toFixed(1)} % (≤ 6), cadence ${trot.hz.toFixed(2)} Hz (1.6–2.4)`);
+  const lent = mesure(['KeyW'], 2.4);
+  check('allure shiba : le trot lent garde ≈ 2 foulées/s (pas de piétinement)',
+    lent.hz >= 1.6 && lent.hz <= 2.5 && lent.diag <= 0.08 && lent.pitch <= 3,
+    `cadence ${lent.hz.toFixed(2)} Hz (1.6–2.5), diagonales ${(100 * lent.diag).toFixed(1)} %, tangage ${lent.pitch.toFixed(2)}°`);
+  const pas = mesure(['KeyW'], 0.8);
+  // BL, FL, BR, FR : chaque appui suit le précédent d'environ un quart de foulée.
+  const ordre = [2, 0, 3, 1].map((j) => pas.ph[j]);
+  const ecarts = ordre.map((v, k) => ((ordre[(k + 1) % 4] - v) % 1 + 1) % 1);
+  check('allure shiba : au pas, séquence latérale à 4 temps (BL FL BR FR)',
+    ecarts.every((e) => e > 0.17 && e < 0.33),
+    `écarts ${ecarts.map((e) => e.toFixed(2)).join(' ')} (0.17–0.33), phases BL FL BR FR ${ordre.map((v) => v.toFixed(2)).join(' ')}`);
+}
+
 /* ── lot 6. shiba : aboie, se secoue, regarde ─────────────────────────────
  * Purs : createShiba + update, pas de renderer. Le secouage n'existe que
  * après une immersion ≥ wetBeforeShake ; le regard n'écrit jamais heading.
