@@ -6,27 +6,15 @@
  * stamps(), totals() et on() — jamais son état interne.
  *
  * Les touches globales (J / Échap / H) sont câblées dans main.js : ici on
- * expose toggle() / close() / setHidden(). Seule exception : Échap pressé
+ * expose toggle() / close() / setHidden() et le crochet onOpenChange(open). Seule exception : Échap pressé
  * DANS le carnet le ferme et s'arrête là, sinon le reset de vue de main.js le
  * verrait en même temps.
  */
 
-const TIERS = [1, 5, 15];
 const TOAST_MS = 3500;
 const QUIET_MS = 2400;
 const FADE_MS = 450;
 const QUEUE_MAX = 6;
-
-// Repli seulement : totals().challenges porte name/kanji/hidden (source unique
-// = CHALLENGES de quest.js) et prime. Sert aux quests factices sans libellés.
-const CHALLENGE_LABELS = {
-  'heron-flush':     { name: 'Envol des aosagi',  kanji: '鷺' },
-  'gull-flush':      { name: 'Goélands dispersés', kanji: '鴎' },
-  'crab-flee':       { name: 'Crabes en fuite',   kanji: '蟹' },
-  'bird-flush':      { name: 'Moineaux effarouchés', kanji: '雀' },
-  'butterfly-chase': { name: 'Chasse aux chō',    kanji: '蝶' },
-  'bark':            { name: 'Ouaf !',            kanji: '吠', hidden: true },
-};
 
 const QUEST_EVENTS = ['stamp', 'treasure', 'challenge-tier', 'complete'];
 
@@ -63,11 +51,10 @@ function describe(kind, p) {
         sub: Number.isFinite(p.total) ? `${p.got} sur ${p.total}` : '',
       };
     case 'challenge-tier': {
-      const lab = CHALLENGE_LABELS[p.id] || {};
       return {
         key: 'tier:' + p.id + ':' + p.tier,
-        kanji: p.kanji || lab.kanji || '印', round: true,
-        title: p.name || lab.name || 'Défi',
+        kanji: p.kanji || '印', round: true,
+        title: p.name || 'Défi',
         sub: p.tier > 1 ? `Palier des ${p.tier}` : 'Premier palier',
       };
     }
@@ -231,27 +218,26 @@ export function createJournalUI({ quest, root = document } = {}) {
     chalEl.replaceChildren();
     let secret = false;
     for (const c of t.challenges || []) {
-      const lab = CHALLENGE_LABELS[c.id] || {};
       const count = c.count || 0;
-      if ((c.hidden ?? lab.hidden) && count < 1) { secret = true; continue; }
-      const name = c.name || lab.name || c.id;
-      const kanji = c.kanji || lab.kanji || '印';
-      const next = TIERS.find((n) => n > count);
-      const reached = TIERS.filter((n) => count >= n).length;
+      if (c.hidden && count < 1) { secret = true; continue; }
+      // Paliers : uniquement ceux de totals() (tier = dernier atteint, next = suivant).
+      const tiers = c.tiers || [];
+      const next = c.next;
+      const reached = tiers.filter((n) => n <= c.tier).length;
       const li = el('li');
-      const sl = seal(kanji, { round: true });
+      const sl = seal(c.kanji || '印', { round: true });
       if (!count) sl.classList.add('ghost');
       li.appendChild(sl);
       const txt = el('span');
-      txt.appendChild(el('span', 'nm', name));
+      txt.appendChild(el('span', 'nm', c.name || c.id));
       txt.appendChild(el('span', 'sub', !count ? 'à tenter, sans hâte'
-        : next ? `${count} — encore ${next - count} avant le palier des ${next}`
+        : next != null ? `${count} — encore ${next - count} avant le palier des ${next}`
         : `${count} — tous les paliers sont atteints`));
       li.appendChild(txt);
       const pips = el('span', 'j-pips');
       pips.setAttribute('role', 'img');
-      pips.setAttribute('aria-label', `${reached} palier${reached > 1 ? 's' : ''} sur ${TIERS.length}`);
-      for (let i = 0; i < TIERS.length; i++) pips.appendChild(el('i', i < reached ? 'on' : ''));
+      pips.setAttribute('aria-label', `${reached} palier${reached > 1 ? 's' : ''} sur ${tiers.length}`);
+      for (let i = 0; i < tiers.length; i++) pips.appendChild(el('i', i < reached ? 'on' : ''));
       li.appendChild(pips);
       chalEl.appendChild(li);
     }
@@ -286,6 +272,7 @@ export function createJournalUI({ quest, root = document } = {}) {
     journalEl.hidden = false;
     if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
     sheet.focus({ preventScroll: true });
+    if (typeof api.onOpenChange === 'function') api.onOpenChange(true);
   }
 
   function close() {
@@ -296,6 +283,7 @@ export function createJournalUI({ quest, root = document } = {}) {
     restoreFocus = null;
     if (back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
     else if (document.activeElement && journalEl.contains(document.activeElement)) document.activeElement.blur();
+    if (typeof api.onOpenChange === 'function') api.onOpenChange(false);
   }
 
   const open = () => openInternal(true);
@@ -360,6 +348,18 @@ export function createJournalUI({ quest, root = document } = {}) {
     if (typeof off === 'function') offs.push(off);
   }
 
+  // Reset de la progression : oublier ce que la session avait vu (sceau doré,
+  // sceau choisi, animation « pressé ») ; le carnet ouvert se redessine.
+  if (typeof quest.on === 'function') {
+    const off = quest.on('reset', () => {
+      goldSeen = false;
+      selected = null;
+      seen.clear();
+      refresh();
+    });
+    if (typeof off === 'function') offs.push(off);
+  }
+
   function dispose() {
     for (const off of offs) off();
     offs.length = 0;
@@ -373,5 +373,8 @@ export function createJournalUI({ quest, root = document } = {}) {
     if (openBtn) openBtn.removeEventListener('click', onOpenBtn);
   }
 
-  return { toast, open, close, toggle, isOpen, refresh, setHidden, dispose };
+  // onOpenChange(open) : branché par main.js (suspend le chien carnet ouvert),
+  // appelé à chaque ouverture/fermeture, quelle que soit la voie (touche, bouton, voile, H).
+  const api = { toast, open, close, toggle, isOpen, refresh, setHidden, dispose, onOpenChange: null };
+  return api;
 }

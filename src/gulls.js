@@ -201,25 +201,33 @@ export function createGulls({
   for (let i = 0; i < n; i++) write(i);
   if (n) mesh.instanceMatrix.needsUpdate = true;
 
-  function threatNear(shiba, camera) {
+  // Menace de la frame, posée par scanThreat() : le shiba et la caméra font
+  // décoller les goélands, mais seul le shiba est « provoqué par le joueur ».
+  let threatShiba = false;
+  let threatCamera = false;
+  let shibaWasNear = false;
+
+  function scanThreat(shiba, camera) {
     const flush2 = GULLS.flushRadius * GULLS.flushRadius;
     const cam2 = GULLS.cameraFlush * GULLS.cameraFlush;
     const sx = shiba?.position?.x, sz = shiba?.position?.z;
     const cx = camera?.position?.x, cy = camera?.position?.y, cz = camera?.position?.z;
     const shibaOk = Number.isFinite(sx) && Number.isFinite(sz);
     const camOk = Number.isFinite(cx) && Number.isFinite(cy) && Number.isFinite(cz);
+    threatShiba = false;
+    threatCamera = false;
     for (let i = 0; i < n; i++) {
       const b = birds[i];
-      if (shibaOk) {
+      if (shibaOk && !threatShiba) {
         const dx = b.homeX - sx, dz = b.homeZ - sz;
-        if (dx * dx + dz * dz < flush2) return true;
+        if (dx * dx + dz * dz < flush2) threatShiba = true;
       }
-      if (camOk) {
+      if (camOk && !threatCamera) {
         const dx = b.x - cx, dy = b.y - cy, dz = b.z - cz;
-        if (dx * dx + dy * dy + dz * dz < cam2) return true;
+        if (dx * dx + dy * dy + dz * dz < cam2) threatCamera = true;
       }
+      if (threatShiba && threatCamera) break;
     }
-    return false;
   }
 
   function flushAll() {
@@ -232,19 +240,26 @@ export function createGulls({
       b.orbit = rng() * TAU;
       lifted++;
     }
-    // Effectif : au moins un oiseau quitte le perchoir. Un rappel tant qu'ils
-    // volent déjà ne compte pas (flushAll est tenté à chaque frame menaçante).
-    if (lifted > 0) {
-      const fn = api.onFlush;
-      if (typeof fn === 'function') fn();
-    }
+    return lifted;
   }
 
   function update(t, dt, shiba, camera) {
     if (!n) return;
     const step = Number.isFinite(dt) ? Math.min(0.05, Math.max(0, dt)) : 0;
 
-    if (threatNear(shiba, camera)) flushAll();
+    scanThreat(shiba, camera);
+    if (threatShiba || threatCamera) {
+      const lifted = flushAll();
+      // Le carnet ne compte que ce que le joueur provoque : un envol dû au
+      // shiba, une fois par épisode (menace absente → présente). La caméra
+      // fait décoller sans compter, et un shiba qui arrive sous des goélands
+      // déjà en l'air (lifted = 0) n'a rien provoqué.
+      if (threatShiba && !shibaWasNear && lifted > 0) {
+        const fn = api.onFlush;
+        if (typeof fn === 'function') fn();
+      }
+    }
+    shibaWasNear = threatShiba;
 
     for (let i = 0; i < n; i++) {
       const b = birds[i];
@@ -264,7 +279,7 @@ export function createGulls({
         b.pitch = -0.18;
         b.roll = Math.sin(b.orbit) * 0.28;
 
-        if (b.timer <= 0 && !threatNear(shiba, camera)) {
+        if (b.timer <= 0 && !threatShiba && !threatCamera) {
           b.state = PERCH;
           b.x = b.homeX;
           b.y = b.homeY;
@@ -305,7 +320,7 @@ export function createGulls({
 
   const api = {
     mesh, update, dispose, spawns,
-    /** Assignable. () => void, une fois par flushAll() qui fait décoller. */
+    /** Assignable. () => void, une fois par épisode où le SHIBA fait décoller (pas la caméra). */
     onFlush: () => {},
   };
   return api;

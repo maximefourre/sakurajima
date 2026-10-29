@@ -379,6 +379,61 @@ if (M) {
     check('reset : le tampon se regagne', ev.some(e => e.evt === 'stamp'));
   }
 
+  /* ── T8 : complétion revérifiée au chargement ── */
+  {
+    const ids = STAMPS.map(s => s.id);
+    const sites = Object.fromEntries(STAMPS.map((s, i) => [s.site, { x: i * 10, z: 0 }]));
+    const tids = ['a', 'b', 'c'];
+    const store = fakeStorage();
+    store.data.set(STORAGE_KEY, JSON.stringify({ v: 1, stamps: ids, treasures: tids, counts: {}, rewards: [] }));
+    const q = createQuest({ storage: store, sites, treasureIds: tids });
+    check('sauvegarde complète sans reward : bandana + gold-seal attribués au chargement',
+      q.state.rewards.has('bandana') && q.state.rewards.has('gold-seal'),
+      Array.from(q.state.rewards).join());
+    const saved = JSON.parse(store.data.get(STORAGE_KEY));
+    check('…et persistés', saved.rewards.includes('bandana') && saved.rewards.includes('gold-seal'),
+      saved.rewards.join());
+    const part = fakeStorage();
+    part.data.set(STORAGE_KEY, JSON.stringify({ v: 1, stamps: ids.slice(0, 3), treasures: ['a'], counts: {}, rewards: [] }));
+    const q2 = createQuest({ storage: part, sites, treasureIds: tids });
+    check('sauvegarde incomplète : aucune reward au chargement', q2.state.rewards.size === 0);
+    const none = fakeStorage();
+    none.data.set(STORAGE_KEY, JSON.stringify({ v: 1, stamps: [], treasures: [], counts: {}, rewards: [] }));
+    const q3 = createQuest({ storage: none, sites: {}, treasureIds: [] });
+    check('aucun site ni omamori (total 0) : pas de reward fantôme', q3.state.rewards.size === 0);
+  }
+
+  /* ── T8 : défis — name/kanji/tier/next portés par totals() ── */
+  {
+    const q = createQuest({ storage: null });
+    q.report('bark'); for (let i = 0; i < 5; i++) q.report('heron-flush');
+    const ch = q.totals().challenges;
+    const heron = ch.find(c => c.id === 'heron-flush'), gull = ch.find(c => c.id === 'gull-flush'), bark = ch.find(c => c.id === 'bark');
+    check('totals().challenges : name/kanji/hidden présents sur chaque défi',
+      ch.length === 6 && ch.every(c => typeof c.name === 'string' && c.name && typeof c.kanji === 'string' && c.kanji
+        && typeof c.hidden === 'boolean'));
+    check('totals().challenges : tier = dernier palier atteint, next = suivant',
+      heron.tier === 5 && heron.next === 15 && gull.tier === 0 && gull.next === 1 && bark.tier === 1 && bark.next === 5,
+      `heron ${heron.tier}/${heron.next} gull ${gull.tier}/${gull.next}`);
+    for (let i = 0; i < 10; i++) q.report('heron-flush');
+    check('totals().challenges : dernier palier → next null et tiers exposés',
+      q.totals().challenges.find(c => c.id === 'heron-flush').next === null
+        && q.totals().challenges[0].tiers.join() === '1,5,15');
+  }
+
+  /* ── T8 : reset émet 'reset' ── */
+  {
+    const store = fakeStorage();
+    const q = createQuest({ storage: store, sites: { jizo: { x: 0, z: 0 } }, treasureIds: ['a'] });
+    q.update(0, 0); q.report('bark'); q.report('treasure', { id: 'a' });
+    let resets = 0, totalsAtEvent = null;
+    q.on('reset', () => { resets++; const t = q.totals(); totalsAtEvent = t.stamps.got + t.treasures.got + t.challenges.reduce((n, c) => n + c.count, 0); });
+    q.reset();
+    check('reset : émet \'reset\' une fois, état déjà à 0 à l\'émission', resets === 1 && totalsAtEvent === 0,
+      `resets=${resets} totals=${totalsAtEvent}`);
+    check('reset : totals à 0 et rewards vides', q.totals().stamps.got === 0 && q.totals().treasures.got === 0 && q.state.rewards.size === 0);
+  }
+
   /* ── aucune allocation par frame : update() ne crée rien (garde-fou grossier) ── */
   {
     const q = createQuest({ storage: null, sites: { jizo: { x: 500, z: 500 }, snag: { x: -500, z: 0 } } });

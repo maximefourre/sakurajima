@@ -353,6 +353,15 @@ export function createTreasures({
       mat.dispose();
       mesh.removeFromParent();
     },
+    /** Reset de la progression : tous les omamori reviennent en place. N'émet pas onFound. */
+    unmarkAll() {
+      for (let i = 0; i < n; i++) {
+        if (!hidden[i]) continue;
+        hidden[i] = 0;
+        write(i, sc0);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    },
   };
   return api;
 }

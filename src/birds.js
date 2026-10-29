@@ -498,14 +498,17 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
 
   const api = {
     group, mesh, update, setRepeller, dispose,
-    /** Settable hook: (name, position) => void. The position is REUSED — copy it. */
+    /**
+     * Settable hook: (name, position, cause) => void. The position is REUSED —
+     * copy it. `cause` is only set on 'flush': 'repel' (the dog) or 'gust'.
+     */
     onEvent: () => {},
     count: N,
   };
 
-  function emit(name, x, y, z) {
+  function emit(name, x, y, z, cause) {
     const fn = api.onEvent;
-    if (typeof fn === 'function') fn(name, _evPos.set(x, y, z));
+    if (typeof fn === 'function') fn(name, _evPos.set(x, y, z), cause);
   }
 
   function launch(b, urgency) {
@@ -533,8 +536,11 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
     b.lcz = b.pz + b.fz * d * 0.45;
   }
 
-  /** Everything with wings leaves the ground at once. Point-of-origin matters. */
-  function triggerFlush(ox, oy, oz) {
+  /**
+   * Everything with wings leaves the ground at once. Point-of-origin matters.
+   * `cause`: 'repel' (the dog — the only repeller main.js ever passes) or 'gust'.
+   */
+  function triggerFlush(ox, oy, oz, cause) {
     if (flushCool > 0) return;
     flushCool = 1.3;
     let cx = 0, cy = 0, cz = 0, n = 0;
@@ -550,7 +556,7 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
       b.vy += 3.8;
       cx += b.px; cy += b.py; cz += b.pz; n++;
     }
-    if (n) emit('flush', cx / n, cy / n, cz / n);
+    if (n) emit('flush', cx / n, cy / n, cz / n, cause);
   }
 
   function setRepeller(p) {
@@ -588,7 +594,7 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
     // A squall breaking is the natural moment for the flock to come apart. Not
     // every gust — a flock that panics on schedule stops being startling.
     if (wind?.state?.gustOnset && gust > 0.45 && rng() < 0.6) {
-      triggerFlush(cenX - wdx * 12, cenY, cenZ - wdz * 12);
+      triggerFlush(cenX - wdx * 12, cenY, cenZ - wdz * 12, 'gust');
     }
 
     let sumX = 0, sumY = 0, sumZ = 0, sumN = 0;
@@ -665,7 +671,7 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
 
         if (repelActive) {
           const dx = b.px - _rep.x, dy = b.py - _rep.y, dz = b.pz - _rep.z;
-          if (dx * dx + dy * dy + dz * dz < FLUSH_R2) triggerFlush(_rep.x, _rep.y, _rep.z);
+          if (dx * dx + dy * dy + dz * dz < FLUSH_R2) triggerFlush(_rep.x, _rep.y, _rep.z, 'repel');
         }
       } else if (b.state === LAND) {
         b.landT += dt;
@@ -805,7 +811,7 @@ export function createBirds({ seed, quality, heightAt, wind, ponds, canopies = [
             az += (dz / d) * REP_PUSH * kk;
             ay += REP_LIFT * kk;                    // scatter UP, not just aside
             if (kk > b.alarm) b.alarm = Math.min(1, kk * 1.4);
-            if (d2 < FLUSH_R2) triggerFlush(_rep.x, _rep.y, _rep.z);
+            if (d2 < FLUSH_R2) triggerFlush(_rep.x, _rep.y, _rep.z, 'repel');
           }
         }
       }
