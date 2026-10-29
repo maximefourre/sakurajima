@@ -87,6 +87,8 @@ const CADENCE_MIN = 0.8;
 // Une ancre d'appui ne s'écarte pas de plus de ça (u modèle) de sa place
 // nominale : virage sur place, arrêt brusque, téléportation (Échap).
 const ANCHOR_SLACK = 0.10;
+// Creux (u monde) de la sole sous le sol en deçà duquel on ne repose pas la patte.
+const SOLE_SUNK_MIN = 0.002;
 const wrapPi = (a) => a - TAU * Math.round(a / TAU);
 // Décollage par les doigts : en fin d'appui le talon (carpe, jarret) se lève
 // jusqu'à TOE_PITCH rad, le pied pivote sur le bout des doigts, à TOE_LEN
@@ -397,7 +399,7 @@ export function createShiba({
   // Par patte : en appui ? ancre MONDE de l'appui en cours ; écart (repère
   // root) entre le décollage et la trajectoire nominale, résorbé en vol.
   const feet = rig.legs.map(() => ({
-    stance: false, init: false, anchor: new THREE.Vector3(), off: new THREE.Vector3(),
+    stance: false, init: false, anchor: new THREE.Vector3(), off: new THREE.Vector3(), reachV: new THREE.Vector3(),
   }));
   const footStance = [true, true, true, true];
   const reachArgs = rig.legs.map(() => ({ hip: 0, knee: 0, opts: null }));
@@ -847,7 +849,8 @@ export function createShiba({
         }
         ft.stance = stance;
         ft.init = true;
-        opts.reach = ft.anchor;
+        ft.reachV.copy(ft.anchor);
+        opts.reach = ft.reachV;
         opts.ik = ikW;
         opts.fold = foldMax * arc;
         // Talon levé en fin d'appui, relâché au début du vol ; puis le repli :
@@ -873,6 +876,23 @@ export function createShiba({
     // on les repose sur leurs parents définitifs.
     if (ikW > 0) {
       for (const i of [0, 2]) rig.poseLeg(rig.legs[i], reachArgs[i].hip, reachArgs[i].knee, reachArgs[i].opts);
+    }
+    // Pied hors de portée (arrêt en pleine foulée, écart de décollage) : le
+    // solveur garde la hauteur de la cible et rapproche le pied à l'horizontale,
+    // donc DANS la pente (pente × recul sous le sol). On relève la cible de ce
+    // creux et on repose la patte (une fois ; un pied en l'air n'a pas de creux).
+    if (ikW > 0) {
+      for (let i = 0; i < 4; i++) {
+        const ft = feet[i], leg = rig.legs[i];
+        if (!ft.init) continue;
+        leg.paw.updateWorldMatrix(true, false);
+        leg.paw.localToWorld(_sole.fromArray(leg.front ? PAW_SOLE.F : PAW_SOLE.B));
+        const sunk = heightAt(_sole.x, _sole.z) + restSole[i].y * SHIBA_BUILD.scale - _sole.y;
+        if (sunk > SOLE_SUNK_MIN) {
+          ft.reachV.y += Math.min(sunk, 0.08);
+          rig.poseLeg(leg, reachArgs[i].hip, reachArgs[i].knee, reachArgs[i].opts);
+        }
+      }
     }
 
     // Every ground-reaction consumer keys off the same stance as the IK: a

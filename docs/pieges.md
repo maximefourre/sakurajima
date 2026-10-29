@@ -49,3 +49,15 @@ Appris à l'usage. Le détail du pourquoi : `architecture.md`, `perf.md`.
     la cadence reste ≈ 2 Hz de 2 u/s à la course (avant : 5.6 Hz à 4 u/s). `crouch`
     trot 0.035 : en dessous le glissé dépasse 0.03 ; au pas, `sweep` > 0.42 enfonce
     les antérieurs (-0.02).
+13. Shiba, pente : un pied hors de portée (arrêt en pleine foulée, écart de
+    décollage, patte presque tendue au repos) est ramené par le solveur à
+    l'HORIZONTALE, donc dans la pente : creux = pente × recul (-0.036 mesuré à
+    0.36, ni `crouch` ni `ANCHOR_SLACK` n'y changent rien de façon stable : le
+    creux dépend de la phase des pieds à l'arrêt). Correctif : après la pose,
+    `animate()` mesure la sole de chaque pied (`SOLE_SUNK_MIN`), relève sa cible
+    du creux et repose la patte. Invariant « pattes en pente » (relâché à dix
+    phases de foulée). Ne pas régler ça avec `crouch`.
+    `accel` / `brake` 11 / 11 (avant 14 / 18) : arrêt progressif (un arrêt
+    brusque depuis le galop glissait de 23 u/s par image, 4.6 maintenant) ; coût :
+    0.3 s de plus pour atteindre la course, 0.5 s de plus pour s'arrêter. À
+    remonter (accel d'abord) si les touches paraissent molles.

@@ -1947,13 +1947,77 @@ function mesurerProportions(root, mesh) {
   }
 }
 
+/* ── appuis des pattes, pente ─────────────────────────────────────────────
+ * Pente 0.36 (≈ 20°, sentes raides), départ → régime → arrêt (90 images après
+ * le relâchement, 60 images de repos avant), relâché à dix phases de foulée. Le dessous du coussinet ne descend
+ * pas sous le sol de plus de 1 cm. Un arrêt en pleine foulée laisse le pied
+ * posé hors de portée de la patte : le solveur le ramène à l'horizontale, donc
+ * DANS la pente (pente × recul : -0.036 mesuré le 29/10 au trot, -0.009 avant
+ * le commit des allures naturelles). Garde de portée dans animate().
+ */
+{
+  const pente = 0.36;
+  // Le creux dépend de la phase des pieds au relâchement : on relâche à
+  // dix instants décalés de 6 images (une foulée dure ≈ 30 images).
+  const mesure = (touches, vitesse) => {
+    let pire = Infinity;
+    for (let n = 0; n < 10; n++) pire = Math.min(pire, mesure1(touches, vitesse, 240 + 6 * n));
+    return pire;
+  };
+  const mesure1 = (touches, vitesse, course) => {
+    const hf = (x, z) => pente * z;
+    const dog = createShiba({
+      heightAt: hf, normalAt: (x, z, o) => o.set(0, 1, -pente).normalize(), water: { surfaceAt: () => null },
+    });
+    const p = new THREE.Vector3();
+    let bas = Infinity, t = 0;
+    const pas = (mesurer) => {
+      t += 1 / 60; dog.update(t, 1 / 60, null);
+      if (!mesurer) return;
+      dog.group.updateMatrixWorld(true);
+      for (const k of ['FL', 'FR', 'BL', 'BR']) {
+        dog.group.getObjectByName('paw' + k).localToWorld(p.fromArray(PAW_SOLE[k[0]]));
+        bas = Math.min(bas, p.y - hf(p.x, p.z));
+      }
+    };
+    for (let i = 0; i < 60; i++) pas(false);
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    for (let i = 0; i < course; i++) { if (vitesse != null) dog.state.speed = vitesse; pas(true); }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    for (let i = 0; i < 90; i++) pas(true);
+    dog.dispose();
+    return bas;
+  };
+  const trot = mesure(['KeyW'], null);
+  const marche = mesure(['KeyW'], 0.9);
+  check('pattes en pente (0.36) : la semelle ne s\'enfonce pas, départ et arrêt compris',
+    trot >= -0.01 && marche >= -0.01,
+    `semelle min trot ${trot.toFixed(4)}, marche ${marche.toFixed(4)} (plancher -0.0100)`);
+}
+
 /* ── allure shiba : trot diagonal, pas latéral, dos stable ─────────────────
- * Sol plat, régime établi (images 150 à 480). Étalon : chiens réels (trot =
- * diagonales synchrones à ±8 % de période, pas = séquence latérale à 4 temps
- * BL FL BR FR espacés d'un quart ; ≈ 2 foulées/s au trot, 1.94–2.12 chez le
- * Weimaraner, Carlisle 2019) ; le tronc ne tangue presque pas (≤ 3°) et la tête
- * bouge peu (≤ 2.5°). Mesuré AVANT (28/10) : tangage du bassin 4.1°, tête 3.1°,
- * creux d'appui 9 %, trot lent à 3.8 foulées/s à 2.6 u/s. Voir le rapport T2.
+ * Sol plat, régime établi (images 150 à 480). D'OÙ VIENNENT LES SEUILS :
+ *  - Forme (sources publiées, qualitatives) : le trot du chien est une allure à
+ *    DEUX temps, diagonales synchrones, avec suspension — Carlisle et al. 2019,
+ *    « Relationship Between Gait Mechanics and the Speed of the Trot in the
+ *    Weimaraner Dog Breed », doi 10.1053/j.tcam.2019.03.003
+ *    (digitalcommons.pvamu.edu/agriculture-facpubs/465) ; le pas est une
+ *    séquence LATÉRALE à quatre temps (arrière puis avant du même côté) —
+ *    Hildebrand 1968, J. Morphol. 124:353, doi 10.1002/jmor.1051240308
+ *    (animations : vanat.ahc.umn.edu/gaits). D'où : diagonales ≤ 8 % de la
+ *    période, pas BL FL BR FR espacés autour du quart de période (0.17–0.33).
+ *    Les 8 % et la fenêtre 0.17–0.33 sont NOTRE tolérance, pas une valeur publiée.
+ *  - Cadence ≈ 2 foulées/s au trot : ordre de grandeur, NON repris d'un chiffre
+ *    publié (le résumé de Carlisle ne donne pas la fréquence ; il donne les
+ *    vitesses, trot lent 1.2–1.7 m/s, rapide 1.9–2.3 m/s). Fenêtre 1.6–2.4 Hz =
+ *    ±20 %. Un shiba étant plus petit qu'un Weimaraner, il ne doit pas
+ *    tomber SOUS cette fenêtre ; le piétinement (3.8 Hz avant le 29/10) la dépasse.
+ *  - Tangage du bassin ≤ 3°, tête ≤ 2.5° / 0.03 u, creux d'appui ≤ 6 % : SEUILS
+ *    DE NON-RÉGRESSION calés sur le modèle (mesuré avant le 29/10 : 4.1°, 3.1°,
+ *    9.0 %), faute de chiffre publié trouvé. Ils verrouillent l'état
+ *    atteint (1.7°, 1.6°, 4.9 %), ils ne prétendent pas décrire un shiba réel.
+ * Le garrot (amplitude verticale) n'est plus testé : 2.4 % avant comme après,
+ * le critère ne discriminait rien.
  */
 {
   const names = ['FL', 'FR', 'BL', 'BR'];
@@ -2000,16 +2064,15 @@ function mesurerProportions(root, mesh) {
     return {
       hz, ph, diag: Math.max(dist(ph[0], ph[3]), dist(ph[1], ph[2])),
       pitch: pk(S.pel), head: pk(S.hp), headY: pk(S.hy) / sc,
-      wPct: 100 * pk(S.y) / sc / SHIBA_BUILD.withers,
       drop: 100 * (y0 - mean(S.y)) / y0,
     };
   };
   const trot = mesure(['KeyW'], null);
   check('allure shiba : trot en diagonales synchrones, dos et tête stables',
     trot.diag <= 0.08 && trot.pitch <= 3 && trot.head <= 2.5 && trot.headY <= 0.03
-    && trot.wPct >= 1 && trot.wPct <= 4 && trot.drop <= 6 && trot.hz >= 1.6 && trot.hz <= 2.4,
+    && trot.drop <= 6 && trot.hz >= 1.6 && trot.hz <= 2.4,
     `diagonales ${(100 * trot.diag).toFixed(1)} % (≤ 8), tangage bassin ${trot.pitch.toFixed(2)}° (≤ 3), `
-    + `tête ${trot.head.toFixed(2)}° (≤ 2.5) / ${trot.headY.toFixed(3)} u (≤ 0.03), garrot ${trot.wPct.toFixed(2)} % (1–4), `
+    + `tête ${trot.head.toFixed(2)}° (≤ 2.5) / ${trot.headY.toFixed(3)} u (≤ 0.03), `
     + `creux d'appui ${trot.drop.toFixed(1)} % (≤ 6), cadence ${trot.hz.toFixed(2)} Hz (1.6–2.4)`);
   const lent = mesure(['KeyW'], 2.4);
   check('allure shiba : le trot lent garde ≈ 2 foulées/s (pas de piétinement)',
