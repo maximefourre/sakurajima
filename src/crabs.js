@@ -202,9 +202,12 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
       if (b.state !== BURY && Number.isFinite(shibaX) && Number.isFinite(shibaZ)) {
         const dx = b.x - shibaX, dz = b.z - shibaZ;
         if (dx * dx + dz * dz < fleeR2) {
-          if (b.state !== FLEE) {
+          // Une fois, au basculement idle → flee. Déjà en fuite : pas de rappel.
+          if (b.state === IDLE) {
             b.state = FLEE;
             b.timer = R.range(rng, CRABS.fleeSeconds[0], CRABS.fleeSeconds[1]);
+            const fn = api.onFlee;
+            if (typeof fn === 'function') fn(1);
           }
           // Face the dog; the flee step then scurries backward along -Z.
           b.yaw = Math.atan2(-dx, -dz);
@@ -265,5 +268,10 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
     mesh.removeFromParent();
   }
 
-  return { mesh, update, dispose };
+  const api = {
+    mesh, update, dispose,
+    /** Assignable. (n) => void, n = 1, une fois par crabe idle → flee. */
+    onFlee: () => {},
+  };
+  return api;
 }

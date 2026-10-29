@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — crochets faune et flair</title>
+<script type="importmap">
+{ "imports": {
+    "three": "/vendor/three/build/three.module.js",
+    "three/addons/": "/vendor/three/examples/jsm/"
+} }
+</script>
+<style>
+  html,body{margin:0;min-height:100%;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{padding:10px 14px;line-height:1.8}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+/*
+ * Crochets faune (crabs.onFlee, gulls.onFlush, butterflies.onFlee) et
+ * shiba.sniff / setBandana. Pas de bake d'île : les trois faunes sont créées
+ * avec les mêmes factories que le jeu, sur un relief factice.
+ *
+ * La page se termine par :
+ *   INVARIANTS: N pass, M fail
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+let pass = 0, fail = 0;
+let finished = false;
+const finish = () => {
+  if (finished) return;
+  finished = true;
+  const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+};
+window.onerror = (m, _s, _l, _c, e) => {
+  fail++;
+  say('✗ ' + (e?.stack || m), 'bad');
+  console.error(m);
+  finish();
+};
+window.addEventListener('unhandledrejection', e => {
+  fail++;
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+  finish();
+});
+
+import * as THREE from 'three';
+import { SEED } from '../src/config.js';
+import { createCrabs } from '../src/crabs.js';
+import { createGulls } from '../src/gulls.js';
+import { createButterflies } from '../src/butterflies.js';
+import { createShiba, SHIBA } from '../src/shiba.js';
+
+function check(name, cond, detail = '') {
+  if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
+  else { fail++; say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad'); console.error(`FAIL — ${name} ${detail}`); }
+}
+
+const dt = 1 / 60;
+const wrap = (a) => {
+  const t = Math.PI * 2;
+  return a - t * Math.round(a / t);
+};
+
+/* ── crabes : un sur la laisse, le chien dessus ── */
+{
+  const crabs = createCrabs({
+    seed: SEED,
+    quality: { crabs: 4 },
+    heightAt: () => 0.3,
+  });
+  check('crabs.onFlee assignable', typeof crabs.onFlee === 'function');
+  const m = new THREE.Matrix4();
+  const p = new THREE.Vector3();
+  crabs.mesh.getMatrixAt(0, m);
+  p.setFromMatrixPosition(m);
+  let flees = 0, bad = 0;
+  crabs.onFlee = (n) => { flees++; if (n !== 1) bad++; };
+  crabs.update(1, p.x, p.z);
+  const once = flees;
+  crabs.update(1.05, p.x, p.z);
+  check('crabe : onFlee(1) au basculement idle→flee',
+    crabs.mesh.count > 0 && once >= 1 && bad === 0 && flees === once,
+    `appels ${flees}, n≠1 ${bad}, instances ${crabs.mesh.count}`);
+  crabs.dispose();
+}
+
+/* ── goélands : un rocher, le chien au pied ── */
+{
+  const gulls = createGulls({
+    seed: SEED,
+    quality: { gulls: 3 },
+    stacks: [{ x: 0, z: 0, topY: 4, h: 2 }],
+  });
+  check('gulls.onFlush assignable', typeof gulls.onFlush === 'function');
+  let flushes = 0;
+  gulls.onFlush = () => { flushes++; };
+  const shiba = { position: { x: 0, z: 0 } };
+  gulls.update(0, dt, shiba, null);
+  const once = flushes;
+  gulls.update(dt, dt, shiba, null);
+  check('goélands : onFlush une fois par envol effectif',
+    gulls.mesh.count > 0 && once >= 1 && flushes === once,
+    `appels ${flushes}, instances ${gulls.mesh.count}`);
+  gulls.dispose();
+}
+
+/* ── papillons : deux fleurs, le chien au milieu ── */
+{
+  const spots = new Float32Array([
+    0, 1.2, 0,
+    1.2, 1.2, 0.4,
+  ]);
+  const bf = createButterflies({
+    seed: SEED,
+    quality: { butterflies: 2 },
+    season: 'spring',
+    heightAt: () => 2,
+    flowerSpots: spots,
+  });
+  check('butterflies.onFlee assignable', typeof bf.onFlee === 'function');
+  let chases = 0;
+  bf.onFlee = () => { chases++; };
+  bf.setRepeller(new THREE.Vector3(0.4, 0, 0.2));
+  const jour = { day: 1, night: 0, twilight: 0 };
+  bf.update(0, dt, jour);
+  const once = chases;
+  bf.update(dt, dt, jour);
+  check('papillon : onFlee au basculement en fuite',
+    bf.mesh.count > 0 && once >= 1 && chases === once,
+    `appels ${chases}, instances ${bf.mesh.count}`);
+  bf.dispose();
+}
+
+/* ── shiba : renifle, recharge, refus, foulard ── */
+{
+  const water = { surfaceAt: () => null };
+  const dog = createShiba({ seed: SEED, heightAt: () => 0, water });
+  let sniffs = 0;
+  dog.onEvent = (name) => { if (name === 'sniff') sniffs++; };
+
+  const _q = new THREE.Quaternion();
+  const _f = new THREE.Vector3();
+  const noseOf = () => {
+    dog.group.updateMatrixWorld(true);
+    const head = dog.group.getObjectByName('head');
+    head.getWorldQuaternion(_q);
+    return _f.set(0, 0, 1).applyQuaternion(_q).clone();
+  };
+  const settle = (n, t0 = 0) => {
+    for (let i = 1; i <= n; i++) dog.update(t0 + i * dt, dt, null);
+  };
+
+  check('sniff(0, 1) accepté', dog.sniff(0, 1) === true);
+  check('sniff immédiat refusé (recharge)', dog.sniff(0, 1) === false);
+  check('emit sniff au début', sniffs === 1);
+  check('poids state.sniff', dog.state.sniff === 1);
+
+  settle(48);
+  check('pose encore là à 0,8 s', dog.state.sniff > 0, `poids ${dog.state.sniff}`);
+
+  dog.reset();
+  settle(20);
+  const idleNose = noseOf();
+  dog.reset();
+  const heading = dog.heading;
+  check('sniff vers +0,8 rad', dog.sniff(heading + 0.8, 1) === true);
+  settle(48);
+  const turned = noseOf();
+  const yaw = Math.atan2(turned.x, turned.z);
+  const head = dog.group.getObjectByName('head');
+  // Le lacet MONDE du museau dépasse la butée : le cou est déjà penché,
+  // l'axe de lacet n'est plus vertical. La butée se juge sur l'os.
+  check('nez tourné du côté de targetYaw',
+    wrap(yaw - heading) > 0.2,
+    `Δyaw monde ${wrap(yaw - heading).toFixed(3)}`);
+  check('lacet local dans la butée du cou',
+    head.rotation.y > 0.45 && head.rotation.y <= SHIBA.lookYawMax + 1e-3,
+    `yaw ${head.rotation.y.toFixed(3)} / max ${SHIBA.lookYawMax}`);
+  check('museau plus bas qu’au repos',
+    turned.y < idleNose.y - 0.15,
+    `nez ${turned.y.toFixed(3)} vs repos ${idleNose.y.toFixed(3)}`);
+
+  dog.reset();
+  const wagOf = (strength) => {
+    dog.reset();
+    const a = dog.state.tailPhase;
+    dog.sniff(dog.heading, strength);
+    settle(30);
+    return dog.state.tailPhase - a;
+  };
+  const slow = wagOf(0);
+  const fast = wagOf(1);
+  check('queue plus rapide si l’odeur est forte', fast > slow + 0.3,
+    `Δphase ${slow.toFixed(3)} → ${fast.toFixed(3)}`);
+
+  dog.reset();
+  dog.sniff(0, 1);
+  settle(130);
+  check('pose finie après 1,6 s', dog.state.sniff === 0);
+  const before = sniffs;
+  check('recharge de 2 s écoulée', dog.sniff(0.4, 0.2) === true && sniffs === before + 1,
+    `events ${sniffs}`);
+
+  dog.reset();
+  dog.jump();
+  check('refus pendant le saut', dog.sniff(0, 1) === false);
+  dog.reset();
+  dog.notify('bark');
+  check('refus pendant l’aboiement', dog.sniff(0, 1) === false);
+  dog.reset();
+  dog.state.swimming = true;
+  check('refus pendant la nage', dog.sniff(0, 1) === false);
+  dog.reset();
+  dog.state.shake = 1;
+  check('refus pendant le secouage', dog.sniff(0, 1) === false);
+
+  dog.reset();
+  dog.setBandana(true);
+  const scarf = dog.group.getObjectByName('bandana');
+  check('foulard noué au cou',
+    !!(scarf && scarf.visible && scarf.parent && scarf.parent.name === 'neck'));
+  dog.setBandana(false);
+  check('foulard retiré', !!(scarf && scarf.visible === false));
+
+  dog.dispose();
+}
+
+finish();
+</script>
+</body>
+</html>

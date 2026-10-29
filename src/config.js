@@ -728,3 +728,15 @@ export const AMBIENCE = Object.freeze({
   frogFar: 18.0,
   master: 0.10,
 });
+
+/**
+ * Omamori cachés. N fixe — pas AREA : douze amulettes sur l'île,
+ * pas une densité. pickRadius : ramassage au contact. sniffRange :
+ * le flair s'éteint au-delà. size : hauteur monde du sachet.
+ */
+export const TREASURES = Object.freeze({
+  count: 12,
+  pickRadius: 0.9,
+  sniffRange: 40,
+  size: 0.25,
+});

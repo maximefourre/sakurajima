@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>banc d'essai — carnet goshuin et toasts</title>
+<style>
+  :root { --paper:#f4ece2; --accent:#f2b8cd; }
+  * { margin:0; padding:0; box-sizing:border-box; }   /* comme index.html */
+  html{font-size:16px}   /* rem comme dans index.html (sinon 12px hérités du banc) */
+  html,body{margin:0;min-height:100%;
+    background:radial-gradient(ellipse at 50% 70%,#3a2c3c,#14101a 70%);
+    color:#cfd3e2}
+  body{font:12px ui-monospace,Menlo,monospace}
+  #bar{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;flex-wrap:wrap;gap:6px;
+    padding:8px 10px;background:rgba(10,8,12,.7)}
+  #bar button,#bar label{font:inherit;color:#cfd3e2;background:#2a2433;border:1px solid #4a4256;
+    border-radius:3px;padding:3px 8px;cursor:pointer}
+  #log{position:fixed;left:10px;bottom:10px;max-width:46vw;max-height:40vh;overflow:auto;
+    padding:6px 10px;background:rgba(10,8,12,.8);line-height:1.6;z-index:5}
+  body.shot #bar,body.shot #log{display:none}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="log"></div>
+<script type="module">
+/*
+ * Banc du carnet goshuin (src/journal-ui.js) contre un FAUX quest conforme à
+ * l'interface de T1 (stamps / totals / on). Le CSS et le markup viennent de
+ * index.html (source unique) : on les importe par fetch plutôt que de les dupliquer.
+ *
+ * Page de démo : boutons en haut pour déclencher chaque toast. ?open=1 laisse
+ * le carnet ouvert, ?shot=1 masque la barre et le journal (captures).
+ *   INVARIANTS: N pass, M fail
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+let pass = 0, fail = 0, finished = false;
+const finish = () => {
+  if (finished) return;
+  finished = true;
+  const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+};
+window.onerror = (m, _s, _l, _c, e) => { fail++; say('✗ ' + (e?.stack || m), 'bad'); console.error(m); finish(); };
+window.addEventListener('unhandledrejection', e => { fail++; say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); finish(); });
+function check(name, cond, detail = '') {
+  if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
+  else { fail++; say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad'); console.error(`FAIL — ${name} ${detail}`); }
+}
+const params = new URLSearchParams(location.search);
+if (params.get('shot')) document.body.classList.add('shot');
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* ── markup + CSS de index.html ──────────────────────────────── */
+const html = await (await fetch('/index.html', { cache: 'no-store' })).text();
+const idx = new DOMParser().parseFromString(html, 'text/html');
+document.head.appendChild(document.importNode(idx.getElementById('journal-css'), true));
+for (const id of ['j-defs', 'toasts', 'journal']) document.body.appendChild(document.importNode(idx.getElementById(id), true));
+// Le bouton 帳 vit dans la tête du panneau ; ici une tête factice qui replie « le panneau ».
+const fakeHead = document.createElement('div');
+fakeHead.id = 'panel-head';
+fakeHead.style.cssText = 'position:fixed;top:44px;left:10px;z-index:5;display:flex;gap:8px;align-items:center;padding:4px 8px;background:rgba(16,13,18,.5)';
+fakeHead.innerHTML = '<span>réglages</span>';
+fakeHead.appendChild(document.importNode(idx.getElementById('journal-btn'), true));
+document.body.appendChild(fakeHead);
+let headFolds = 0;
+fakeHead.addEventListener('click', () => { headFolds++; });
+
+/* ── faux quest ──────────────────────────────────────────────── */
+const STAMPS = [
+  ['pine',      '松',   'Pin du rivage',          ['Le vent dans les aiguilles', 'une mer de sel et de silence', 'le pin se souvient']],
+  ['rock',      '岩',   'Rocher moussu',          ['Mousse sur la pierre', 'le temps y pose ses doigts', 'rien ne se hâte']],
+  ['jizo',      '地蔵', 'Jizō du sentier',        ['Gardien des voyageurs', 'bavoir rouge, pluie fine', 'merci d’être passé']],
+  ['tsukubai',  '蹲踞', 'Tsukubai',               ['On se penche pour boire', 'l’eau claire lave le jour', 'le bambou chante']],
+  ['iwakura',   '磐座', 'Iwakura',                ['Siège des dieux', 'la pierre attend sans âge', 'les cerisiers veillent']],
+  ['stones',    '飛石', 'Pas japonais',           ['Pierre après pierre', 'le pas apprend à ralentir', 'l’étang respire']],
+  ['seaTorii',  '鳥居', 'Torii dans la mer',      ['Porte sur les vagues', 'ni dedans ni dehors', 'la marée la franchit']],
+  ['chashitsu', '茶室', 'Salon de thé',           ['Un bol de matcha', 'la vapeur dit le silence', 'l’heure s’est tue']],
+  ['snag',      '枯木', 'Vieil arbre mort',       ['Branches sans feuilles', 'les oiseaux n’ont pas oublié', 'il est encore là']],
+].map(([id, kanji, name, haiku], i) => ({ id, kanji, name, haiku, x: i * 10, z: -i * 7, got: i === 0 || i === 2 || i === 4 || i === 6 }));
+const CHAL = [
+  { id: 'heron-flush', count: 7 }, { id: 'gull-flush', count: 1 }, { id: 'crab-flee', count: 0 },
+  { id: 'bird-flush', count: 15 }, { id: 'butterfly-chase', count: 0 }, { id: 'bark', count: 0 },
+].map(c => ({ ...c, tier: 0, next: 1 }));
+const TREASURES = { got: 3, total: 12 };
+
+function fakeQuest() {
+  const subs = new Map();
+  return {
+    stamps: () => STAMPS,
+    totals: () => ({
+      stamps: { got: STAMPS.filter(s => s.got).length, total: STAMPS.length },
+      treasures: { ...TREASURES },
+      challenges: CHAL,
+    }),
+    on(evt, fn) {
+      if (!subs.has(evt)) subs.set(evt, new Set());
+      subs.get(evt).add(fn);
+      return () => subs.get(evt).delete(fn);
+    },
+    emit(evt, p) { for (const fn of subs.get(evt) || []) fn(p); },
+    listeners: () => [...subs.values()].reduce((n, s) => n + s.size, 0),
+  };
+}
+
+const { createJournalUI } = await import('../src/journal-ui.js');
+const quest = fakeQuest();
+const root = document;
+const ui = createJournalUI({ quest, root });
+let cur = ui;                 // instance pilotée par la barre de démo
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const toasts = () => $$('#toasts .toast');
+
+/* ── barre de démo ───────────────────────────────────────────── */
+const bar = document.getElementById('bar');
+const demo = {
+  'carnet (toggle)': () => cur.toggle(),
+  'tampon': () => quest.emit('stamp', { id: 'pine', kanji: '松', name: 'Pin du rivage', haiku: [] }),
+  'omamori': () => quest.emit('treasure', { id: 'o4', got: 4, total: 12 }),
+  'palier 1': () => quest.emit('challenge-tier', { id: 'gull-flush', name: 'Goélands dispersés', kanji: '鴎', tier: 1, count: 1 }),
+  'palier 5': () => quest.emit('challenge-tier', { id: 'heron-flush', name: 'Envol des aosagi', kanji: '鷺', tier: 5, count: 5 }),
+  'tous les sceaux': () => quest.emit('complete', { kind: 'stamps', reward: 'gold-seal' }),
+  'tous les omamori': () => quest.emit('complete', { kind: 'treasures', reward: 'bandana' }),
+  'flair 0.1': () => cur.toast('sniff', { strength: 0.1 }),
+  'flair 0.4': () => cur.toast('sniff', { strength: 0.4 }),
+  'flair 0.9': () => cur.toast('sniff', { strength: 0.9 }),
+};
+for (const [label, fn] of Object.entries(demo)) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = fn;
+  bar.appendChild(b);
+}
+const hideLabel = document.createElement('label');
+hideLabel.innerHTML = '<input type="checkbox"> interface masquée (H)';
+hideLabel.querySelector('input').onchange = (e) => cur.setHidden(e.target.checked);
+bar.appendChild(hideLabel);
+
+/* ── invariants ──────────────────────────────────────────────── */
+check('API complète',
+  ['toast', 'open', 'close', 'toggle', 'isOpen', 'refresh', 'setHidden', 'dispose'].every(k => typeof ui[k] === 'function'));
+check('abonné aux 4 événements du quest', quest.listeners() === 4, `${quest.listeners()}`);
+
+ui.refresh();
+check('carnet : 9 cases de sceaux', $$('#j-stamps .j-cell').length === 9, `${$$('#j-stamps .j-cell').length}`);
+check('carnet : 4 cases .got', $$('#j-stamps .got').length === 4, `${$$('#j-stamps .got').length}`);
+check('compteur de sceaux « 4 / 9 »', $('#j-n-stamps').textContent === '4 / 9', $('#j-n-stamps').textContent);
+check('omamori : 12 amulettes dont 3 .got', $$('#j-charms li').length === 12 && $$('#j-charms .got').length === 3);
+check('défis : 5 visibles + le secret masqué (bark à 0)',
+  $$('#j-challenges li').length === 6 && !$('#j-challenges').textContent.includes('Ouaf') && $('#j-challenges .secret'),
+  `${$$('#j-challenges li').length} lignes`);
+check('défis : paliers dérivés du compteur (7 → 2 sur 3, 15 → 3 sur 3)',
+  $$('#j-challenges li')[0].querySelectorAll('.j-pips i.on').length === 2
+  && $$('#j-challenges li')[3].querySelectorAll('.j-pips i.on').length === 3);
+check('sceau doré caché tant que le carnet est incomplet', $('.j-gold').hidden === true);
+
+// ouverture / fermeture
+const opener = $('#journal-btn');
+opener.focus();
+check('carnet fermé au départ', ui.isOpen() === false && $('#journal').hidden);
+ui.toggle();
+check('toggle() ouvre le carnet', ui.isOpen() && !$('#journal').hidden && getComputedStyle($('#journal')).display !== 'none');
+check('dialog aria-modal + libellé', $('.j-sheet').getAttribute('role') === 'dialog' && $('.j-sheet').getAttribute('aria-modal') === 'true'
+  && !!document.getElementById($('.j-sheet').getAttribute('aria-labelledby')));
+check('focus dans le carnet à l’ouverture', $('.j-sheet').contains(document.activeElement));
+check('aria-expanded du bouton 帳', opener.getAttribute('aria-expanded') === 'true');
+ui.toggle();
+check('toggle() referme le carnet', !ui.isOpen() && $('#journal').hidden);
+check('focus rendu au bouton à la fermeture (clavier)', document.activeElement === opener);
+
+// clavier : Échap local, sans fuite vers main.js
+let leaked = 0;
+const leak = (e) => { if (e.key === 'Escape') leaked++; };
+window.addEventListener('keydown', leak);
+ui.open();
+$('.j-sheet').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+check('Échap dans le carnet le ferme sans atteindre window', !ui.isOpen() && leaked === 0, `fuites=${leaked}`);
+ui.open();
+$('.j-sheet').dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true }));
+window.removeEventListener('keydown', leak);
+check('les autres touches (ZQSD) ne sont pas interceptées', ui.isOpen());
+
+// clic dehors
+$('.j-sheet').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+$('.j-sheet').click();
+check('clic dans la page ne ferme pas', ui.isOpen());
+$('#journal').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+$('#journal').click();
+check('clic sur le voile ferme', !ui.isOpen());
+
+// poème
+ui.open();
+$$('#j-stamps button')[2].click();
+check('clic sur un sceau obtenu : haïku en 3 vers', $$('#j-haiku .l').length === 3 && $('#j-haiku').textContent.includes('Gardien des voyageurs'));
+$$('#j-stamps button')[1].click();
+check('clic sur un sceau vide : indice, pas de poème', $$('#j-haiku .l').length === 0 && $('#j-haiku .hint').textContent.includes('Rocher moussu'));
+ui.close();
+
+// bouton 帳
+opener.click();
+check('bouton 帳 ouvre le carnet', ui.isOpen());
+check('…sans replier le panneau (stopPropagation)', headFolds === 0, `repliages=${headFolds}`);
+opener.click();
+check('bouton 帳 referme le carnet', !ui.isOpen());
+
+// refresh après changement
+STAMPS[1].got = true;
+ui.refresh();
+check('refresh() reflète un nouveau sceau (5 .got)', $$('#j-stamps .got').length === 5);
+
+// toasts
+ui.setHidden(true); ui.setHidden(false);
+quest.emit('stamp', { id: 'pine', kanji: '松', name: 'Pin du rivage', haiku: [] });
+check('événement stamp → toast avec nom et sceau', toasts().length === 1 && toasts()[0].textContent.includes('Pin du rivage') && !!toasts()[0].querySelector('.seal'));
+quest.emit('treasure', { id: 'o4', got: 4, total: 12 });
+quest.emit('challenge-tier', { id: 'gull-flush', name: 'Goélands dispersés', kanji: '鴎', tier: 1, count: 1 });
+check('file d’attente : un seul toast à l’écran à la fois', toasts().length === 1);
+check('toasts : pointer-events none', getComputedStyle($('#toasts')).pointerEvents === 'none');
+await wait(3500 + 450 + 300);
+check('…puis le suivant apparaît (~3,5 s)', toasts().length === 1 && toasts()[0].textContent.includes('Omamori'), toasts()[0]?.textContent);
+
+// flair
+const sniffs = [[0.1, 'Une odeur lointaine…'], [0.4, 'Ça sent quelque chose…'], [0.9, 'Tout près !']];
+let sniffOk = true;
+for (const [s, txt] of sniffs) {
+  ui.setHidden(true); ui.setHidden(false);
+  ui.toast('sniff', { strength: s });
+  sniffOk &&= toasts().length === 1 && toasts()[0].textContent === txt && toasts()[0].classList.contains('quiet');
+}
+check('flair : 3 textes selon strength (<0.25, <0.6, ≥0.6), discret', sniffOk);
+ui.setHidden(true); ui.setHidden(false);
+for (let i = 0; i < 5; i++) ui.toast('sniff', { strength: 0.3 });
+check('R répété : un seul toast de flair, pas de file', toasts().length === 1);
+
+// complete → sceau doré
+quest.emit('complete', { kind: 'stamps', reward: 'gold-seal' });
+ui.open();
+check('complete stamps → sceau doré dans le carnet', $('.j-gold').hidden === false);
+ui.close();
+ui.setHidden(true); ui.setHidden(false);
+quest.emit('complete', { kind: 'treasures', reward: 'bandana' });
+check('complete treasures → toast du foulard', toasts().length === 1 && toasts()[0].textContent.includes('foulard'));
+
+// setHidden
+ui.setHidden(true);
+check('setHidden(true) masque les toasts', $('#toasts').hidden && getComputedStyle($('#toasts')).display === 'none' && toasts().length === 0);
+ui.toast('stamp', { id: 'x', kanji: '印', name: 'X' });
+check('…et ignore les nouveaux', toasts().length === 0);
+ui.open(); ui.setHidden(true);
+check('setHidden(true) ferme aussi le carnet', !ui.isOpen());
+ui.setHidden(false);
+ui.toast('stamp', { id: 'y', kanji: '印', name: 'Y' });
+check('setHidden(false) rétablit les toasts', !$('#toasts').hidden && toasts().length === 1);
+
+// robustesse
+let threw = false;
+try { ui.toast('inconnu', {}); ui.toast('stamp'); ui.toast('sniff', {}); ui.toast('challenge-tier', null); } catch { threw = true; }
+check('kind/payload inattendus : aucune exception', !threw);
+
+// lisibilité : encre sur papier ≥ 4.5:1
+const lum = (hex) => {
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+  return .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
+};
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+const cs = getComputedStyle(document.documentElement);
+const ink = cs.getPropertyValue('--sumi').trim(), paperDeep = '#ecdfc3';
+check('contraste encre/papier ≥ 4.5', ratio(ink, paperDeep) >= 4.5, ratio(ink, paperDeep).toFixed(1));
+// kanji de sceau = gros texte gras (≥ 18,66 px) → seuil WCAG 3:1
+check('contraste papier/sceau vermillon ≥ 3 (gros texte gras)', ratio('#f0e6d1', cs.getPropertyValue('--vermilion').trim()) >= 3,
+  ratio('#f0e6d1', cs.getPropertyValue('--vermilion').trim()).toFixed(1));
+
+// dispose
+ui.setHidden(true); ui.setHidden(false);
+ui.dispose();
+quest.emit('stamp', { id: 'z', kanji: '印', name: 'Z' });
+check('dispose() : désabonné, plus aucun toast', quest.listeners() === 0 && toasts().length === 0);
+
+/* ── état final pour les captures / la démo ─────────────────── */
+STAMPS[1].got = false;
+const demoUi = createJournalUI({ quest, root });
+cur = demoUi;
+if (params.get('open')) {
+  if (params.get('gold')) quest.emit('complete', { kind: 'stamps', reward: 'gold-seal' });
+  demoUi.open();
+  if (params.get('haiku')) $$('#j-stamps button')[2].click();
+  say(`fenêtre ${innerWidth}×${innerHeight}, feuille ${Math.round($('.j-sheet').getBoundingClientRect().height)} px (max-height ${getComputedStyle($('.j-sheet')).maxHeight}, défilement ${$('.j-scroll').scrollHeight}/${$('.j-scroll').clientHeight})`, 'k');
+  if (params.get('scroll')) $('.j-scroll').scrollTop = 1e5;
+}
+if (params.get('toast')) {
+  quest.emit('stamp', { id: 'pine', kanji: '松', name: 'Pin du rivage', haiku: [] });
+}
+finish();
+</script>
+</body>
+</html>

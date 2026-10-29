@@ -100,6 +100,8 @@ const SHAKE_FAILSAFE = 1.4;
 const SHAKE_DROPLETS = 6;
 const BARK_DURATION = 0.38;
 const BLINK_DURATION = 0.09;
+const SNIFF_DURATION = 1.6;
+const SNIFF_COOLDOWN = 2;
 
 // Ground-reaction tuning: these two formulas are deliberately the only knobs.
 // If the gait ever reads as permanent fog, lower their floors (1 and 0.6), not
@@ -335,6 +337,10 @@ export function createShiba({
     shakeCrossing: 0,  // last emitted sin(s * 34) zero-crossing index
     bark: 0,           // 0..1 one-shot woof weight
     barkElapsed: 0,
+    sniff: 0,          // 0..1 one-shot scent weight, same pose stack as bark
+    sniffElapsed: 0,
+    sniffYaw: 0,       // world yaw the nose seeks (heading convention)
+    sniffStrength: 0,
     look: 0,           // 0..1 head-look blend; never yaws the body
     lookKind: null,
   };
@@ -435,6 +441,7 @@ export function createShiba({
   let lookHeadYaw = 0;
   let lookHeadPitch = 0;
   let nextIdleBark = R.range(barkRng, SHIBA.idleBeforeBark, SHIBA.idleBeforeBark + 4);
+  let sniffCool = 0;
   const _evPos = new THREE.Vector3();
   const api = { onEvent: () => {} };
 
@@ -448,6 +455,25 @@ export function createShiba({
     state.bark = 1;
     state.barkElapsed = 0;
     emit('bark');
+    return true;
+  }
+
+  /**
+   * Museau au sol vers `targetYaw` (lacet MONDE, même convention que
+   * `state.heading` : 0 = +Z, positif vers +X). Refus pendant le saut, la
+   * nage, le secouage, l'aboiement, ou tant que la recharge de 2 s court.
+   * @returns {boolean}
+   */
+  function sniff(targetYaw, strength) {
+    if (state.airborne || state.swimming || state.shake > 0 || state.bark > 0) return false;
+    if (sniffCool > 0) return false;
+    if (!Number.isFinite(targetYaw)) return false;
+    state.sniff = 1;
+    state.sniffElapsed = 0;
+    state.sniffYaw = targetYaw;
+    state.sniffStrength = clamp(Number.isFinite(strength) ? strength : 0, 0, 1);
+    sniffCool = SNIFF_COOLDOWN;
+    emit('sniff');
     return true;
   }
 
@@ -982,6 +1008,18 @@ export function createShiba({
     const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
     const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;
     headPitch += barkEnv * 0.22;
+    const sniffS = state.sniff > 0 ? clamp(state.sniffElapsed / SNIFF_DURATION, 0, 1) : 0;
+    const sniffEnv = state.sniff > 0 ? Math.sin(Math.PI * sniffS) : 0;
+    // Tête basse, tournée vers targetYaw dans la butée du cou (lookYawMax).
+    // sniffEnv à 0 : les trois canaux restent ceux de la locomotion.
+    if (sniffEnv > 0) {
+      const yaw = clamp(wrapPi(state.sniffYaw - state.heading), -SHIBA.lookYawMax, SHIBA.lookYawMax);
+      headYaw = mix(headYaw, yaw, sniffEnv);
+      // ~65° au total (cou + tête) : le museau vise le sol DEVANT lui.
+      // Au-delà, +Z passe derrière et le lacet du nez se retourne.
+      headPitch = mix(headPitch, 0.70, sniffEnv);
+      neckPitch = mix(neckPitch, 0.46, sniffEnv);
+    }
     // Même contrat que poseLeg et poseBody : les cinq valeurs sont FINALES,
     // secouage compris. Un rig dont la tête est démesurée par rapport au cou
     // les réinterprète — lookUp lève le museau de 0.62 rad, ce qui lit comme un
@@ -1012,7 +1050,10 @@ export function createShiba({
     // Integrate the phase: sin(t * wag) with a time-varying wag sweeps the
     // phase at wag + t * dwag/dt — at t in the hundreds of seconds the decay
     // after a run whipped the tail dozens of times too fast.
-    const wag = 2.0 + state.excitement * 9.0;
+    // Au reniflement la queue accélère avec la force de l'odeur. Le terme
+    // vaut 0 hors pose : la cadence de marche / course ne change pas.
+    const wag = 2.0 + state.excitement * 9.0
+      + sniffEnv * (3 + 12 * state.sniffStrength);
     state.tailPhase += wag * dt;
     const locomotionTailY = Math.sin(state.tailPhase) * (0.10 + 0.28 * state.excitement);
     const locomotionTailX = -0.10 * speedN;
@@ -1047,7 +1088,7 @@ export function createShiba({
       // +X penche la pointe vers l'avant (le port du shiba au repos), -X la
       // couche en arrière : à la course il les plaque, à la nage aussi.
       // -side * z les ouvre vers l'extérieur.
-      const landEarX = 0.24 - 0.80 * speedN + flick - 0.22 * lie;
+      const landEarX = 0.24 - 0.80 * speedN + flick - 0.22 * lie + sniffEnv * 0.18;
       const landEarZ = -side * (0.08 + 0.08 * gust + 0.18 * speedN);
       rig.ears[i].rotation.x = mix(landEarX, -0.75, swim);
       rig.ears[i].rotation.z = mix(landEarZ, -side * 0.32, swim);
@@ -1330,6 +1371,14 @@ export function createShiba({
         state.barkElapsed = 0;
       }
     }
+    if (sniffCool > 0) sniffCool = Math.max(0, sniffCool - Math.max(0, dt));
+    if (state.sniff > 0) {
+      state.sniffElapsed += Math.max(0, dt);
+      if (state.sniffElapsed >= SNIFF_DURATION) {
+        state.sniff = 0;
+        state.sniffElapsed = 0;
+      }
+    }
 
     // Look is head-only. Running must never inherit this as body yaw.
     // The hold tracks ONE target: swapping to whoever is nearest each frame
@@ -1451,6 +1500,12 @@ export function createShiba({
     notify(name) {
       if (name === 'heron-flush' || name === 'bark') startBark();
     },
+    /** Museau au sol ~1.6 s. false si saut, nage, secouage, aboiement ou recharge. */
+    sniff,
+    /** Foulard rouge noué au cou. Sans pièce sur le rig : no-op. */
+    setBandana(on) {
+      if (rig.bandana) rig.bandana.visible = !!on;
+    },
     setLookTargets(list) {
       lookTargets = Array.isArray(list) ? list : [];
     },
@@ -1489,6 +1544,11 @@ export function createShiba({
       state.shakeCrossing = 0;
       state.bark = 0;
       state.barkElapsed = 0;
+      state.sniff = 0;
+      state.sniffElapsed = 0;
+      state.sniffYaw = 0;
+      state.sniffStrength = 0;
+      sniffCool = 0;
       state.look = 0;
       state.lookKind = null;
       lookHold = 0;

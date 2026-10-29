@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — omamori</title>
+<script type="importmap">
+{ "imports": {
+    "three": "/vendor/three/build/three.module.js",
+    "three/addons/": "/vendor/three/examples/jsm/"
+} }
+</script>
+<style>
+  html,body{margin:0;min-height:100%;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{padding:10px 14px;line-height:1.8}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+/*
+ * Placement des omamori et flair. Bake île tier low, même chaîne que
+ * test/invariants.html : seedNoise → createWind → createPonds → carve
+ * → createIsland → initPath. La page finit par :
+ *   INVARIANTS: N pass, M fail
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+let pass = 0, fail = 0;
+let finished = false;
+const finish = () => {
+  if (finished) return;
+  finished = true;
+  const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+};
+window.onerror = (m, _s, _l, _c, e) => {
+  fail++;
+  say('✗ ' + (e?.stack || m), 'bad');
+  console.error(m);
+  finish();
+};
+window.addEventListener('unhandledrejection', e => {
+  fail++;
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+  finish();
+});
+
+import { SEED, WORLD, QUALITY, TREASURES } from '../src/config.js';
+import { seedNoise } from '../src/noise.js';
+import { createWind } from '../src/wind.js';
+import { createPonds } from '../src/ponds.js';
+import { createIsland } from '../src/island.js';
+import { initPath, isOnPath } from '../src/details.js';
+import { computeChashitsuSite, chashitsuKeepOut } from '../src/chashitsu.js';
+import { placeTreasures, createTreasures } from '../src/treasures.js';
+import * as THREE from 'three';
+
+function check(name, cond, detail = '') {
+  if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
+  else { fail++; say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad'); console.error(`FAIL — ${name} ${detail}`); }
+}
+
+seedNoise(SEED);
+say('modules chargés', 'ok');
+
+const TIER = (() => {
+  const q = new URLSearchParams(location.search).get('q');
+  return q === 'ultra' || q === 'high' ? q : 'low';
+})();
+say(`TIER=${TIER}`, 'k');
+
+const wind = createWind();
+const ponds = createPonds({ seed: SEED, wind, quality: QUALITY[TIER], heightAt: null });
+const carve = (x, z, h) => ponds.carvePonds(x, z, h);
+const t0 = performance.now();
+const island = createIsland({
+  seed: SEED, quality: { label: TIER, rocks: 8 }, carve,
+  isInPond: (x, z) => ponds.isInPond(x, z),
+});
+say(`island bâtie en <span class="k">${((performance.now() - t0) / 1000).toFixed(1)} s</span> (tier ${TIER})`);
+ponds.attach({ heightAt: island.heightAt });
+initPath({
+  heightAt: island.heightAt,
+  heightGrid: island.heightGrid,
+  slopeAt: island.slopeAt,
+});
+
+const tea = computeChashitsuSite({
+  heightAt: island.heightAt,
+  isOnPath,
+  isInPond: (x, z) => ponds.isInPond(x, z),
+  slopeAt: island.slopeAt,
+});
+const keepOut = (x, z) => chashitsuKeepOut(tea, x, z);
+const inPond = (x, z) => ponds.isInPond(x, z);
+
+const opts = {
+  seed: SEED,
+  heightAt: island.heightAt,
+  isOnPath,
+  isInPond: inPond,
+  keepOut,
+  count: TREASURES.count,
+};
+
+try {
+  check('TREASURES',
+    TREASURES.count === 12 && TREASURES.pickRadius === 0.9
+    && TREASURES.sniffRange === 40 && TREASURES.size === 0.25,
+    JSON.stringify(TREASURES));
+
+  const a = placeTreasures(opts);
+  const b = placeTreasures(opts);
+  check('12 spots', a.length === 12, String(a.length));
+  let same = a.length === b.length;
+  for (let i = 0; same && i < a.length; i++) {
+    same = a[i].id === b[i].id && a[i].x === b[i].x && a[i].y === b[i].y && a[i].z === b[i].z;
+  }
+  check('déterministe', same, same ? a[0] ? `${a[0].x.toFixed(2)},${a[0].z.toFixed(2)}` : '' : 'coords différentes');
+
+  let onPath = 0, wet = 0, sea = 0, yard = 0, offWorld = 0;
+  const half = WORLD.size * 0.5;
+  const islandR = WORLD.size * 0.385 + 1e-6;
+  for (const s of a) {
+    if (isOnPath(s.x, s.z)) onPath++;
+    if (inPond(s.x, s.z)) wet++;
+    if (!(island.heightAt(s.x, s.z) > 0.3) || s.y !== island.heightAt(s.x, s.z)) sea++;
+    if (keepOut(s.x, s.z)) yard++;
+    if (Math.abs(s.x) > half || Math.abs(s.z) > half || s.x * s.x + s.z * s.z > islandR * islandR) offWorld++;
+  }
+  check('aucun sur un chemin', onPath === 0, onPath ? `${onPath} sur le sentier` : `${a.length} hors ruban`);
+  check('aucun dans un étang', wet === 0, wet ? `${wet} mouillés` : 'sec');
+  check('sur terre, y = sol', sea === 0);
+  check('hors keepOut', yard === 0, tea ? `chashitsu (${tea.x.toFixed(1)},${tea.z.toFixed(1)})` : 'pas de chashitsu');
+  check('dans l’emprise', offWorld === 0);
+
+  let sepOk = true, minSep = Infinity;
+  for (let i = 0; i < a.length; i++) {
+    if (!/^omamori-\d+$/.test(a[i].id)) sepOk = false;
+    for (let j = i + 1; j < a.length; j++) {
+      const d = Math.hypot(a[i].x - a[j].x, a[i].z - a[j].z);
+      if (d < minSep) minSep = d;
+      if (d < 12) sepOk = false;
+    }
+  }
+  check('espacement ≥ 12', sepOk && a.length >= 2, Number.isFinite(minSep) ? `min ${minSep.toFixed(2)}` : 'trop peu');
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const s of a) {
+    if (s.x < minX) minX = s.x; if (s.x > maxX) maxX = s.x;
+    if (s.z < minZ) minZ = s.z; if (s.z > maxZ) maxZ = s.z;
+  }
+  const span = Math.hypot(maxX - minX, maxZ - minZ);
+  check('répartis sur l’île', span > WORLD.size * 0.385 * 0.45,
+    `Δx ${(maxX - minX).toFixed(0)} Δz ${(maxZ - minZ).toFixed(0)} span ${span.toFixed(0)}`);
+
+  const treasures = createTreasures(opts);
+  let placedSame = treasures.spots.length === a.length;
+  for (let i = 0; placedSame && i < a.length; i++) {
+    placedSame = treasures.spots[i].x === a[i].x && treasures.spots[i].z === a[i].z
+      && treasures.ids[i] === a[i].id;
+  }
+  check('createTreasures = placeTreasures', placedSame);
+  check('InstancedMesh', treasures.mesh.isInstancedMesh && treasures.mesh.count === a.length);
+  const colAttr = treasures.mesh.geometry.getAttribute('color');
+  check('instanceColor (vertexColors + attribut blanc)',
+    treasures.mesh.material.vertexColors === true
+    && colAttr != null
+    && colAttr.getX(0) > 0.95 && colAttr.getY(0) > 0.95 && colAttr.getZ(0) > 0.95
+    && treasures.mesh.instanceColor != null
+    && treasures.mesh.instanceColor.count === a.length);
+
+  /* Au contact : strength ≈ 1, et le cap suit le heading du shiba.
+   * Oracle indépendant : avancer de (sin θ, cos θ) doit longer le vecteur
+   * vers le spot. Décalage 0.2 < demi-espacement, donc c'est encore lui. */
+  const spot = treasures.spots[0];
+  const on = treasures.sniff(spot.x, spot.z);
+  check('sniff au-dessus ≈ 1', on.id === spot.id && Math.abs(on.strength - 1) < 1e-9,
+    `strength ${on.strength} id ${on.id}`);
+
+  const ox = spot.x + 0.2, oz = spot.z - 0.15;
+  const near = treasures.sniff(ox, oz);
+  const dx = spot.x - ox, dz = spot.z - oz;
+  const dist = Math.hypot(dx, dz);
+  const wantS = 1 - dist / TREASURES.sniffRange;
+  const fx = Math.sin(near.dir), fz = Math.cos(near.dir);
+  const along = fx * dx + fz * dz;
+  check('sniff : strength = 1 − d/portée',
+    near.id === spot.id && Math.abs(near.strength - wantS) < 1e-9,
+    `got ${near.strength.toFixed(4)} want ${wantS.toFixed(4)}`);
+  check('dir = heading shiba (sin, cos)',
+    along > 0.999 * dist && Math.abs(near.dir - Math.atan2(dx, dz)) < 1e-12,
+    `along ${(along / dist).toFixed(4)} θ ${near.dir.toFixed(3)}`);
+
+  const hits = [];
+  treasures.onFound = (id) => hits.push(id);
+  treasures.update(0.4, spot.x, spot.z);
+  treasures.update(0.8, spot.x, spot.z);
+  check('update sur un spot → onFound une fois', hits.length === 1 && hits[0] === spot.id,
+    hits.join(',') || 'aucun');
+
+  const after = treasures.sniff(spot.x, spot.z);
+  check('trouvé : le flair vise le suivant', after.id != null && after.id !== spot.id, after.id);
+
+  // Matrix4.decompose renvoie une échelle (1,1,1) quand le déterminant
+  // est nul — une échelle 0 est illisible par cette voie. On lit la 3×3.
+  const mat0 = new THREE.Matrix4();
+  treasures.mesh.getMatrixAt(0, mat0);
+  const e = mat0.elements;
+  check('ramassé : échelle 0',
+    e[0] === 0 && e[5] === 0 && e[10] === 0
+    && Math.abs(e[12] - spot.x) < 2e-4 && Math.abs(e[14] - spot.z) < 2e-4,
+    `diag ${e[0]},${e[5]},${e[10]} @ ${e[12].toFixed(1)},${e[14].toFixed(1)}`);
+
+  /* markFound (Set, comme la sauvegarde) ne réémet pas, et le flair
+   * se tourne vers le plus proche encore là. */
+  const fresh = createTreasures(opts);
+  const gone = fresh.spots[0];
+  let remarked = 0;
+  fresh.onFound = () => { remarked++; };
+  fresh.markFound(new Set([gone.id]));
+  const nxt = fresh.sniff(gone.x, gone.z);
+  let best = null, bestD = Infinity;
+  for (const s of fresh.spots) {
+    if (s.id === gone.id) continue;
+    const d = Math.hypot(s.x - gone.x, s.z - gone.z);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  const wantNext = bestD >= TREASURES.sniffRange ? 0 : 1 - bestD / TREASURES.sniffRange;
+  const nfx = Math.sin(nxt.dir), nfz = Math.cos(nxt.dir);
+  const nAlong = best ? nfx * (best.x - gone.x) + nfz * (best.z - gone.z) : 0;
+  check('markFound puis sniff vise le suivant',
+    remarked === 0 && best && nxt.id === best.id
+    && Math.abs(nxt.strength - wantNext) < 1e-9
+    && nAlong > 0.999 * bestD,
+    nxt.id ? `${nxt.id} d=${bestD.toFixed(1)}` : 'rien');
+
+  const far = fresh.sniff(1e6, 1e6);
+  check('hors de portée : strength 0, id encore posé',
+    far.id != null && far.id !== gone.id && far.strength === 0,
+    far.id ? `${far.id} ${far.strength}` : 'null');
+
+  fresh.markFound(fresh.ids);
+  const none = fresh.sniff(0, 0);
+  check('tout trouvé : id null', none.id === null && none.strength === 0 && none.dir === 0);
+
+  /* Loin de tout spot : rien ne se ramasse, la boucle reste muette. */
+  const before = performance.now();
+  for (let i = 0; i < 200; i++) treasures.update(i * 0.016, 1e5, 1e5);
+  check('update loin : pas de ramassage', hits.length === 1, `${((performance.now() - before)).toFixed(1)} ms / 200`);
+
+  treasures.dispose();
+  fresh.dispose();
+
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2');
+  if (!gl) {
+    say('WebGL2 absent — shader non compilé dans ce Chrome', 'k');
+  } else {
+    const shot = new URLSearchParams(location.search).has('shot');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setSize(shot ? 480 : 48, shot ? 480 : 48);
+    renderer.setClearColor(0x141820, 1);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.AmbientLight(0xfff4e8, 0.7));
+    const sun = new THREE.DirectionalLight(0xfffaf2, 1.3);
+    sun.position.set(2, 4, 3);
+    scene.add(sun);
+    const cam = new THREE.PerspectiveCamera(32, 1, 0.02, 30);
+    const probe = createTreasures(opts);
+    const s0 = probe.spots[0];
+    cam.position.set(s0.x + 0.35, s0.y + 0.28, s0.z + 0.55);
+    cam.lookAt(s0.x, s0.y + TREASURES.size * 0.45, s0.z);
+    scene.add(probe.mesh);
+    probe.update(1.2, 1e5, 1e5);
+    renderer.compile(scene, cam);
+    renderer.render(scene, cam);
+    check('shader omamori compilé', (renderer.info.programs?.length ?? 0) > 0,
+      String(renderer.info.programs?.length));
+    if (shot) {
+      canvas.style.cssText = 'position:fixed;left:12px;top:12px;width:480px;height:480px;z-index:2';
+      document.body.prepend(canvas);
+      renderer.render(scene, cam);
+    } else {
+      probe.dispose();
+      renderer.dispose();
+    }
+  }
+} catch (e) {
+  fail++;
+  say('✗ ' + (e?.stack || e), 'bad');
+  console.error(e);
+}
+finish();
+</script>
+</body>
+</html>
