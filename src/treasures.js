@@ -182,8 +182,11 @@ export function placeTreasures({
     if (yard && yard(x, z)) continue;
     if (!reachable(x, z)) continue;
 
+    // Position quantifiée : la sauvegarde suit le sachet, pas l'ordre du tirage.
+    const id = `omamori-${Math.round(x)}_${Math.round(z)}`;
     let crowded = false;
     for (let i = 0; i < out.length; i++) {
+      if (out[i].id === id) { crowded = true; break; }
       const dx = x - out[i].x;
       const dz = z - out[i].z;
       // Marge infime : hypot(d) doit rester ≥ 12 malgré l'arrondi.
@@ -191,7 +194,7 @@ export function placeTreasures({
     }
     if (crowded) continue;
 
-    out.push({ id: `omamori-${out.length}`, x, y, z });
+    out.push({ id, x, y, z });
   }
   return out;
 }
@@ -332,7 +335,8 @@ export function createTreasures({
       const strength = bestD >= sniffRange ? 0 : 1 - bestD / sniffRange;
       return { dir, strength, id: spots[best].id };
     },
-    /** Retrait au boot, depuis la sauvegarde. N'émet pas onFound. */
+    /** Retrait au boot, depuis la sauvegarde. N'émet pas onFound.
+     *  Un id inconnu (autre placement, sauvegarde périmée) est ignoré. */
     markFound(list) {
       if (list == null) return;
       for (const id of list) {

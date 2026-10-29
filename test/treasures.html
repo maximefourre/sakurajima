@@ -123,6 +123,19 @@ try {
   }
   check('déterministe', same, same ? a[0] ? `${a[0].x.toFixed(2)},${a[0].z.toFixed(2)}` : '' : 'coords différentes');
 
+  const idOf = (s) => `omamori-${Math.round(s.x)}_${Math.round(s.z)}`;
+  const idSeen = new Set();
+  let idFmt = a.length >= 2;
+  for (const s of a) {
+    if (s.id !== idOf(s)) idFmt = false;
+    idSeen.add(s.id);
+  }
+  let idStable = a.length === b.length && a.length >= 2;
+  for (let i = 0; idStable && i < a.length; i++) idStable = a[i].id === b[i].id;
+  check('ids position quantifiée, uniques, stables',
+    idFmt && idSeen.size === a.length && idStable,
+    a[0] ? `${a[0].id} attendu ${idOf(a[0])}` : 'vide');
+
   let onPath = 0, wet = 0, sea = 0, yard = 0, offWorld = 0;
   const half = WORLD.size * 0.5;
   const islandR = WORLD.size * 0.385 + 1e-6;
@@ -141,7 +154,7 @@ try {
 
   let sepOk = true, minSep = Infinity;
   for (let i = 0; i < a.length; i++) {
-    if (!/^omamori-\d+$/.test(a[i].id)) sepOk = false;
+    if (!/^omamori--?\d+_-?\d+$/.test(a[i].id)) sepOk = false;
     for (let j = i + 1; j < a.length; j++) {
       const d = Math.hypot(a[i].x - a[j].x, a[i].z - a[j].z);
       if (d < minSep) minSep = d;
@@ -278,6 +291,13 @@ try {
    * se tourne vers le plus proche encore là. */
   const fresh = createTreasures(opts);
   const gone = fresh.spots[0];
+  let unknownThrew = false;
+  try { fresh.markFound(['omamori-inconnu']); }
+  catch (e) { unknownThrew = true; }
+  const stillThere = fresh.sniff(gone.x, gone.z);
+  check('markFound id inconnu : sans effet',
+    !unknownThrew && stillThere.id === gone.id && Math.abs(stillThere.strength - 1) < 1e-9,
+    unknownThrew ? 'throw' : `${stillThere.id} ${stillThere.strength}`);
   let remarked = 0;
   fresh.onFound = () => { remarked++; };
   fresh.markFound(new Set([gone.id]));
