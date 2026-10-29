@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — bouton « effacer la progression » (app réelle, WebGL requis)</title>
+<style>
+  html,body{margin:0;min-height:100%;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{padding:10px 14px;line-height:1.8}
+  iframe{position:fixed;right:0;bottom:0;width:640px;height:400px;border:0;opacity:.01;pointer-events:none}
+  body.shot iframe{inset:0;width:100vw;height:100vh;opacity:1} body.shot #log{display:none}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+/*
+ * Bouton « Effacer la progression » (やり直す) du panneau de réglages, testé sur
+ * le VRAI index.html (?q=low) chargé dans une iframe de même origine : markup,
+ * CSS, câblage main.js et événement 'reset' de la quête sont ceux de prod.
+ * Exige WebGL : lancer Chrome avec --enable-unsafe-swiftshader --use-angle=swiftshader
+ * (sans GPU, voir test/reset.html). ?stop=confirm|done laisse l'état affiché
+ * (captures) avec l'iframe visible.
+ *   INVARIANTS: N pass, M fail
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+let pass = 0, fail = 0, finished = false;
+const finish = () => {
+  if (finished) return;
+  finished = true;
+  const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+};
+window.onerror = (m, _s, _l, _c, e) => { fail++; say('✗ ' + (e?.stack || m), 'bad'); console.error(m); finish(); };
+window.addEventListener('unhandledrejection', e => { if (e.reason?.message === 'stop') return; fail++; say('✗ ' + (e.reason?.stack || e.reason), 'bad'); console.error(e.reason); finish(); });
+function check(name, cond, detail = '') {
+  if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
+  else { fail++; say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad'); console.error(`FAIL — ${name} ${detail}`); }
+}
+const stop = new URLSearchParams(location.search).get('stop');
+if (stop) document.body.classList.add('shot');
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+async function until(fn, ms = 30000) {
+  const t0 = performance.now();
+  for (;;) {
+    let v; try { v = fn(); } catch { v = null; }
+    if (v) return v;
+    if (performance.now() - t0 > ms) return null;
+    await wait(50);
+  }
+}
+
+/* Réglages posés AVANT le chargement : le bouton ne doit jamais y toucher. */
+localStorage.removeItem('sakurajima.quest.v1');
+localStorage.setItem('sakurajima.quality', 'low');
+localStorage.setItem('sakurajima.season', 'spring');
+
+const frame = document.createElement('iframe');
+frame.src = '/index.html?q=low';
+document.body.appendChild(frame);
+
+const win = frame.contentWindow;
+const sk = await until(() => frame.contentWindow.__sk?.quest && frame.contentWindow.__sk.ui && frame.contentWindow.__sk);
+check('index.html démarre (window.__sk prêt)', !!sk, sk ? '' : `readyState=${frame.contentDocument?.readyState} sk=${typeof frame.contentWindow.__sk} veil=${frame.contentDocument?.getElementById('veil')?.className}`);
+if (!sk) { finish(); throw new Error('boot'); }
+const w = frame.contentWindow;
+const d = frame.contentDocument;
+w.__marker = 1;                       // survit tant que la page n'est pas rechargée
+let dialogs = 0;
+for (const k of ['confirm', 'alert', 'prompt']) w[k] = () => { dialogs++; return true; };
+const $ = (id) => d.getElementById(id);
+const hidden = (el) => !el || el.hidden || getComputedStyle(el).display === 'none';
+const quest = sk.quest;
+const sum = () => { const t = quest.totals(); return t.stamps.got + t.treasures.got + t.challenges.reduce((a, c) => a + c.count, 0); };
+const scaleOf = (i) => { const m = new sk.THREE.Matrix4(); sk.treasures.mesh.getMatrixAt(i, m); return m.elements[0]; };
+
+/* Une progression non vide : tampon, omamori ramassé (caché), défi, foulard. */
+const base = sum();                   // le chien démarre déjà sur un site : on compte le delta
+const site = quest.stamps().find(e => !e.got);
+quest.update(site.x, site.z);
+const tid = sk.treasures.ids[0];
+sk.treasures.markFound([tid]);
+quest.report('treasure', { id: tid });
+quest.report('crab-flee');
+sk.world.shiba.setBandana(true);
+check('progression semée (tampon + omamori + défi)', sum() >= base + 3, `somme=${sum()} base=${base}`);
+check('omamori ramassé caché avant reset', scaleOf(0) === 0, `échelle=${scaleOf(0)}`);
+check('clé de quête écrite', !!localStorage.getItem('sakurajima.quest.v1'));
+
+/* Panneau déplié (les boutons ne sont pas actionnables repliés). */
+d.getElementById('panel-head').click();
+
+const btn = $('reset-btn'), ask = $('reset-confirm'), msg = $('reset-msg'), yes = $('reset-yes'), no = $('reset-no');
+check('bouton #reset-btn présent dans le panneau', !!btn && !!btn.closest('#panel .panel-body'));
+if (!btn || !ask || !yes || !no) { finish(); throw new Error('markup'); }
+check('vrais <button type=button> (bouton, oui, annuler)', [btn, yes, no].every(b => b.tagName === 'BUTTON' && b.type === 'button'));
+check('libellé FR + japonais', /Effacer la progression/.test(btn.textContent) && /やり直す/.test(btn.textContent), btn.textContent.trim());
+check('état initial : confirmation masquée, bouton visible', hidden(ask) && !hidden(btn));
+check('texte de confirmation en aria-live', /polite|assertive/.test(msg.getAttribute('aria-live') || ''));
+check('même rangée que qualité/saison : dans .panel-body, avant .hint',
+  btn.closest('.panel-body') === d.querySelector('.panel-body') && !!(btn.closest('.row').compareDocumentPosition(d.querySelector('.hint')) & 4));
+
+/* Espace/Entrée sur un bouton du panneau : le chien ne saute pas. */
+let jumps = 0;
+const realJump = sk.world.shiba.jump;
+sk.world.shiba.jump = (...a) => { jumps++; return realJump?.apply(sk.world.shiba, a); };
+btn.focus();
+btn.dispatchEvent(new w.KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true }));
+btn.dispatchEvent(new w.KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
+check('Espace/Entrée sur le bouton : pas de saut', jumps === 0, `sauts=${jumps}`);
+d.body.dispatchEvent(new w.KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true }));
+check('Espace hors panneau : le chien saute toujours', jumps === 1, `sauts=${jumps}`);
+
+/* 1er clic : demande confirmation, n'efface RIEN. */
+const before = sum();
+btn.click();
+if (stop === 'confirm') { setInterval(() => { if (hidden(ask)) btn.click(); }, 1000); finish(); throw new Error('stop'); }
+check('1er clic : confirmation affichée', !hidden(ask) && /Vraiment/.test(msg.textContent) && /foulard/i.test(msg.textContent), msg.textContent);
+check('1er clic : bouton initial masqué', hidden(btn));
+check('1er clic : n\'efface rien', sum() === before && !!localStorage.getItem('sakurajima.quest.v1'));
+
+/* Annuler. */
+no.click();
+check('« Annuler » : retour à l\'état initial', hidden(ask) && !hidden(btn));
+check('« Annuler » : n\'efface rien', sum() === before && !!localStorage.getItem('sakurajima.quest.v1'));
+
+/* Retour automatique après ~5 s. */
+btn.click();
+check('2e demande : confirmation ouverte', !hidden(ask));
+await wait(2000);
+check('encore ouverte à 2 s', !hidden(ask));
+await wait(4200);
+check('retour auto après ~5 s sans action', hidden(ask) && !hidden(btn));
+check('retour auto : rien effacé', sum() === before);
+
+/* Clic ailleurs. */
+btn.click();
+d.body.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true }));
+d.body.click();
+check('clic ailleurs : retour à l\'état initial', hidden(ask) && !hidden(btn));
+check('clic ailleurs : rien effacé', sum() === before);
+
+/* Clic DANS la confirmation (hors boutons) ne l'annule pas. */
+btn.click();
+ask.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true }));
+check('pointerdown dans la confirmation : reste ouverte', !hidden(ask));
+no.click();
+
+/* Oui. */
+let resets = 0, bandana = null;
+const realBandana = sk.world.shiba.setBandana;
+sk.world.shiba.setBandana = (on) => { bandana = on; return realBandana.call(sk.world.shiba, on); };
+quest.on('reset', () => { resets++; });
+btn.click();
+yes.click();
+const t = quest.totals();
+check('« Oui » : quest.totals() à 0', t.stamps.got === 0 && t.treasures.got === 0 && t.challenges.every(c => c.count === 0 && c.tier === 0), `somme=${sum()}`);
+check('« Oui » : un seul événement reset', resets === 1, `resets=${resets}`);
+check('« Oui » : sakurajima.quest.v1 effacée', localStorage.getItem('sakurajima.quest.v1') === null, String(localStorage.getItem('sakurajima.quest.v1')));
+check('sakurajima.quality INCHANGÉE', localStorage.getItem('sakurajima.quality') === 'low');
+check('sakurajima.season INCHANGÉE', localStorage.getItem('sakurajima.season') === 'spring');
+check('« Oui » : omamori remis en place', scaleOf(0) > 0, `échelle=${scaleOf(0)}`);
+check('« Oui » : foulard retiré', bandana === false, `setBandana(${bandana})`);
+check('« Oui » : retour à l\'état initial', hidden(ask) && !hidden(btn));
+if (stop === 'done') { setInterval(() => sk.ui.toast('sniff', { text: 'Carnet vierge — tout est à redécouvrir' }), 1000); finish(); throw new Error('stop'); }
+const toast = await until(() => [...d.querySelectorAll('#toasts .toast')].find(n => /Carnet vierge/.test(n.textContent)), 25000);   // attend derrière les toasts des sceaux semés (≈4 s chacun)
+check('« Oui » : toast « Carnet vierge »', !!toast, toast?.textContent.trim());
+check('pas de rechargement de page', w.__marker === 1 && frame.contentWindow === w);
+check('aucun confirm()/alert()/prompt()', dialogs === 0, `appels=${dialogs}`);
+
+/* Rien ne reste armé après « Oui » : le timer d'auto-annulation ne rouvre rien. */
+await wait(5500);
+check('timer purgé après « Oui »', hidden(ask) && !hidden(btn));
+
+finish();
+</script>
+</body>
+</html>

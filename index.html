@@ -220,6 +220,29 @@
     color: var(--ink); background: var(--accent); font-weight: 600;
   }
 
+  /* Effacer la progression : discret au repos, la confirmation s'ouvre en
+     place (src/reset-ui.js). `hidden` doit gagner contre les display ci-dessous. */
+  .reset-row [hidden] { display: none !important; }
+  .reset-btn {
+    width: 100%; padding: .42rem .3rem;
+    font-family: inherit; font-size: .58rem; letter-spacing: .08em;
+    text-transform: uppercase;
+    color: rgba(244,236,226,.36);
+    background: transparent;
+    border: 1px solid rgba(244,236,226,.1); border-radius: 2px;
+    cursor: pointer; transition: all .22s ease; touch-action: manipulation;
+  }
+  .reset-btn:hover { color: rgba(244,236,226,.85); background: rgba(244,236,226,.06); }
+  .reset-btn span { margin-left: .4em; letter-spacing: .04em; text-transform: none; }
+  .reset-msg {
+    font-size: .64rem; letter-spacing: .1em; line-height: 1.7; opacity: .78;
+  }
+  .reset-msg:not(:empty) { margin-bottom: .55rem; }
+  .reset-btn:focus-visible, .reset-row .seg button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -2px;   /* en dedans : .panel-body rogne ce qui déborde */
+  }
+  .reset-row .seg button { touch-action: manipulation; }
+
   .hint {
     margin-top: .95rem; padding-top: .8rem;
     border-top: 1px solid rgba(244,236,226,.08);
@@ -673,6 +696,15 @@
         <button data-q="low">low</button>
         <button data-q="high">high</button>
         <button data-q="ultra">ultra</button>
+      </div>
+    </div>
+
+    <div class="row reset-row" id="reset-row">
+      <button type="button" class="reset-btn" id="reset-btn">Effacer la progression <span lang="ja">やり直す</span></button>
+      <p class="reset-msg" id="reset-msg" aria-live="polite"></p>
+      <div class="seg" id="reset-confirm" hidden>
+        <button type="button" id="reset-yes">Oui, effacer</button>
+        <button type="button" id="reset-no">Annuler</button>
       </div>
     </div>
 

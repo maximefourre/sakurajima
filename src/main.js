@@ -40,6 +40,7 @@ import { createAudio, ambientWeights } from './audio.js';
 import { createTreasures } from './treasures.js';
 import { createQuest } from './quest.js';
 import { createJournalUI } from './journal-ui.js';
+import { createResetControl } from './reset-ui.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
@@ -873,6 +874,15 @@ async function boot() {
     world.shiba.setBandana(false);
     world.ui.refresh();
   });
+  // Bouton « Effacer la progression » du panneau : seule la quête est effacée
+  // (clé sakurajima.quest.v1) ; qualité et saison restent. Pas de rechargement :
+  // l'événement 'reset' ci-dessus remet le monde en état.
+  createResetControl({
+    onConfirm: () => {
+      quest.reset();
+      world.ui.toast('sniff', { text: 'Carnet vierge — tout est à redécouvrir' });
+    },
+  });
 
   // Prime the cycle once before the first frame so we never flash a black scene.
   world.sky.update(world.dayTime, 0);
@@ -1279,8 +1289,12 @@ for (const b of $('s-season').children) {
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   const journalOpen = !!world.ui?.isOpen();
+  // Focus CLAVIER sur un bouton du panneau : Espace l'active (confirmation du
+  // reset…), il ne fait pas sauter le chien. Au clic souris le focus n'est pas
+  // « visible » : Espace saute comme avant.
+  const onPanelButton = !!e.target?.closest?.('#panel button')?.matches(':focus-visible');
   // Carnet ouvert : Espace garde son rôle de bouton, le chien ne saute pas.
-  if (e.code === 'Space' && !journalOpen) { e.preventDefault(); world.shiba?.jump?.(); }
+  if (e.code === 'Space' && !journalOpen && !onPanelButton) { e.preventDefault(); world.shiba?.jump?.(); }
   if (e.code === 'KeyP') setPaused();
   if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
   if (e.code === 'Escape' || e.code === 'Delete') {
