@@ -37,6 +37,9 @@ import { createBamboo, inBambooGrove } from './bamboo.js';
 import { createTouchControls } from './touch.js';
 import { createCloudShadow } from './cloud-shadow.js';
 import { createAudio, ambientWeights } from './audio.js';
+import { createTreasures } from './treasures.js';
+import { createQuest } from './quest.js';
+import { createJournalUI } from './journal-ui.js';
 // `flowerSpots` est un binding ES VIVANT : details.js le reassigne depuis
 // createDetails, et l'import voit la nouvelle valeur. Meme mecanique que
 // `lanternSpots`. D'ou l'ordre de construction imperatif plus bas.
@@ -482,6 +485,19 @@ async function boot() {
     ponds: world.ponds.PONDS,
   });
   scene.add(world.poi.group);
+  // Omamori cachés : après le POI (keepOut du chashitsu), avant le shiba.
+  world.treasures = createTreasures({
+    seed: SEED,
+    heightAt: world.heightAt,
+    isOnPath,
+    isInPond: world.inWater,
+    keepOut: (x, z) => world.poi.keepOut(x, z),
+  });
+  scene.add(world.treasures.mesh);
+  // Carnet : sites POI présents (un site absent à ce tier est ignoré) + omamori.
+  world.quest = createQuest({ sites: world.poi.sites, treasureIds: world.treasures.ids });
+  world.treasures.markFound(world.quest.state.treasures);
+  world.treasures.onFound = (id) => world.quest.report('treasure', { id });
   world.crabs = createCrabs({
     seed: SEED, quality: q,
     heightAt: world.heightAt,
@@ -785,10 +801,16 @@ async function boot() {
     wind: world.wind,
   });
   scene.add(world.shiba.group);
-  if (world.audio) {
-    world.birds.onEvent = (name) => world.audio.handle(name);
-    world.shiba.onEvent = (name) => world.audio.handle(name);
-  }
+  // Audio ET carnet sur les mêmes événements (un seul slot onEvent par source).
+  const quest = world.quest;
+  world.birds.onEvent = (name) => {
+    world.audio?.handle(name);
+    if (name === 'flush') quest.report('bird-flush');
+  };
+  world.shiba.onEvent = (name) => {
+    world.audio?.handle(name);
+    if (name === 'bark') quest.report('bark');
+  };
 
   lookStatic.length = 0;
   {
@@ -810,8 +832,21 @@ async function boot() {
     }
   }
   if (world.herons) {
-    world.herons.onFlush = () => world.shiba.notify('heron-flush');
+    world.herons.onFlush = () => {
+      world.shiba.notify('heron-flush');
+      quest.report('heron-flush');
+    };
   }
+  world.gulls.onFlush = () => quest.report('gull-flush');
+  world.crabs.onFlee = () => quest.report('crab-flee');
+  world.butterflies.onFlee = () => quest.report('butterfly-chase');
+
+  // Carnet + toasts (ctor sans effet de bord hors DOM d'index.html). Le sceau
+  // sonne comme un appel d'oiseau ; le foulard récompense les 12 omamori.
+  world.ui = createJournalUI({ quest });
+  quest.on('stamp', () => world.audio?.handle('call'));
+  quest.on('complete', ({ reward }) => { if (reward === 'bandana') world.shiba.setBandana(true); });
+  if (quest.state.rewards.has('bandana')) world.shiba.setBandana(true);
 
   // Prime the cycle once before the first frame so we never flash a black scene.
   world.sky.update(world.dayTime, 0);
@@ -844,6 +879,7 @@ async function boot() {
         return world.camMode === 'follow';
       },
       onPause: () => setPaused(),
+      onSniff: () => sniff(),
     });
     // Le mini-hint tactile et le bandeau clavier partagent le même geste de
     // sortie : dès que le joueur essaie le joystick, l'explication a servi.
@@ -863,7 +899,10 @@ async function boot() {
   }
 
   // Handy for debugging from the console: window.__sk.world, etc.
-  globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock };
+  globalThis.__sk = {
+    world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock,
+    quest: world.quest, treasures: world.treasures, ui: world.ui,
+  };
 
   renderer.setAnimationLoop(frame);
 }
@@ -985,6 +1024,8 @@ function frame() {
   world.dragonflies?.update(t, phase);
   world.midges?.update(t, phase);
   world.gulls?.update(t, dt, world.shiba, camera);
+  world.quest.update(dogX, dogZ);
+  world.treasures.update(t, dogX, dogZ);
   const inSea = world.ponds.pondWaterYAt(dogX, dogZ) === null
     && world.heightAt(dogX, dogZ) < world.island.seaLevel;
   if (inSea) {
@@ -1114,6 +1155,19 @@ function resetViewAndTime() {
   $('touch-camera')?.setAttribute('aria-pressed', 'false');
 }
 
+/** Flairer : R / bouton tactile. Recharge (2 s) et refus gérés par shiba.sniff. */
+function sniff() {
+  const { shiba, treasures, ui } = world;
+  if (!shiba || !treasures || !ui) return;
+  const s = treasures.sniff(shiba.position.x, shiba.position.z);
+  if (s.id === null) {
+    // Tout est trouvé : pas de pose, juste un mot.
+    ui.toast('sniff', { text: 'Plus rien à flairer ici…' });
+    return;
+  }
+  if (shiba.sniff(s.dir, s.strength)) ui.toast('sniff', s);
+}
+
 function syncPauseUI() {
   if (clockPause) {
     clockPause.hidden = !world.paused;
@@ -1203,11 +1257,18 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC') setCamMode(world.camMode === 'follow' ? 'orbit' : 'follow');
   if (e.code === 'Escape' || e.code === 'Delete') {
     e.preventDefault();
-    resetViewAndTime();
+    // Carnet ouvert : Échap le ferme seulement. Jamais la progression (reset =
+    // vue + temps + shiba, pas le quest).
+    if (e.code === 'Escape' && world.ui?.isOpen()) world.ui.close();
+    else resetViewAndTime();
   }
+  const plain = !(e.ctrlKey || e.metaKey || e.altKey);
+  if (plain && (e.key === 'r' || e.key === 'R')) sniff();
+  if (plain && (e.key === 'j' || e.key === 'J')) world.ui?.toggle();
   if (e.key === 'h' || e.key === 'H') {
     const hidden = hud.style.opacity === '0';
     hud.style.opacity = panel.style.opacity = hidden ? '' : '0';
+    world.ui?.setHidden(!hidden);
   }
 });
 

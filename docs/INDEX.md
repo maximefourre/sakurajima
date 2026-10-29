@@ -38,3 +38,4 @@ audio sons ambiance cigales cicada phrases surf grenouilles → audio.js ; confi
 POI chashitsu pas japonais stoneYAt signes torii marin → poi.js ; chashitsu.js
 tactile mobile touch → touch.js
 rivière pont → supprimés, ne pas réintroduire (pieges.md#règles)
+gamification quest tampons omamori carnet goshuin défis flair foulard → quest.js ; treasures.js ; journal-ui.js

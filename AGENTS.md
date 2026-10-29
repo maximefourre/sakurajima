@@ -30,6 +30,8 @@ python3 serve.py 5173     # JAMAIS python -m http.server (cache les modules ES)
 - Debug : `globalThis.__sk = { world, scene, camera, renderer, controls, THREE, frame, setCamMode, clock }`.
   `world.dayTime` (0–1, 0.5 = midi), `world.paused`, `world.heightAt(x,z)`, `world.inWater(x,z)`.
 - Contrôles : ZQSD, `Maj` court, `C` caméra, Espace saut, `P` pause du temps,
-  `H` HUD, `Échap` reset. Boot à midi figé.
+  `H` HUD, `R` renifler (flair des omamori), `J` carnet goshuin (帳), `Échap`
+  ferme le carnet s'il est ouvert, sinon reset vue/temps (jamais la progression,
+  clé `sakurajima.quest.v1`). Boot à midi figé. `__sk.quest` / `__sk.treasures` / `__sk.ui`.
 - Vercel : servi tel quel ; `.vercelignore` exclut `*.md`, `docs/`, `tools/`,
   `serve.py`. `test/` est public (voulu).

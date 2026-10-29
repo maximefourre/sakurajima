@@ -11,7 +11,7 @@ const DEAD_ZONE = STICK_RADIUS * 0.15;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-export function createTouchControls({ shiba, onJump, onCamera, onPause }) {
+export function createTouchControls({ shiba, onJump, onCamera, onPause, onSniff }) {
   const root = document.getElementById('touch-ui');
   const stick = document.getElementById('touch-stick');
   const base = stick?.querySelector('.stick-base');
@@ -130,6 +130,7 @@ export function createTouchControls({ shiba, onJump, onCamera, onPause }) {
   bindAction('touch-jump', onJump);
   bindAction('touch-camera', onCamera);
   bindAction('touch-pause', onPause);
+  bindAction('touch-sniff', onSniff);
 
   // Un changement d'application ne doit jamais laisser une course maintenue
   // ni un stick fantôme : les pointerup mobiles ne sont pas garantis au blur.
