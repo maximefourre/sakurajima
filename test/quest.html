@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>banc d'essai — quest (tampons, omamori, défis)</title>
+<style>
+  html,body{margin:0;min-height:100%;background:#11121a;
+    font:12px ui-monospace,Menlo,monospace;color:#cfd3e2}
+  #log{padding:10px 14px;line-height:1.8}
+  .ok{color:#8ee6a8} .bad{color:#ff8899} .k{color:#f2b8cd}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<script type="module">
+/*
+ * Noyau pur src/quest.js : tampons de proximité, omamori, défis à paliers,
+ * persistance (stockage factice) et tolérance aux pannes de stockage.
+ * Se termine par une ligne unique greppable :
+ *   INVARIANTS: N pass, M fail
+ */
+const log = document.getElementById('log');
+const say = (s, cls = '') => { log.innerHTML += `<div class="${cls}">${s}</div>`; };
+let pass = 0, fail = 0;
+let finished = false;
+const finish = () => {
+  if (finished) return;
+  finished = true;
+  const summary = `INVARIANTS: ${pass} pass, ${fail} fail`;
+  say(`<br><b>${summary}</b>`, fail ? 'bad' : 'ok');
+  console.log(summary);
+};
+window.onerror = (m, _s, _l, _c, e) => {
+  fail++;
+  say('✗ ' + (e?.stack || m), 'bad');
+  console.error(m);
+  finish();
+};
+window.addEventListener('unhandledrejection', e => {
+  fail++;
+  say('✗ ' + (e.reason?.stack || e.reason), 'bad');
+  console.error(e.reason);
+  finish();
+});
+
+function check(name, cond, detail = '') {
+  if (cond) { pass++; say(`PASS — ${name}${detail ? ` <span class="k">(${detail})</span>` : ''}`, 'ok'); }
+  else { fail++; say(`FAIL — ${name}${detail ? ` (${detail})` : ''}`, 'bad'); console.error(`FAIL — ${name} ${detail}`); }
+}
+
+/* Stockage factice partageable entre deux createQuest. */
+function fakeStorage() {
+  const data = new Map();
+  const calls = { get: 0, set: 0, remove: 0 };
+  return {
+    data, calls,
+    getItem(k) { calls.get++; return data.has(k) ? data.get(k) : null; },
+    setItem(k, v) { calls.set++; data.set(k, String(v)); },
+    removeItem(k) { calls.remove++; data.delete(k); },
+  };
+}
+/* Enregistre les événements d'un quest. */
+function spy(q) {
+  const ev = [];
+  for (const k of ['stamp', 'treasure', 'challenge-tier', 'complete']) {
+    q.on(k, p => ev.push({ evt: k, ...p }));
+  }
+  return ev;
+}
+
+let M;
+try {
+  M = await import('../src/quest.js');
+} catch (e) {
+  fail++;
+  say('✗ import ../src/quest.js : ' + (e?.stack || e), 'bad');
+  console.error(e);
+  finish();
+}
+
+if (M) {
+  const { STAMPS, CHALLENGES, STORAGE_KEY, createQuest } = M;
+  say('module chargé', 'ok');
+
+  /* ── constantes ── */
+  check('STORAGE_KEY', STORAGE_KEY === 'sakurajima.quest.v1');
+  check('9 tampons, ids attendus',
+    STAMPS.map(s => s.id).join() === 'pine,rock,jizo,tsukubai,iwakura,stones,seaTorii,chashitsu,snag');
+  check('tampons : haïku de 3 vers, kanji, nom, site',
+    STAMPS.every(s => Array.isArray(s.haiku) && s.haiku.length === 3
+      && s.haiku.every(l => typeof l === 'string' && l.length > 3)
+      && s.kanji && s.name && s.site === s.id));
+  check('rayons : 3 u, torii marin 9 u',
+    STAMPS.every(s => s.radius === (s.id === 'seaTorii' ? 9 : 3)));
+  check('6 défis, paliers 1/5/15, bark caché seul',
+    CHALLENGES.map(c => c.id).join() === 'heron-flush,gull-flush,crab-flee,bird-flush,butterfly-chase,bark'
+      && CHALLENGES.every(c => c.tiers.join() === '1,5,15' && c.name && c.kanji)
+      && CHALLENGES.filter(c => c.hidden).map(c => c.id).join() === 'bark');
+
+  /* ── tampons ── */
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 } } });
+    const ev = spy(q);
+    q.update(1, 1);
+    const e = ev.find(x => x.evt === 'stamp');
+    const t = q.totals().stamps;
+    check('stamp sur proximité',
+      ev.filter(x => x.evt === 'stamp').length === 1 && e && e.id === 'jizo' && e.kanji && e.name && e.haiku.length === 3
+        && t.got === 1 && t.total === 1,
+      e ? `${e.id} ${e.kanji}` : 'aucun event');
+  }
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 } } });
+    const ev = spy(q);
+    q.update(10, 0);
+    check('hors rayon : pas de tampon', ev.length === 0 && q.totals().stamps.got === 0);
+  }
+  {
+    const q = createQuest({ storage: null, sites: { jizo: null, snag: { x: 5, z: 5 } } });
+    check('site null ignoré', q.stamps().length === 1 && q.stamps()[0].id === 'snag'
+      && q.totals().stamps.total === 1);
+    const q2 = createQuest({ storage: null, sites: {} });
+    const q3 = createQuest({ storage: null });
+    check('aucun site : total 0, pas de crash',
+      q2.stamps().length === 0 && q2.totals().stamps.total === 0 && q3.stamps().length === 0);
+  }
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 } } });
+    const ev = spy(q);
+    q.update(1, 1); q.update(1, 1); q.update(0, 0);
+    check('pas de double tampon', ev.filter(x => x.evt === 'stamp').length === 1);
+  }
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 3, z: 4 } } });
+    const ev = spy(q);
+    q.update(0, 0);                    // distance 5 > 3
+    q.update(0.6, 0.8);                // distance 4 > 3
+    const miss = ev.length;
+    q.update(1.5, 2.0);                // distance 2.5 < 3
+    check('rayon respecté (3 u)', miss === 0 && ev.filter(x => x.evt === 'stamp').length === 1);
+  }
+  {
+    const q = createQuest({ storage: null, sites: { seaTorii: { x: 0, z: 0 } } });
+    const ev = spy(q);
+    q.update(8, 0);
+    check('torii en mer : rayon 9 u', ev.length && ev[0].evt === 'stamp' && ev[0].id === 'seaTorii');
+  }
+  {
+    /* forme réelle de poi.sites : stones = tableau de dalles {x,z,y,r} */
+    const slabs = [{ x: 10, z: 10, y: 0, r: 0.5 }, { x: 12, z: 10, y: 0, r: 0.5 }, { x: 14, z: 10, y: 0, r: 0.5 }];
+    const q = createQuest({ storage: null, sites: { stones: slabs, seaTorii: { x: -30, z: 4, h: -1, yaw: 0 } } });
+    const s = q.stamps().find(x => x.id === 'stones');
+    check('stones (tableau) : x,z numériques d\'une dalle',
+      s && Number.isFinite(s.x) && Number.isFinite(s.z) && slabs.some(d => d.x === s.x && d.z === s.z));
+    const q2 = createQuest({ storage: null, sites: { stones: [] } });
+    check('stones vide ignoré', q2.stamps().length === 0);
+    const ev = spy(q);
+    q.update(s.x, s.z);
+    check('stones : tampon depuis la dalle retenue', ev.some(e => e.id === 'stones'));
+  }
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 }, snag: { x: 50, z: 0 } } });
+    const st = q.stamps();
+    check('stamps() : .x .z .got',
+      st.length === 2 && st.every(s => 'x' in s && 'z' in s && 'got' in s)
+        && st.find(s => s.id === 'jizo').got === false);
+    q.update(0, 0);
+    check('stamps() : got suit l\'état', q.stamps().find(s => s.id === 'jizo').got === true
+      && q.stamps().find(s => s.id === 'snag').got === false);
+  }
+  {
+    /* tous les tampons → complete / gold-seal */
+    const q = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 }, snag: { x: 50, z: 0 } } });
+    const ev = spy(q);
+    q.update(0, 0);
+    const mid = ev.filter(x => x.evt === 'complete').length;
+    q.update(50, 0);
+    const c = ev.filter(x => x.evt === 'complete');
+    check('tampons complets → complete stamps/gold-seal',
+      mid === 0 && c.length === 1 && c[0].kind === 'stamps' && c[0].reward === 'gold-seal'
+        && q.state.rewards.has('gold-seal'));
+  }
+
+  /* ── défis ── */
+  {
+    const q = createQuest({ storage: null });
+    const ev = spy(q);
+    for (let i = 0; i < 5; i++) q.report('gull-flush');
+    const tiers = ev.filter(x => x.evt === 'challenge-tier');
+    const c = q.totals().challenges.find(x => x.id === 'gull-flush');
+    check('paliers 1 puis 5',
+      tiers.length === 2 && tiers[0].tier === 1 && tiers[1].tier === 5
+        && tiers[0].id === 'gull-flush' && tiers[1].count === 5 && tiers[0].name && tiers[0].kanji,
+      tiers.map(t => t.tier).join('→'));
+    check('totals().challenges : count/tier/next',
+      c && c.count === 5 && c.tier === 5 && c.next === 15
+        && q.totals().challenges.length === 6);
+    for (let i = 0; i < 10; i++) q.report('gull-flush');
+    const c2 = q.totals().challenges.find(x => x.id === 'gull-flush');
+    check('palier 15 : next null', c2.count === 15 && c2.tier === 15 && c2.next === null
+      && ev.filter(x => x.evt === 'challenge-tier').length === 3);
+    q.report('gull-flush');
+    check('au-delà de 15 : compte encore, pas de nouveau palier',
+      q.state.counts['gull-flush'] === 16 && ev.filter(x => x.evt === 'challenge-tier').length === 3);
+    q.report('inconnu');
+    q.report('treasure');
+    q.report('treasure', {});
+    check('report inconnu / sans donnée : ignoré', ev.length === 3 + 0 && q.state.counts.inconnu === undefined
+      && ev.filter(x => x.evt === 'challenge-tier').length === 3);
+  }
+
+  /* ── omamori ── */
+  {
+    const q = createQuest({ storage: null, treasureIds: ['a', 'b'] });
+    const ev = spy(q);
+    q.report('treasure', { id: 'a' });
+    const mid = ev.filter(x => x.evt === 'complete').length;
+    q.report('treasure', { id: 'b' });
+    q.report('treasure', { id: 'a' });
+    const tr = ev.filter(x => x.evt === 'treasure');
+    const c = ev.filter(x => x.evt === 'complete');
+    check('omamori complet',
+      mid === 0 && c.length === 1 && c[0].kind === 'treasures' && c[0].reward === 'bandana'
+        && q.state.rewards.has('bandana'));
+    check('treasure : payload {id,got,total} et re-report sans effet',
+      tr.length === 2 && tr[0].id === 'a' && tr[0].got === 1 && tr[0].total === 2
+        && tr[1].got === 2 && q.totals().treasures.got === 2 && q.totals().treasures.total === 2);
+    q.report('treasure', { id: 'zzz' });
+    check('omamori inconnu ignoré', ev.filter(x => x.evt === 'treasure').length === 2);
+  }
+  {
+    const q = createQuest({ storage: null });
+    const ev = spy(q);
+    q.report('treasure', { id: 'x' });
+    check('sans treasureIds : jamais complete', q.totals().treasures.total === 0
+      && !ev.some(e => e.evt === 'complete'));
+  }
+
+  /* ── abonnements ── */
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 } } });
+    let n = 0;
+    const off = q.on('stamp', () => { n++; });
+    off();
+    q.update(0, 0);
+    const q2 = createQuest({ storage: null, sites: { jizo: { x: 0, z: 0 } } });
+    let n2 = 0;
+    q2.on('stamp', () => { throw new Error('ui cassée'); });
+    q2.on('stamp', () => { n2++; });
+    let threw = false;
+    try { q2.update(0, 0); } catch { threw = true; }
+    check('off() désabonne ; un écouteur qui throw n\'arrête rien', n === 0 && !threw && n2 === 1);
+  }
+
+  /* ── persistance ── */
+  {
+    const store = fakeStorage();
+    const sites = { jizo: { x: 0, z: 0 }, snag: { x: 50, z: 0 } };
+    const a = createQuest({ storage: store, sites, treasureIds: ['t0', 't1'] });
+    a.update(0, 0);
+    a.report('gull-flush'); a.report('gull-flush');
+    a.report('treasure', { id: 't1' });
+    const raw = store.data.get(STORAGE_KEY);
+    let parsed = null; try { parsed = JSON.parse(raw); } catch {}
+    check('format persistant v1',
+      parsed && parsed.v === 1 && parsed.stamps.includes('jizo') && parsed.treasures.includes('t1')
+        && parsed.counts['gull-flush'] === 2 && Array.isArray(parsed.rewards));
+    const b = createQuest({ storage: store, sites, treasureIds: ['t0', 't1'] });
+    const ev = spy(b);
+    b.update(0, 0);
+    check('persistance : le second voit tampons/compteurs/omamori',
+      b.state.stamps.has('jizo') && b.state.treasures.has('t1')
+        && b.state.counts['gull-flush'] === 2
+        && b.totals().stamps.got === 1 && b.totals().treasures.got === 1
+        && b.stamps().find(s => s.id === 'jizo').got === true);
+    check('persistance : re-passer sur un tampon déjà obtenu n\'émet rien', ev.length === 0);
+    b.report('gull-flush'); b.report('gull-flush'); b.report('gull-flush');
+    const t = ev.filter(x => x.evt === 'challenge-tier');
+    check('persistance : le palier 5 se déclenche à la suite', t.length === 1 && t[0].tier === 5);
+    b.update(50, 0);
+    check('persistance : complétion après rechargement', b.state.rewards.has('gold-seal'));
+    const c = createQuest({ storage: store, sites, treasureIds: ['t0', 't1'] });
+    const evc = spy(c);
+    c.update(0, 0); c.update(50, 0);
+    check('persistance : récompense restaurée, pas de second complete',
+      c.state.rewards.has('gold-seal') && !evc.some(e => e.evt === 'complete'));
+  }
+  {
+    /* un site absent à ce tier ne fait pas perdre le tampon sauvegardé */
+    const store = fakeStorage();
+    const a = createQuest({ storage: store, sites: { jizo: { x: 0, z: 0 }, snag: { x: 9, z: 9 } } });
+    a.update(0, 0);
+    const b = createQuest({ storage: store, sites: { snag: { x: 9, z: 9 } } });
+    check('tier sans le site : total = sites présents', b.totals().stamps.total === 1 && b.totals().stamps.got === 0);
+    b.update(9, 9);
+    const c = createQuest({ storage: store, sites: { jizo: { x: 0, z: 0 }, snag: { x: 9, z: 9 } } });
+    check('…et la progression des autres sites reste', c.totals().stamps.got === 2);
+  }
+
+  /* ── pannes de stockage ── */
+  {
+    const boom = {
+      getItem() { throw new Error('SecurityError'); },
+      setItem() { throw new Error('QuotaExceeded'); },
+      removeItem() { throw new Error('SecurityError'); },
+    };
+    let err = null;
+    let q;
+    const errs = [];
+    const origErr = console.error;
+    console.error = (...a) => errs.push(a);
+    try {
+      q = createQuest({ storage: boom, sites: { jizo: { x: 0, z: 0 } }, treasureIds: ['a'] });
+      q.update(0, 0);
+      q.report('gull-flush');
+      q.report('treasure', { id: 'a' });
+      q.reset();
+    } catch (e) { err = e; }
+    console.error = origErr;
+    check('stockage qui throw : aucune exception, aucun console.error', !err && errs.length === 0, err ? String(err) : '');
+    let q2;
+    try {
+      q2 = createQuest({ storage: boom, sites: { jizo: { x: 0, z: 0 } } });
+      q2.update(0, 0);
+    } catch (e) { err = e; }
+    check('stockage qui throw : état en mémoire OK', !err && q2.state.stamps.has('jizo') && q2.totals().stamps.got === 1);
+    let q3;
+    try { q3 = createQuest({ storage: undefined, sites: { jizo: { x: 0, z: 0 } } }); q3.update(0, 0); } catch (e) { err = e; }
+    check('stockage par défaut (globalThis.localStorage) : pas de crash', !err && q3.totals().stamps.got === 1);
+    let q4;
+    try { q4 = createQuest({ storage: null }); q4.report('bark'); } catch (e) { err = e; }
+    check('storage null : mémoire seule', !err && q4.state.counts.bark === 1);
+  }
+
+  /* ── sauvegardes invalides ── */
+  {
+    const bad = ['{oops', '{"v":99}', '{"v":99,"stamps":["jizo"]}', 'null', '42', '"texte"', '[]',
+      '{"v":1,"stamps":"jizo","treasures":7,"counts":[],"rewards":null}',
+      '{"v":1,"stamps":["nimporte"],"treasures":[1,null],"counts":{"bark":"beaucoup","zzz":3},"rewards":["x"]}'];
+    let allOk = true; let detail = '';
+    for (const raw of bad) {
+      const store = fakeStorage();
+      store.data.set(STORAGE_KEY, raw);
+      try {
+        const q = createQuest({ storage: store, sites: { jizo: { x: 0, z: 0 } }, treasureIds: ['a'] });
+        const t = q.totals();
+        const empty = t.stamps.got === 0 && t.treasures.got === 0
+          && t.challenges.every(c => c.count === 0) && q.state.rewards.size === 0;
+        if (!empty) { allOk = false; detail = 'état non vide pour ' + raw; }
+        q.update(0, 0);
+        if (q.totals().stamps.got !== 1) { allOk = false; detail = 'jeu inutilisable après ' + raw; }
+      } catch (e) { allOk = false; detail = String(e) + ' pour ' + raw; }
+    }
+    check('sauvegarde corrompue / version future : ignorée, état vide, pas de throw', allOk, detail);
+    const store = fakeStorage();
+    store.data.set(STORAGE_KEY, '{"v":1,"stamps":["jizo","nimporte"],"treasures":["a"],"counts":{"bark":2,"zzz":9},"rewards":["gold-seal","x"]}');
+    const q = createQuest({ storage: store, sites: { jizo: { x: 0, z: 0 } }, treasureIds: ['a'] });
+    check('sauvegarde partielle : entrées inconnues filtrées',
+      q.state.stamps.has('jizo') && !q.state.stamps.has('nimporte')
+        && q.state.counts.bark === 2 && q.state.counts.zzz === undefined
+        && q.state.rewards.has('gold-seal') && !q.state.rewards.has('x'));
+  }
+
+  /* ── reset ── */
+  {
+    const store = fakeStorage();
+    const q = createQuest({ storage: store, sites: { jizo: { x: 0, z: 0 } }, treasureIds: ['a'] });
+    q.update(0, 0); q.report('bark'); q.report('treasure', { id: 'a' });
+    const before = store.calls.remove;
+    q.reset();
+    const t = q.totals();
+    check('reset : vide l\'état et appelle removeItem(STORAGE_KEY)',
+      store.calls.remove === before + 1 && !store.data.has(STORAGE_KEY)
+        && q.state.stamps.size === 0 && q.state.treasures.size === 0 && q.state.rewards.size === 0
+        && t.stamps.got === 0 && t.treasures.got === 0 && t.challenges.every(c => c.count === 0)
+        && q.stamps().every(s => s.got === false));
+    const ev = spy(q);
+    q.update(0, 0);
+    check('reset : le tampon se regagne', ev.some(e => e.evt === 'stamp'));
+  }
+
+  /* ── aucune allocation par frame : update() ne crée rien (garde-fou grossier) ── */
+  {
+    const q = createQuest({ storage: null, sites: { jizo: { x: 500, z: 500 }, snag: { x: -500, z: 0 } } });
+    q.update(0, 0);
+    const t0 = performance.now();
+    for (let i = 0; i < 200000; i++) q.update(i * 0.001, 0);
+    const dt = performance.now() - t0;
+    check('update() : 200k appels hors rayon rapides', dt < 400, dt.toFixed(1) + ' ms');
+  }
+
+  finish();
+}
+</script>
+</body>
+</html>
