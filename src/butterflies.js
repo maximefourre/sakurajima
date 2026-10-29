@@ -353,6 +353,11 @@ export function createButterflies({
   const _s = new THREE.Vector3();
   const repeller = new THREE.Vector3(0, -1e6, 0);
   let hasRepeller = false;
+  // onFlee : un appel par épisode de fuite (au moins un individu en fuite,
+  // alors qu'aucun ne l'était), temps mort FLEE_DEAD_S entre deux appels.
+  const FLEE_DEAD_S = 3;
+  let anyFleeing = false;
+  let lastFleeCall = -Infinity;
 
   function setRepeller(p) {
     if (!p) return;
@@ -413,7 +418,7 @@ export function createButterflies({
   function update(t, dt, phase) {
     const activity = butterflyActivity(phase);
     mesh.visible = activity > 0.01 && n > 0;
-    if (!mesh.visible) return;
+    if (!mesh.visible) { anyFleeing = false; return; }
 
     // Ils s'effacent POSÉS au crépuscule : l'opacité suit l'activité, et sous un
     // seuil ils cessent d'errer. Version bon marché du roost de birds.js.
@@ -435,6 +440,7 @@ export function createButterflies({
 
     const step = Math.min(dt, 0.05);   // un onglet qui reprend ne doit pas téléporter
 
+    let fleeing = false;
     for (let i = 0; i < n; i++) {
       const b = bugs[i];
       const spec = b.big ? BUTTERFLIES.big : BUTTERFLIES.small;
@@ -447,10 +453,9 @@ export function createButterflies({
           b.state = FLEE;
           b.timer = R.range(rng, BUTTERFLIES.fleeSeconds[0], BUTTERFLIES.fleeSeconds[1]);
           b.heading = Math.atan2(dz, dx);
-          const fn = api.onFlee;
-          if (typeof fn === 'function') fn();
         }
       }
+      if (b.state === FLEE) fleeing = true;
 
       // Le sol sous l'individu, calcule AVANT la machine a etats : les branches
       // PERCHED et APPROACH en ont besoin pour viser la corolle.
@@ -597,6 +602,13 @@ export function createButterflies({
     mesh.instanceMatrix.needsUpdate = true;
     aFlap.needsUpdate = true;
     aPerch.needsUpdate = true;
+
+    if (fleeing && !anyFleeing && t - lastFleeCall >= FLEE_DEAD_S) {
+      lastFleeCall = t;
+      const fn = api.onFlee;
+      if (typeof fn === 'function') fn();
+    }
+    anyFleeing = fleeing;
   }
 
   function dispose() {
@@ -606,7 +618,7 @@ export function createButterflies({
 
   const api = {
     mesh, update, setRepeller, dispose,
-    /** Assignable. () => void, une fois par papillon qui entre en fuite. */
+    /** Assignable. () => void, une fois par épisode de fuite (pas par individu), temps mort 3 s. */
     onFlee: () => {},
   };
   return api;

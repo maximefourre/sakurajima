@@ -56,6 +56,7 @@ import { SEED } from '../src/config.js';
 import { createCrabs } from '../src/crabs.js';
 import { createGulls } from '../src/gulls.js';
 import { createButterflies } from '../src/butterflies.js';
+import { createBirds } from '../src/birds.js';
 import { createShiba, SHIBA } from '../src/shiba.js';
 
 function check(name, cond, detail = '') {
@@ -231,6 +232,103 @@ const wrap = (a) => {
   check('foulard retiré', !!(scarf && scarf.visible === false));
 
   dog.dispose();
+}
+
+/* ── T7 : ne compter que ce que le joueur provoque, un par épisode ── */
+{
+  /* goélands : la caméra seule ne compte pas ; le shiba proche, une seule fois */
+  const mk = () => createGulls({
+    seed: SEED,
+    quality: { gulls: 3 },
+    stacks: [{ x: 0, z: 0, topY: 4, h: 2 }],
+  });
+  {
+    const gulls = mk();
+    const m = new THREE.Matrix4(), p = new THREE.Vector3();
+    gulls.mesh.getMatrixAt(0, m);
+    p.setFromMatrixPosition(m);
+    let n = 0;
+    gulls.onFlush = () => { n++; };
+    const far = { position: { x: 500, z: 500 } };
+    const cam = { position: { x: p.x, y: p.y, z: p.z } };
+    for (let i = 0; i < 120; i++) gulls.update(i * dt, dt, far, cam);
+    check('goélands : caméra seule proche → 0 appel', n === 0, `appels ${n}`);
+    gulls.dispose();
+  }
+  {
+    const gulls = mk();
+    let n = 0;
+    gulls.onFlush = () => { n++; };
+    const near = { position: { x: 0, z: 0 } };
+    for (let i = 0; i < 120; i++) gulls.update(i * dt, dt, near, null);
+    check('goélands : shiba proche 120 frames → 1 appel', n === 1, `appels ${n}`);
+    gulls.dispose();
+  }
+
+  /* papillons : dix individus effrayés dans la même frame → un appel */
+  {
+    const spots = new Float32Array(30);
+    for (let i = 0; i < 10; i++) { spots[i * 3] = (i % 5) * 0.2; spots[i * 3 + 1] = 1.2; spots[i * 3 + 2] = Math.floor(i / 5) * 0.2; }
+    const bf = createButterflies({
+      seed: SEED, quality: { butterflies: 10 }, season: 'spring',
+      heightAt: () => 2, flowerSpots: spots,
+    });
+    let n = 0;
+    bf.onFlee = () => { n++; };
+    bf.setRepeller(new THREE.Vector3(0.4, 0, 0.1));
+    const jour = { day: 1, night: 0, twilight: 0 };
+    for (let i = 0; i < 3; i++) bf.update(i * dt, dt, jour);
+    check('papillons : 10 effrayés dans la même frame → 1 appel',
+      bf.mesh.count >= 10 && n === 1, `appels ${n}, instances ${bf.mesh.count}`);
+    bf.dispose();
+  }
+
+  /* crabes : dix individus effrayés à la suite, dans le même épisode → un appel.
+   * Les crabes sont posés sur toute la plage (> 6 u entre eux) : le chien passe
+   * sur chacun, une frame après l'autre, pendant que les précédents fuient. */
+  {
+    const crabs = createCrabs({ seed: SEED, quality: { crabs: 10 }, heightAt: () => 0.3 });
+    const m = new THREE.Matrix4(), p = new THREE.Vector3();
+    const at = [];
+    for (let i = 0; i < crabs.mesh.count; i++) {
+      crabs.mesh.getMatrixAt(i, m); p.setFromMatrixPosition(m); at.push([p.x, p.z]);
+    }
+    let n = 0;
+    crabs.onFlee = () => { n++; };
+    for (let i = 0; i < at.length; i++) crabs.update(1 + i * dt, at[i][0], at[i][1]);
+    check('crabes : 10 effrayés en succession rapide → 1 appel',
+      at.length >= 8 && n === 1, `appels ${n}, instances ${at.length}`);
+    crabs.dispose();
+  }
+
+  /* oiseaux : la cause de l'envol voyage avec l'événement */
+  {
+    const wind = { state: { gust: 1, gustOnset: true, heading: 0 } };
+    const birds = createBirds({ seed: SEED, quality: { label: 'low' }, heightAt: () => 0, wind });
+    const causes = [];
+    birds.onEvent = (name, _pos, cause) => { if (name === 'flush') causes.push(cause); };
+    for (let i = 0; i < 600; i++) birds.update(i * dt, dt, { day: 1, night: 0, twilight: 0 });
+    check('birds : rafale seule → envol, cause « gust », jamais « repel »',
+      causes.length > 0 && causes.every((c) => c === 'gust'), `causes ${causes.join(',') || '—'}`);
+    birds.dispose();
+  }
+  {
+    const birds = createBirds({ seed: SEED, quality: { label: 'low' }, heightAt: () => 0, wind: null });
+    const causes = [];
+    birds.onEvent = (name, _pos, cause) => { if (name === 'flush') causes.push(cause); };
+    const jour = { day: 1, night: 0, twilight: 0 };
+    birds.update(0, dt, jour);
+    const m = new THREE.Matrix4(), p = new THREE.Vector3();
+    for (let i = 1; i < 30; i++) birds.update(i * dt, dt, jour);
+    check('birds : sans rafale ni shiba → aucun envol', causes.length === 0, `causes ${causes.join(',') || '—'}`);
+    birds.mesh.getMatrixAt(0, m);
+    p.setFromMatrixPosition(m);
+    birds.setRepeller(p);
+    for (let i = 30; i < 90; i++) birds.update(i * dt, dt, jour);
+    check('birds : shiba au milieu → envol de cause « repel »',
+      causes.length > 0 && causes[0] === 'repel', `causes ${causes.join(',') || '—'}`);
+    birds.dispose();
+  }
 }
 
 finish();

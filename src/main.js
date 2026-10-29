@@ -114,6 +114,8 @@ camera.position.set(CAMERA.start.x, CAMERA.start.y, CAMERA.start.z);
 // Premier doigt hybride : monter l'UI AVANT qu'OrbitControls ne capture.
 // En bubble, OC (créé juste après) mangeait le geste (ADV D2).
 let mountTouchControls = () => {};
+// Câblé au boot (crochets shiba) ; B = aboyer, seul aboiement que le carnet compte.
+let barkVoluntarily = () => {};
 const onFirstTouchCapture = (e) => {
   if (e.pointerType !== 'touch' || touchActive) return;
   e.stopImmediatePropagation();
@@ -803,13 +805,25 @@ async function boot() {
   scene.add(world.shiba.group);
   // Audio ET carnet sur les mêmes événements (un seul slot onEvent par source).
   const quest = world.quest;
-  world.birds.onEvent = (name) => {
+  // Les défis ne comptent que ce que le joueur provoque : l'envol dû au shiba
+  // (cause 'repel', pas la rafale), l'aboiement voulu (touche B, pas l'idle
+  // ni la réaction aux hérons).
+  world.birds.onEvent = (name, _pos, cause) => {
     world.audio?.handle(name);
-    if (name === 'flush') quest.report('bird-flush');
+    if (name === 'flush' && cause === 'repel') quest.report('bird-flush');
   };
+  let barkOnPurpose = false;
   world.shiba.onEvent = (name) => {
     world.audio?.handle(name);
-    if (name === 'bark') quest.report('bark');
+    if (name === 'bark' && barkOnPurpose) quest.report('bark');
+  };
+  // notify('bark') relance l'aboiement et ré-émet : seul le départ d'un
+  // aboiement au repos compte, pas un martelage de la touche.
+  barkVoluntarily = () => {
+    if (world.shiba.state.bark > 0) return;
+    barkOnPurpose = true;
+    world.shiba.notify('bark');
+    barkOnPurpose = false;
   };
 
   lookStatic.length = 0;
@@ -1263,6 +1277,7 @@ addEventListener('keydown', (e) => {
     else resetViewAndTime();
   }
   const plain = !(e.ctrlKey || e.metaKey || e.altKey);
+  if (plain && (e.key === 'b' || e.key === 'B')) barkVoluntarily();
   if (plain && (e.key === 'r' || e.key === 'R')) sniff();
   if (plain && (e.key === 'j' || e.key === 'J')) world.ui?.toggle();
   if (e.key === 'h' || e.key === 'H') {

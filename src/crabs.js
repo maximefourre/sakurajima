@@ -179,6 +179,11 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
   if (n) mesh.instanceMatrix.needsUpdate = true;
 
   let lastT = null;
+  // onFlee : un appel par épisode de fuite (au moins un crabe en fuite, alors
+  // qu'aucun ne l'était), temps mort FLEE_DEAD_S entre deux appels.
+  const FLEE_DEAD_S = 3;
+  let anyFleeing = false;
+  let lastFleeCall = -Infinity;
 
   function tryStep(b, nx, nz) {
     if (typeof heightAt !== 'function') return false;
@@ -194,6 +199,7 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
     const dt = lastT == null ? 0 : Math.min(0.05, Math.max(0, t - lastT));
     lastT = t;
     const fleeR2 = CRABS.fleeRadius * CRABS.fleeRadius;
+    let fleeing = false;
 
     for (let i = 0; i < n; i++) {
       const b = bugs[i];
@@ -202,12 +208,9 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
       if (b.state !== BURY && Number.isFinite(shibaX) && Number.isFinite(shibaZ)) {
         const dx = b.x - shibaX, dz = b.z - shibaZ;
         if (dx * dx + dz * dz < fleeR2) {
-          // Une fois, au basculement idle → flee. Déjà en fuite : pas de rappel.
           if (b.state === IDLE) {
             b.state = FLEE;
             b.timer = R.range(rng, CRABS.fleeSeconds[0], CRABS.fleeSeconds[1]);
-            const fn = api.onFlee;
-            if (typeof fn === 'function') fn(1);
           }
           // Face the dog; the flee step then scurries backward along -Z.
           b.yaw = Math.atan2(-dx, -dz);
@@ -215,6 +218,7 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
       }
 
       b.timer -= dt;
+      if (b.state === FLEE) fleeing = true;
 
       if (b.state === FLEE) {
         const awayX = b.x - shibaX, awayZ = b.z - shibaZ;
@@ -260,6 +264,13 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
       write(i);
     }
     mesh.instanceMatrix.needsUpdate = true;
+
+    if (fleeing && !anyFleeing && t - lastFleeCall >= FLEE_DEAD_S) {
+      lastFleeCall = t;
+      const fn = api.onFlee;
+      if (typeof fn === 'function') fn(1);
+    }
+    anyFleeing = fleeing;
   }
 
   function dispose() {
@@ -270,7 +281,7 @@ export function createCrabs({ seed = SEED, quality, heightAt, isInPond } = {}) {
 
   const api = {
     mesh, update, dispose,
-    /** Assignable. (n) => void, n = 1, une fois par crabe idle → flee. */
+    /** Assignable. (n) => void, n = 1, une fois par épisode de fuite (pas par crabe), temps mort 3 s. */
     onFlee: () => {},
   };
   return api;
