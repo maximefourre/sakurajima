@@ -871,6 +871,54 @@ export function buildBody() {
   const pelvis = par.get('pelvis');
   const neck = par.get('neck');
 
+  /* — foulard — pièce rigide sur l'os du cou (pas de skin : le cou se plie
+   * déjà, un vertex de plus dans la nappe serait le piège). Caché tant que
+   * setBandana ne l'allume pas. DoubleSide : nappe sans épaisseur. */
+  const bandanaMat = new THREE.MeshStandardMaterial({
+    color: 0xc8372d, roughness: 0.62, metalness: 0, side: THREE.DoubleSide,
+  });
+  const knotMat = new THREE.MeshStandardMaterial({
+    color: 0x8d241c, roughness: 0.55, metalness: 0,
+  });
+  const bandana = new THREE.Group();
+  bandana.name = 'bandana';
+  bandana.visible = false;
+  neck.add(bandana);
+  // Axe du cou, os → tête : (0, 0.21, 0.12). Le nœud est sur cet axe,
+  // le triangle dépasse devant la peau (vers +Z, un peu vers le bas).
+  const cloth = new THREE.BufferGeometry();
+  cloth.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 0.11, 0.145,
+    -0.085, 0.06, 0.155,
+    0, -0.06, 0.195,
+    0, 0.11, 0.145,
+    0, -0.06, 0.195,
+    0.085, 0.06, 0.155,
+  ]), 3));
+  cloth.computeVertexNormals();
+  cloth.computeBoundingSphere();
+  const clothMesh = new THREE.Mesh(cloth, bandanaMat);
+  clothMesh.name = 'bandana-cloth';
+  clothMesh.castShadow = true;
+  clothMesh.receiveShadow = true;
+  bandana.add(clothMesh);
+  parts.push(cloth);
+  const knotGeo = new THREE.SphereGeometry(0.026, 8, 6);
+  const knot = new THREE.Mesh(knotGeo, knotMat);
+  knot.name = 'bandana-knot';
+  knot.castShadow = true;
+  knot.position.set(0, 0.115, 0.125);
+  bandana.add(knot);
+  parts.push(knotGeo);
+  const tieGeo = new THREE.TorusGeometry(0.112, 0.011, 6, 14);
+  const tie = new THREE.Mesh(tieGeo, knotMat);
+  tie.name = 'bandana-tie';
+  tie.castShadow = true;
+  tie.position.set(0, 0.105, 0.060);
+  tie.quaternion.setFromUnitVectors(_v.set(0, 0, 1), _w.set(0, 0.21, 0.12).normalize());
+  bandana.add(tie);
+  parts.push(tieGeo);
+
   /* ── hooks de pose : l'anatomie du geste ───────────────────────
    * shiba.js calcule l'INTENTION (balancier de hanche, pli de genou, poids
    * d'assise / nage / secouage). Ici on la traduit sur trois articulations :
@@ -1121,8 +1169,8 @@ export function buildBody() {
 
   return {
     root, mesh, skeleton, legs,
-    tilt: par.get('tilt'), body, pelvis, neck, head, jaw, lids, ears, tailBase,
-    parts, material, materials: [material, wet], sole,
+    tilt: par.get('tilt'), body, pelvis, neck, head, jaw, lids, ears, tailBase, bandana,
+    parts, material, materials: [material, wet, bandanaMat, knotMat], sole,
     poseLeg, poseBody, poseHead, poseTail,
   };
 }

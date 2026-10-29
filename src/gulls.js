@@ -223,12 +223,20 @@ export function createGulls({
   }
 
   function flushAll() {
+    let lifted = 0;
     for (let i = 0; i < n; i++) {
       const b = birds[i];
       if (b.state === FLY) continue;
       b.state = FLY;
       b.timer = R.range(rng, GULLS.flySeconds[0], GULLS.flySeconds[1]);
       b.orbit = rng() * TAU;
+      lifted++;
+    }
+    // Effectif : au moins un oiseau quitte le perchoir. Un rappel tant qu'ils
+    // volent déjà ne compte pas (flushAll est tenté à chaque frame menaçante).
+    if (lifted > 0) {
+      const fn = api.onFlush;
+      if (typeof fn === 'function') fn();
     }
   }
 
@@ -295,5 +303,10 @@ export function createGulls({
     mesh.removeFromParent();
   }
 
-  return { mesh, update, dispose, spawns };
+  const api = {
+    mesh, update, dispose, spawns,
+    /** Assignable. () => void, une fois par flushAll() qui fait décoller. */
+    onFlush: () => {},
+  };
+  return api;
 }

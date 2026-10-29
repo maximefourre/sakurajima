@@ -447,6 +447,8 @@ export function createButterflies({
           b.state = FLEE;
           b.timer = R.range(rng, BUTTERFLIES.fleeSeconds[0], BUTTERFLIES.fleeSeconds[1]);
           b.heading = Math.atan2(dz, dx);
+          const fn = api.onFlee;
+          if (typeof fn === 'function') fn();
         }
       }
 
@@ -602,5 +604,10 @@ export function createButterflies({
     material.dispose();
   }
 
-  return { mesh, update, setRepeller, dispose };
+  const api = {
+    mesh, update, setRepeller, dispose,
+    /** Assignable. () => void, une fois par papillon qui entre en fuite. */
+    onFlee: () => {},
+  };
+  return api;
 }
