@@ -137,11 +137,12 @@ function patchGlint(mat, uTime) {
  * @param {Function} [opts.isOnPath]
  * @param {Function} [opts.isInPond]
  * @param {Function} [opts.keepOut]
+ * @param {Function} [opts.blocked] (x, z) → true si le shiba ne peut pas s'y tenir
  * @param {number} [opts.count]
  * @returns {{id:string, x:number, y:number, z:number}[]}
  */
 export function placeTreasures({
-  seed, heightAt, isOnPath, isInPond, keepOut, count = TREASURES.count,
+  seed, heightAt, isOnPath, isInPond, keepOut, blocked, count = TREASURES.count,
 } = {}) {
   const n = count | 0;
   if (n <= 0 || typeof heightAt !== 'function') return [];
@@ -152,8 +153,22 @@ export function placeTreasures({
   const onPath = typeof isOnPath === 'function' ? isOnPath : null;
   const inPond = typeof isInPond === 'function' ? isInPond : null;
   const yard = typeof keepOut === 'function' ? keepOut : null;
+  const solid = typeof blocked === 'function' ? blocked : null;
+  // 8 points du disque de ramassage, à 0.6·pickRadius du centre (< pickRadius).
+  const sampleR = TREASURES.pickRadius * 0.6;
   const out = [];
   const maxTries = n * MAX_TRIES_PER;
+
+  // Centre libre, ou un échantillon l'est : le shiba ramasse à < pickRadius.
+  function reachable(x, z) {
+    if (!solid) return true;
+    if (!solid(x, z)) return true;
+    for (let k = 0; k < 8; k++) {
+      const ang = k * (TAU / 8);
+      if (!solid(x + Math.cos(ang) * sampleR, z + Math.sin(ang) * sampleR)) return true;
+    }
+    return false;
+  }
 
   for (let tries = 0; tries < maxTries && out.length < n; tries++) {
     const ang = rng() * TAU;
@@ -165,6 +180,7 @@ export function placeTreasures({
     if (onPath && onPath(x, z)) continue;
     if (inPond && inPond(x, z)) continue;
     if (yard && yard(x, z)) continue;
+    if (!reachable(x, z)) continue;
 
     let crowded = false;
     for (let i = 0; i < out.length; i++) {
@@ -194,9 +210,11 @@ export function placeTreasures({
  * }}
  */
 export function createTreasures({
-  seed, heightAt, isOnPath, isInPond, keepOut, count = TREASURES.count,
+  seed, heightAt, isOnPath, isInPond, keepOut, blocked, count = TREASURES.count,
 } = {}) {
-  const spots = placeTreasures({ seed, heightAt, isOnPath, isInPond, keepOut, count });
+  const spots = placeTreasures({
+    seed, heightAt, isOnPath, isInPond, keepOut, blocked, count,
+  });
   const n = spots.length;
   const cap = Math.max(n, 1);
   const ids = spots.map((s) => s.id);

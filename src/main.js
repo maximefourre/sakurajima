@@ -492,6 +492,10 @@ async function boot() {
     isOnPath,
     isInPond: world.inWater,
     keepOut: (x, z) => world.poi.keepOut(x, z),
+    // Même prédicat que le shiba : rocher et bâti au rayon 0.35, tronc 0.32.
+    blocked: (x, z) => world.island.hitsRock(x, z, 0.35, world.shiba?.position.y)
+      || world.poi.hitsSolid(x, z, 0.35)
+      || !!(world.forest && world.forest.hitsTrunk(x, z, 0.32)),
   });
   scene.add(world.treasures.mesh);
   // Carnet : sites POI présents (un site absent à ce tier est ignoré) + omamori.

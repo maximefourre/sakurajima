@@ -56,6 +56,7 @@ import { createPonds } from '../src/ponds.js';
 import { createIsland } from '../src/island.js';
 import { initPath, isOnPath } from '../src/details.js';
 import { computeChashitsuSite, chashitsuKeepOut } from '../src/chashitsu.js';
+import { createPOI } from '../src/poi.js';
 import { placeTreasures, createTreasures } from '../src/treasures.js';
 import * as THREE from 'three';
 
@@ -157,6 +158,64 @@ try {
   check('répartis sur l’île', span > WORLD.size * 0.385 * 0.45,
     `Δx ${(maxX - minX).toFixed(0)} Δz ${(maxZ - minZ).toFixed(0)} span ${span.toFixed(0)}`);
 
+  /* Disque de ramassage : centre, puis 8 points à 0.6·pickRadius.
+     Distance du point libre < pickRadius, sinon le shiba ne l’atteint pas. */
+  const poi = createPOI({
+    seed: SEED,
+    heightAt: island.heightAt,
+    isOnPath,
+    isInPond: inPond,
+    slopeAt: island.slopeAt,
+    pondWaterYAt: (x, z) => ponds.pondWaterYAt(x, z),
+    ponds: ponds.PONDS,
+  });
+  const islandBlocked = (x, z) => island.hitsRock(x, z, 0.35) || poi.hitsSolid(x, z, 0.35);
+  function nearestFree(blocked, x, z) {
+    if (!blocked(x, z)) return 0;
+    const sr = TREASURES.pickRadius * 0.6;
+    for (let k = 0; k < 8; k++) {
+      const ang = k * Math.PI * 2 / 8;
+      if (!blocked(x + Math.cos(ang) * sr, z + Math.sin(ang) * sr)) return sr;
+    }
+    return Infinity;
+  }
+
+  const anchor = a[0];
+  const blockedFake = (x, z) => {
+    const dx = x - anchor.x, dz = z - anchor.z;
+    return dx * dx + dz * dz < 64;
+  };
+  const filtered = placeTreasures({ ...opts, blocked: blockedFake });
+  let buried = 0;
+  for (const s of filtered) if (blockedFake(s.x, s.z)) buried++;
+  check('blocked factice : aucun centre enseveli',
+    filtered.length === 12 && buried === 0,
+    `n=${filtered.length} centres bloqués=${buried}`);
+
+  const filteredMesh = createTreasures({ ...opts, blocked: blockedFake });
+  let buriedMesh = 0;
+  let meshSame = filteredMesh.spots.length === filtered.length;
+  for (let i = 0; meshSame && i < filtered.length; i++) {
+    meshSame = filteredMesh.spots[i].x === filtered[i].x && filteredMesh.spots[i].z === filtered[i].z;
+  }
+  for (const s of filteredMesh.spots) if (blockedFake(s.x, s.z)) buriedMesh++;
+  check('createTreasures transmet blocked',
+    meshSame && buriedMesh === 0,
+    `n=${filteredMesh.spots.length} centres bloqués=${buriedMesh}`);
+  filteredMesh.dispose();
+
+  const onLand = placeTreasures({ ...opts, blocked: islandBlocked });
+  let stuck = 0;
+  let maxFree = 0;
+  for (const s of onLand) {
+    const d = nearestFree(islandBlocked, s.x, s.z);
+    if (!(d < TREASURES.pickRadius)) stuck++;
+    else if (d > maxFree) maxFree = d;
+  }
+  check('île : point libre à < pickRadius',
+    onLand.length === 12 && stuck === 0,
+    `n=${onLand.length} inatteignables=${stuck} max ${Number.isFinite(maxFree) ? maxFree.toFixed(2) : '∞'}`);
+
   const treasures = createTreasures(opts);
   let placedSame = treasures.spots.length === a.length;
   for (let i = 0; placedSame && i < a.length; i++) {
@@ -254,6 +313,7 @@ try {
 
   treasures.dispose();
   fresh.dispose();
+  poi.dispose();
 
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl2');
