@@ -785,8 +785,8 @@ export function createShiba({
       knee = mix(knee, sitKnee, sit);
       // Sphinx : antérieurs allongés devant (avant-bras au sol), postérieurs
       // repliés sous la hanche, métatarses à plat. Tronc posé, de niveau.
-      hip = mix(hip, leg.front ? -0.60 : -0.66, lie);
-      knee = mix(knee, leg.front ? -1.86 : 1.26, lie);
+      hip = mix(hip, leg.front ? -0.60 : -0.77, lie);
+      knee = mix(knee, leg.front ? -1.86 : 1.387, lie);
       // Le mélange de secouage est appliqué ICI, en amont du hook : si chaque
       // rig devait y penser, l'oubli ferait régresser le chien procédural. Le
       // hook reçoit donc les angles FINAUX ; les poids ne sont passés qu'à

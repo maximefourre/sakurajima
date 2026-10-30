@@ -74,13 +74,15 @@ export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
  *  de l'ellipsoïde de sole moins sa demi-hauteur, moins la position de l'os
  *  (LEG.paw). L'os `paw` est la cheville (le jarret derrière), 13 à 22 cm
  *  au-dessus du sol : c'est ce point-ci qui touche la terre. */
-export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.030] });
+export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.010] });
 
 /** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
  *  seule source pour animate(), le banc 26 et l'atelier. Les angles arrière
- *  tiennent compte des angles de repos du fémur (-0.34) et du tibia (+0.67). */
+ *  sont calés pour que le genou, le jarret et le pied assis restent où ils
+ *  étaient avant le redressement des postérieurs (30/10 : fémur plus vertical,
+ *  métatarse vertical au repos) : -0.11 hanche, +0.126 grasset, -0.105 pied. */
 export const SIT_POSE = Object.freeze({
-  frontHip: 0.52, frontKnee: -0.04, hindHip: -0.31, hindKnee: 1.24, pitch: -0.60, drop: -0.03,
+  frontHip: 0.52, frontKnee: -0.04, hindHip: -0.42, hindKnee: 1.366, pitch: -0.60, drop: -0.03,
 });
 
 /* ── maths ─────────────────────────────────────────────────────── */
@@ -289,7 +291,7 @@ const BONES = [
 const SCAPULA = [0.088, 0.735, 0.250];
 const LEG = {
   F: { parent: 'body', hip: [0.100, 0.60, 0.275], knee: [0.100, 0.360, 0.262], paw: [0.098, 0.105, 0.268] },
-  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.385, -0.165], paw: [0.110, 0.185, -0.335] },
+  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.385, -0.195], paw: [0.110, 0.185, -0.360] },
 };
 for (const fb of ['F', 'B']) {
   for (const [lr, s] of [['L', -1], ['R', 1]]) {
@@ -369,8 +371,8 @@ function bodyPrims() {
     add(cone(W(B.hip), W(B.knee), 0.098, 0.068), 'hipB' + k, 'leg', 0.05);
     add(ellipsoid(W([0.104, 0.50, -0.225]), [0.076, 0.140, 0.115]), 'hipB' + k, 'leg', 0.05);
     add(cone(W(B.knee), W(B.paw), 0.064, 0.040), 'kneeB' + k, 'leg', 0.03);
-    add(cone(W(B.paw), W([0.110, 0.045, -0.320]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
-    add(ellipsoid(W([0.110, 0.031, -0.305]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
+    add(cone(W(B.paw), W([0.110, 0.045, -0.360]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
+    add(ellipsoid(W([0.110, 0.031, -0.350]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
   }
   return P;
 }
@@ -1042,8 +1044,8 @@ export function buildBody() {
       const plant = -(bodyPitch + hip + stifle);
       const walk = plant - 0.55 * fold;
       // Assis : métatarse couché vers l'avant (-1.45 rad ≈ vers +Z). Son
-      // angle de repos (-0.24, il descend déjà un peu vers l'avant) se retire.
-      const sitFoot = -1.21 - (bodyPitch + hip + stifle);
+      // angle de repos (il est presque vertical : 0.05 rad) se retire.
+      const sitFoot = -1.315 - (bodyPitch + hip + stifle);
       leg.paw.rotation.x = mix(walk, sitFoot, sit);
     }
     leg.hip.rotation.z = 0;

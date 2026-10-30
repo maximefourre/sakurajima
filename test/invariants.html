@@ -1703,7 +1703,7 @@ function milieuAppuis(r) {
         // Assise : les angles qu'animate() envoie, depuis la même constante.
         let hip = p.sit ? (leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip) : p.hip;
         let knee = p.sit ? (leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee) : p.knee;
-        if (p.lie) { hip = leg.front ? -0.60 : -0.66; knee = leg.front ? -1.86 : 1.26; }
+        if (p.lie) { hip = leg.front ? -0.60 : -0.77; knee = leg.front ? -1.86 : 1.387; }
         r.poseLeg(leg, hip, knee, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0, lie: p.lie || 0 });
       }
       r.poseHead({ dt: 0, headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
@@ -2512,6 +2512,103 @@ function mesurerProportions(root, mesh) {
   check('ambiance : grenouilles au crépuscule près d’un étang, pas au large',
     pondDusk.frogs > 0.45 && pondFar.frogs < 0.08,
     `near=${pondDusk.frogs.toFixed(2)} far=${pondFar.frogs.toFixed(2)}`);
+}
+
+/* ── pattes arrière d'aplomb ──────────────────────────────────────────────
+ * L'utilisateur trouvait les postérieurs trop angulés face à la photo d'un vrai
+ * shiba debout (vrai-shiba.png) : le jarret et le grasset trop fléchis, le pied
+ * trop loin devant la pointe de fesse. Mesures (T5, 30/10/2026), plan sagittal,
+ * repère du root, hauteur du garrot H = 0.80 ; photos à la main, ±8° :
+ *  - vrai-shiba.png (shiba debout de profil) : métatarse vertical (≤ 5°), angle
+ *    du jarret (grasset-jarret-pied) ≈ 135-140°, grasset ≈ 100-110°, pied à
+ *    ≈ 0.09 H devant la pointe de fesse, jarret à ≈ 0.06 H devant elle ;
+ *  - File:Cream_shiba_inu_dllu.jpg (profil) : jarret ≈ 135°, pied à ≈ 0.16 H ;
+ *  - File:Shiba_Inu_red.jpg (profil) : jarret ≈ 133°, métatarse ≤ 8°.
+ * Planchers choisis dans la partie haute des fourchettes (demande « quasi
+ * droit »), jamais au-delà de ce que les photos montrent (jarret ≤ 145° mesuré
+ * sur la peau par « proportions shiba »). Avant (df5dd25) au repos :
+ * jarret 130°, grasset 115°, métatarse 9.0°, pied à 0.151 H ; au trot (mi-appui)
+ * jarret 120°, grasset 101° ; au pas jarret 131°, grasset 109°.
+ * Les angles se lisent aux OS (hanche, grasset, jarret, dessous du coussinet
+ * PAW_SOLE) ; la pointe de fesse est le sommet le plus reculé du bassin.
+ */
+{
+  const WITHERS = SHIBA_BUILD.withers;
+  const angle = (a, b, c) => {
+    const u = a.clone().sub(b), w = c.clone().sub(b);
+    return Math.acos(Math.min(1, Math.max(-1, u.dot(w) / (u.length() * w.length())))) * 180 / Math.PI;
+  };
+  const mesurerArriere = (dog) => {
+    dog.group.updateMatrixWorld(true);
+    let mesh = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    const root = mesh.parent;
+    const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const os = (n) => dog.group.getObjectByName(n).getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+    const hanche = os('hipBL'), grasset = os('kneeBL'), jarret = os('pawBL');
+    const pied = dog.group.getObjectByName('pawBL').localToWorld(new THREE.Vector3().fromArray(PAW_SOLE.B)).applyMatrix4(inv);
+    return {
+      hanche, grasset, jarret, pied, mesh, inv,
+      angGrasset: angle(hanche, grasset, jarret),
+      angJarret: angle(grasset, jarret, pied),
+      metatarse: Math.abs(Math.atan2(pied.z - jarret.z, jarret.y - pied.y)) * 180 / Math.PI,
+    };
+  };
+  const pointeDeFesse = (m) => {
+    const geo = m.mesh.geometry, si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    const bones = m.mesh.skeleton.bones, t = new THREE.Vector3();
+    let z = Infinity;
+    for (let v = 0; v < geo.attributes.position.count; v++) {
+      m.mesh.getVertexPosition(v, t); m.mesh.localToWorld(t); t.applyMatrix4(m.inv);
+      if (t.y < 0.45 || t.y > 0.85 || t.x < 0.02 || t.z >= z) continue;
+      let b = -1, bi = 0;
+      for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > b) { b = w; bi = si.getComponent(v, c); } }
+      if (bones[bi].name === 'pelvis') z = t.z;
+    }
+    return z;
+  };
+  const dog = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+  dog.update(0, 0.016, null);
+  const repos = mesurerArriere(dog);
+  const fesse = pointeDeFesse(repos);
+  const piedFesse = (repos.pied.z - fesse) / WITHERS;
+  // Mi-appui du postérieur gauche : le pied passe sous la hanche, au sol. On
+  // garde le pire (le plus plié) des passages, régime établi.
+  const miAppui = (touches, vitesse) => {
+    const d = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    let t = 0, prev = null, gMin = 1e9, jMin = 1e9, n = 0;
+    for (let i = 0; i < 480; i++) {
+      t += 1 / 60;
+      if (vitesse) d.state.speed = vitesse;
+      d.update(t, 1 / 60, null);
+      if (i < 120) continue;
+      const m = mesurerArriere(d), rel = m.pied.z - m.hanche.z;
+      if (prev !== null && prev > 0 && rel <= 0 && m.pied.y < 0.12) {
+        gMin = Math.min(gMin, m.angGrasset); jMin = Math.min(jMin, m.angJarret); n++;
+      }
+      prev = rel;
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    d.dispose();
+    return { grasset: gMin, jarret: jMin, n };
+  };
+  const trot = miAppui(['KeyW'], 0);
+  const pas = miAppui(['KeyW'], 0.7);
+  dog.dispose();
+  const f = (x) => x.toFixed(1);
+  const regles = [
+    ['repos : métatarse ≤ 6° de la verticale', repos.metatarse <= 6, `${f(repos.metatarse)}°`],
+    ['repos : jarret ≥ 135°', repos.angJarret >= 135, `${f(repos.angJarret)}°`],
+    ['repos : grasset ≥ 118° (photos 100-120°)', repos.angGrasset >= 118, `${f(repos.angGrasset)}°`],
+    ['repos : pied à ≤ 0.11 H devant la pointe de fesse', piedFesse <= 0.11 && piedFesse >= 0.03, `${piedFesse.toFixed(3)} H`],
+    ['pas : jarret ≥ 135°, grasset ≥ 110°', pas.n >= 2 && pas.jarret >= 135 && pas.grasset >= 110, `${pas.n} appuis, jarret ${f(pas.jarret)}°, grasset ${f(pas.grasset)}°`],
+    // Le grasset au trot (≈ 100°, comme avant) tient au crouch 0.035 : en dessous le glissé dépasse 0.03 (pieges.md n° 12), donc seul le jarret est exigé.
+    ['trot : jarret ≥ 128°', trot.n >= 2 && trot.jarret >= 128, `${trot.n} appuis, jarret ${f(trot.jarret)}°, grasset ${f(trot.grasset)}° (non exigé)`],
+  ];
+  const hors = regles.filter(([, ok]) => !ok);
+  check('pattes arrière d\'aplomb : jarret et grasset peu fléchis, métatarse vertical, pied sous la pointe de fesse',
+    hors.length === 0, regles.map(([k, ok, v]) => `${k} → ${v}${ok ? '' : ' ✗'}`).join(' ; '));
 }
 
 finish();
