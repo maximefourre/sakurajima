@@ -33,8 +33,10 @@
  *  rapport              photos (moy. ; fourchette)   cible du modèle
  *  cou garrot→occiput/H  0.32 ; 0.27–0.35             0.29
  *  épaisseur/longueur    ~1.2 (cou plus épais que long) 1.3
- *  gorge (tête→poitrail)/H 0.25 ; 0.24–0.27           0.20
- *  tête occiput→truffe/H 0.42 ; 0.39–0.44 (× 1.15 stylisé) 0.47
+ *  gorge (tête→poitrail)/H 0.25 ; 0.24–0.27           0.17 (la grosse tête mange la gorge)
+ *  largeur de tête/H     0.40 (photo utilisateur)      0.44 (≈ poitrail)
+ *  crâne→menton/H        0.37–0.40                    0.35
+ *  tête occiput→truffe/H 0.42 ; 0.39–0.44 (× 1.15 stylisé) 0.48
  *  crâne haut/H          1.26 ; 1.23–1.29             1.24
  *  coude/H               0.43 ; 0.40–0.49             0.44
  *  jarret/H              0.24 ; 0.22–0.26             0.23
@@ -276,8 +278,8 @@ const BONES = [
   ['neck', 'body', [0, 0.715, 0.325]],
   ['head', 'neck', [0, 0.855, 0.460]],
   ['jaw', 'head', [0, 0.820, 0.585]],
-  ['earL', 'head', [-0.072, 0.985, 0.480]],
-  ['earR', 'head', [0.072, 0.985, 0.480]],
+  ['earL', 'head', [-0.092, 0.985, 0.480]],
+  ['earR', 'head', [0.092, 0.985, 0.480]],
   ['tailBase', 'pelvis', [0, 0.775, -0.40]],
 ];
 // Avant : épaule → coude → carpe. Arrière : hanche → grasset → jarret.
@@ -342,17 +344,24 @@ function bodyPrims() {
 
   /* — cou et collerette — épais, de longueur moyenne, porté haut. */
   add(cone([0, 0.645, 0.335], [0, 0.86, 0.445], 0.128, 0.118), neckBones, 'neck', 0.07);
-  add(ellipsoid([0, 0.745, 0.385], [0.165, 0.145, 0.130]), neckBones, 'neck', 0.07);
+  add(ellipsoid([0, 0.750, 0.392], [0.182, 0.152, 0.138]), neckBones, 'neck', 0.07);
+  // Les favoris : le poil des joues retombe sur la collerette et mange le cou.
+  for (const s of [-1, 1]) add(ellipsoid([s * 0.100, 0.790, 0.445], [0.075, 0.085, 0.080]), neckBones, 'neck', 0.06);
 
-  /* — tête — occiput 0.385 → truffe 0.78 : 0.395 de long, museau 0.16 (40 %).
-   * Crâne large et plat, joues pleines derrière l'œil, chanfrein droit. */
-  add(ellipsoid([0, 0.910, 0.500], [0.120, 0.105, 0.115]), 'head', 'head', 0.05);
+  /* — tête — occiput 0.385 → truffe 0.76. Crâne large et plat, joues pleines
+   * (c'est elles qui font la largeur du poitrail), chanfrein droit, museau
+   * court et épais. Chez le vrai chien la tête et la collerette mangent le cou.
+   * Largeur des joues 0.44 H, crâne → menton 0.36 H (photos 0.40 / 0.37–0.40). */
+  add(ellipsoid([0, 0.916, 0.502], [0.145, 0.111, 0.124]), 'head', 'head', 0.05);
   for (const s of [-1, 1]) {
-    add(ellipsoid([s * 0.072, 0.860, 0.545], [0.072, 0.070, 0.075]), 'head', 'head', 0.05);
+    add(ellipsoid([s * 0.094, 0.846, 0.556], [0.088, 0.086, 0.088]), 'head', 'head', 0.05);
     // L'arcade sourcilière : c'est son ombre qui fait le stop.
-    add(ellipsoid([s * 0.050, 0.928, 0.585], [0.038, 0.024, 0.034]), 'head', 'head', 0.025);
+    add(ellipsoid([s * 0.056, 0.935, 0.594], [0.040, 0.025, 0.035]), 'head', 'head', 0.025);
   }
-  add(cone([0, 0.857, 0.580], [0, 0.845, 0.712], 0.069, 0.047, 0.82), 'head', 'muzzle', 0.045);
+  // Sous le museau, les joues se rejoignent : sans ce pont elles pendent en deux
+  // bajoues séparées par un creux.
+  add(ellipsoid([0, 0.812, 0.560], [0.100, 0.052, 0.072]), 'head', 'head', 0.05);
+  add(cone([0, 0.855, 0.585], [0, 0.842, 0.700], 0.078, 0.057, 0.84), 'head', 'muzzle', 0.045);
 
   /* — membres — avant droits, coude contre le poitrail ; arrière : cuisse
    * longue et musclée (culotte), seconde cuisse courte, jarret net. Les pieds
@@ -409,8 +418,8 @@ const PAINT = {
     out.lerp(COAT.saddle, ss(0.55, 0.95, ny + j) * 0.65);
     // Ventre et poitrail (le « nœud papillon » crème du poitrail).
     const under = ss(-0.10, -0.50, ny + j);
-    const bib = ss(0.30, 0.42, z + j * 0.3) * ss(0.20, 0.55, nz + j) * ss(0.74, 0.62, y)
-      * ss(0.13, 0.06, Math.abs(x));
+    const bib = ss(0.30, 0.40, z + j * 0.3) * ss(0.10, 0.45, nz + j) * ss(0.78, 0.66, y)
+      * ss(0.16, 0.09, Math.abs(x));
     const vent = ss(-0.36, -0.44, z) * ss(-0.2, -0.6, nz) * ss(0.72, 0.62, y + j * 0.2);
     out.lerp(COAT.cream, Math.max(under, bib, vent));
   },
@@ -418,19 +427,21 @@ const PAINT = {
     const j = fur(x, y, z, 0.12);
     out.copy(COAT.red).lerp(COAT.saddle, ss(0.6, 0.95, ny) * 0.5);
     // Gorge crème, qui remonte sur les côtés de la collerette.
-    const throat = ss(0.0, 0.45, nz + j) * ss(0.25, -0.35, ny + j);
-    out.lerp(COAT.cream, throat);
+    const throat = ss(-0.1, 0.35, nz + j) * ss(0.45, -0.25, ny + j);
+    // Favoris : le crème des joues descend sur les côtés de la collerette.
+    const ruff = ss(0.41, 0.47, z + j * 0.05) * ss(0.84, 0.76, y + j * 0.03) * ss(0.02, 0.10, Math.abs(x));
+    out.lerp(COAT.cream, Math.max(throat, ruff));
   },
   head(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.08);
     out.copy(COAT.red).lerp(COAT.saddle, ss(0.7, 1.0, ny) * 0.35);
     const ax = Math.abs(x);
     // Joues : le bas et l'arrière des flancs de la tête, derrière l'œil.
-    const cheek = ss(0.050, 0.095, ax + j * 0.02) * ss(0.900, 0.860, y + j * 0.015)
-      * ss(0.46, 0.52, z);
-    const under = ss(-0.15, -0.55, ny + j);
+    const cheek = ss(0.040, 0.085, ax + j * 0.02) * ss(0.915, 0.880, y + j * 0.015)
+      * ss(0.44, 0.50, z);
+    const under = ss(0.20, -0.30, ny + j);
     // Taches crème au-dessus des yeux.
-    const sx = (ax - 0.050) / 0.020, sy = (y - 0.947) / 0.012, sz = (z - 0.590) / 0.030;
+    const sx = (ax - 0.056) / 0.020, sy = (y - 0.949) / 0.012, sz = (z - 0.594) / 0.030;
     const spot = 1 - ss(0.6, 1.0, Math.sqrt(sx * sx + sy * sy + sz * sz));
     out.lerp(COAT.cream, Math.max(cheek, under, spot * 0.9));
   },
@@ -438,7 +449,7 @@ const PAINT = {
     const j = fur(x, y, z, 0.06);
     out.copy(COAT.red);
     // Chanfrein roux, côtés et dessous crème : c'est le masque de la race.
-    const sides = ss(0.25, -0.15, ny + j);
+    const sides = ss(0.78, 0.35, ny + j);
     out.lerp(COAT.cream, sides);
     // Lèvre : liseré noir sous le museau, vers l'avant.
     const lip = ss(-0.55, -0.85, ny) * ss(0.64, 0.70, z);
@@ -584,7 +595,7 @@ function sdTriIso(px, py, qx, qy) {
 /** Oreille : plaque triangulaire épaisse, pointe arrondie, conque creusée sur
  *  la face avant (+Z). Repère local : base à l'origine, pointe vers +Y. La base
  *  descend sous y = 0 pour s'enfoncer dans le crâne. */
-const EAR = { tip: 0.098, base: -0.050, halfW: 0.050, round: 0.010 };
+const EAR = { tip: 0.100, base: -0.050, halfW: 0.056, round: 0.010 };
 function earSdf(x, y, z) {
   const H = EAR.tip - EAR.base;
   const qx = EAR.halfW * H / EAR.tip;
@@ -633,7 +644,7 @@ function tailPaint(x, y, z, nx, ny, nz, out) {
 }
 
 /** Mâchoire inférieure, repère local = os jaw. Crème, liseré noir sur le dessus. */
-const jawPrim = cone([0, -0.002, 0.010], [0, -0.006, 0.118], 0.046, 0.026, 0.62);
+const jawPrim = cone([0, -0.003, 0.010], [0, -0.007, 0.118], 0.056, 0.034, 0.62);
 const jawSdf = (x, y, z) => jawPrim(x, y, z);
 function jawPaint(x, y, z, nx, ny, nz, out) {
   out.copy(COAT.cream).lerp(COAT.dark, ss(0.45, 0.85, ny) * ss(0.03, 0.07, z) * 0.5);
@@ -655,9 +666,9 @@ function bake() {
   // quelle que soit la retouche de forme.
   const headPrims = prims.filter((p) => p.group === 'head' || p.group === 'muzzle');
   const headSdf = (x, y, z) => { let d = 1e9; for (const p of headPrims) d = smin(d, p.d(x, y, z), p.k); return d; };
-  const eyes = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.058, 0.913, 0.80], [0, 0, -1]));
+  const eyes = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.066, 0.917, 0.80], [0, 0, -1]));
   const nose = surfaceHit(headSdf, [0, 0.861, 0.90], [0, 0, -1]);
-  const ears = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.072, 1.125, 0.475], [0, -1, 0]));
+  const ears = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.092, 1.125, 0.475], [0, -1, 0]));
 
   const ear = partGeometry(earSdf, [-0.095, -0.06, -0.045], [0.095, 0.125, 0.045], 0.0038, earPaint);
   const tail = partGeometry(tailSdf, [-0.13, -0.10, -0.16], [0.21, 0.30, 0.33], 0.0075, tailPaint);
@@ -823,10 +834,10 @@ export function buildBody() {
   rigid(toGeometry(B.jaw), jaw, 'mandible');
   const cavity = rigid(paintSolid(new THREE.SphereGeometry(1, 10, 8), COAT.dark), head, 'mouth-cavity');
   cavity.position.copy(local('head', new THREE.Vector3(0, 0.819, 0.665)));
-  cavity.scale.set(0.040, 0.020, 0.070);
+  cavity.scale.set(0.048, 0.020, 0.070);
   const tongue = rigid(paintSolid(new THREE.SphereGeometry(1, 10, 6), COAT.tongue), jaw, 'tongue');
   tongue.position.set(0, 0.010, 0.075);
-  tongue.scale.set(0.030, 0.008, 0.055);
+  tongue.scale.set(0.034, 0.008, 0.055);
 
   /* — oreilles — l'os pivote ; la pièce porte un lacet fixe pour présenter la
    * conque vers l'avant, à peine ouverte vers l'extérieur. */

@@ -65,7 +65,7 @@ import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { createPetals, isPetalSand, forEachCarpetLeaf, airbornePetalAt, nearestAirbornePetal } from '../src/petals.js';
 import { trunkHits } from '../src/sakura.js';
-import { SHIBA_BUILD, SIT_POSE, PAW_SOLE, buildBody } from '../src/shiba-geom.js';
+import { SHIBA_BUILD, SIT_POSE, PAW_SOLE, COAT, buildBody } from '../src/shiba-geom.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry, computeSnagSite, makeSnagGeometry } from '../src/poi.js';
@@ -1869,7 +1869,7 @@ function mesurerProportions(root, mesh) {
       ['L/H', m.longueur, 1.04, 1.18],
       ['cou', m.cou, 0.26, 0.34],
       ['épais/long', m.coupEpais, 1.05, 9],
-      ['gorge', m.gorge, 0.18, 0.28],
+      ['gorge', m.gorge, 0.16, 0.28],   // 0.18 avant la grosse tête : elle mange la gorge, voulu (test « tête de shiba »)
       ['tête', m.tete, 0.40, 0.50],
       ['crâne', m.crane, 1.20, 1.32],
       ['coude', m.coude, 0.38, 0.48],
@@ -1884,6 +1884,115 @@ function mesurerProportions(root, mesh) {
     detail = bornes.map(([k, x, lo, hi]) => `${k} ${x.toFixed(2)}${dansF(x, lo, hi) ? '' : ` ✗[${lo};${hi}]`}`).join(', ');
   }
   check('proportions shiba : cou court et épais, membres presque droits, mesurées sur la peau', ok, detail);
+}
+
+/* ── tête de shiba : large, haute, masque urajiro ────────────────────────
+ * « Tête trop petite et étroite (renard), cou qui paraît long » : sur les
+ * photos, la tête + la collerette crème mangent le cou. Mesures sur la PEAU
+ * skinnée, au repos, repère du root (H = garrot) ; photos à la main (±0.03),
+ * Wikimedia Commons (https://commons.wikimedia.org/wiki/File:<nom>) :
+ *  - largeur des joues / H : 0.40 (photo de l'utilisateur, 3/4 avant, joues
+ *    comprises) ; face : File:2008-01-13_a_Shiba_Inu_in_Tainan.jpg, largeur de
+ *    tête ≈ largeur du poitrail (0.97) ; File:A_Shiba_Inu.jpg, tête large.
+ *  - hauteur crâne → menton / H : 0.37 (File:1Shiba_Inu_Kazumi.jpg, profil),
+ *    0.40 (File:Shiba_Inu_red.jpg, 3/4), 0.40 (photo de l'utilisateur).
+ *  - oreille visible / hauteur de tête : 0.36–0.38 (photo de l'utilisateur,
+ *    Shiba_Inu_red) ; la fourchette large garde l'oreille proportionnée.
+ *  - urajiro : part de crème sur la tête vue de 3/4 avant, classée par la
+ *    couleur de robe la plus proche : photos 0.28 (Tainan, masque sombre),
+ *    0.43 (Shiba_Inu_red), 0.45 (A_Shiba_Inu), 0.66 (photo de l'utilisateur) ;
+ *    poitrail et gorge de face : ≈ 0.9 sur la photo de l'utilisateur.
+ * Mesuré sur df5dd25 : largeur 0.356 H (tête / poitrail 0.82), hauteur 0.297 H,
+ * crème tête 0.35, poitrail 0.63. La queue n'est PAS en cause : épaisseur
+ * 0.185 H (photos 0.21–0.29) et boucle 0.37 H de large (photos 0.48–0.52).
+ */
+function mesurerTete(root, mesh) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const geo = mesh.geometry, n = geo.attributes.position.count;
+  const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+  const nor = geo.attributes.normal, col = geo.attributes.color;
+  const bones = mesh.skeleton.bones;
+  const t = new THREE.Vector3(), nn = new THREE.Vector3(), c = new THREE.Color();
+  const V = [], dom = [];
+  for (let v = 0; v < n; v++) {
+    mesh.getVertexPosition(v, t); mesh.localToWorld(t); t.applyMatrix4(inv);
+    V.push(t.clone());
+    let b = -1, bi = 0;
+    for (let k = 0; k < 4; k++) { const w = sw.getComponent(v, k); if (w > b) { b = w; bi = si.getComponent(v, k); } }
+    dom.push(bones[bi].name);
+  }
+  let H = -Infinity;
+  V.forEach((v) => { if (Math.abs(v.x) < 0.04 && v.z > 0 && v.z < 0.22 && v.y > H) H = v.y; });
+  const tete = (d) => d === 'head' || d === 'jaw';
+  let nez = -Infinity, crane = -Infinity;
+  V.forEach((v, i) => { if (tete(dom[i])) { nez = Math.max(nez, v.z); crane = Math.max(crane, v.y); } });
+  // Joues et menton : la tête entre l'arrière de l'œil et le museau (sans le cou).
+  let x0 = Infinity, x1 = -Infinity, bas = Infinity;
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || v.z < 0.46) return;
+    if (v.z < nez - 0.12) { x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); }
+    bas = Math.min(bas, v.y);
+  });
+  // Poitrail : la tranche z 0.28–0.36 du tronc et des omoplates.
+  let c0 = Infinity, c1 = -Infinity;
+  V.forEach((v, i) => {
+    if (!/^(body|scapF)/.test(dom[i]) || v.z < 0.28 || v.z > 0.36 || v.y < 0.45 || v.y > 0.75) return;
+    c0 = Math.min(c0, v.x); c1 = Math.max(c1, v.x);
+  });
+  // Oreille visible : de la base posée sur le crâne à la pointe.
+  let oreille = 0;
+  root.traverse((o) => {
+    if (o.name !== 'ear' || !o.parent) return;
+    const top = new THREE.Box3().setFromObject(o).max.y;
+    oreille = Math.max(oreille, top - o.parent.getWorldPosition(new THREE.Vector3()).y);
+  });
+  // Urajiro : crème contre roux/selle/flanc, sommets tournés vers une caméra
+  // 3/4 avant (40° du museau, légèrement en plongée), symétrisée.
+  const a = 40 * Math.PI / 180;
+  const vue = new THREE.Vector3(Math.sin(a), 0.15, Math.cos(a)).normalize();
+  const cible = new THREE.Vector3();
+  const part = { tete: [0, 0], poitrail: [0, 0] };
+  V.forEach((v, i) => {
+    nn.fromBufferAttribute(nor, i);
+    cible.set(Math.sign(v.x || 1) * vue.x, vue.y, vue.z);
+    if (nn.dot(cible) < 0.15) return;
+    c.fromBufferAttribute(col, i);
+    if (Math.max(c.r, c.g, c.b) < 0.25) return;           // truffe, yeux, lèvre
+    const d = (k) => Math.hypot(c.r - k.r, c.g - k.g, c.b - k.b);
+    const creme = d(COAT.cream) < Math.min(d(COAT.red), d(COAT.saddle), d(COAT.flank));
+    const zone = tete(dom[i]) && v.z > 0.46 ? 'tete'
+      : (dom[i] === 'neck' || dom[i] === 'body') && v.z > 0.28 && v.y > 0.5 && Math.abs(v.x) < 0.14 ? 'poitrail' : null;
+    if (zone) part[zone][creme ? 0 : 1]++;
+  });
+  return {
+    H,
+    largeur: (x1 - x0) / H,
+    surPoitrail: (x1 - x0) / (c1 - c0),
+    hauteur: (crane - bas) / H,
+    oreille: oreille / (crane - bas),
+    cremeTete: part.tete[0] / (part.tete[0] + part.tete[1]),
+    cremePoitrail: part.poitrail[0] / (part.poitrail[0] + part.poitrail[1]),
+  };
+}
+{
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
+  if (r) {
+    const m = mesurerTete(r.root, r.mesh);
+    const bornes = [
+      ['largeur/H', m.largeur, 0.39, 0.50],
+      ['tête/poitrail', m.surPoitrail, 0.92, 1.15],
+      ['hauteur/H', m.hauteur, 0.34, 0.45],
+      ['oreille/tête', m.oreille, 0.30, 0.50],
+      ['crème tête', m.cremeTete, 0.48, 0.80],
+      ['crème poitrail', m.cremePoitrail, 0.75, 1],
+    ];
+    const hors = bornes.filter(([, x, lo, hi]) => !(x >= lo && x <= hi));
+    ok = hors.length === 0;
+    detail = bornes.map(([k, x, lo, hi]) => `${k} ${x.toFixed(2)}${x >= lo && x <= hi ? '' : ` ✗[${lo};${hi}]`}`).join(', ');
+  }
+  check('tête de shiba : large et haute (joues pleines), masque urajiro visible, mesurés sur la peau', ok, detail);
 }
 
 /* ── port de tête en mouvement ────────────────────────────────────────────
