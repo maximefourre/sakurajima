@@ -65,7 +65,7 @@ import * as THREE from 'three';
 import { createShiba, SHIBA } from '../src/shiba.js';
 import { createPetals, isPetalSand, forEachCarpetLeaf, airbornePetalAt, nearestAirbornePetal } from '../src/petals.js';
 import { trunkHits } from '../src/sakura.js';
-import { SHIBA_BUILD, SIT_POSE, PAW_SOLE, buildBody } from '../src/shiba-geom.js';
+import { SHIBA_BUILD, SIT_POSE, PAW_SOLE, COAT, buildBody } from '../src/shiba-geom.js';
 import { computeFireflySpots, fireflyActivity, createFireflies } from '../src/fireflies.js';
 import { computeButterflySpawns, butterflyActivity, createButterflies } from '../src/butterflies.js';
 import { computeShorePineSite, placeRock, computeJizoSite, computeTsukubaiSite, computeIwakuraSite, computeSteppingStones, stoneYAt, computeSeaToriiSite, computeChashitsuSite, chashitsuKeepOut, makeKuromatsuGeometry, computeSnagSite, makeSnagGeometry } from '../src/poi.js';
@@ -1693,8 +1693,8 @@ function milieuAppuis(r) {
       ['galop + tête', { hip: -0.95, knee: -1.47, sit: 0, head: 0.7, tail: 0.9 }],
       ['assise + regard', { sit: 1, pitch: SIT_POSE.pitch, head: -0.6, headPitch: -0.6 }],
       // Couché en sphinx, et à la toilette (angles d'animate()).
-      ['couché', { sit: 1, lie: 1, y: -0.36 }],
-      ['toilette', { sit: 1, lie: 1, y: -0.36, head: -0.5, headPitch: 0.8 }],
+      ['couché', { sit: 1, lie: 1, y: -0.32 }],
+      ['toilette', { sit: 1, lie: 1, y: -0.32, head: -0.5, headPitch: 0.8 }],
     ];
     const poser = (p) => {
       r.poseBody(p.y || 0, p.pitch || 0, p.roll || 0, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0,
@@ -1703,7 +1703,7 @@ function milieuAppuis(r) {
         // Assise : les angles qu'animate() envoie, depuis la même constante.
         let hip = p.sit ? (leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip) : p.hip;
         let knee = p.sit ? (leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee) : p.knee;
-        if (p.lie) { hip = leg.front ? -0.60 : -0.66; knee = leg.front ? -1.86 : 1.26; }
+        if (p.lie) { hip = leg.front ? -0.60 : -0.77; knee = leg.front ? -1.86 : 1.387; }
         r.poseLeg(leg, hip, knee, { swim: p.swim || 0, sit: p.sit, shake: 0, speedN: 0, lie: p.lie || 0 });
       }
       r.poseHead({ dt: 0, headYaw: p.head || 0, headPitch: p.headPitch || 0, headRoll: 0,
@@ -1755,6 +1755,528 @@ function milieuAppuis(r) {
       + `fuites latérales ${fuites}`;
   }
   check('rig shiba : aucune déchirure sur 14 poses, pattes non collées', ok, detail);
+}
+
+/* ── 26 bis. proportions shiba ─────────────────────────────────────────────
+ * Rapports mesurés sur la PEAU skinnée (repère du root, donc indépendants de
+ * l'échelle) puis comparés à des photos de shibas adultes (Wikimedia Commons ;
+ * URL et valeurs dans le bloc « Références » de src/shiba-geom.js). Les
+ * fourchettes sont celles des photos, sauf trois exceptions voulues :
+ *  - longueur : le standard (10 : 11) l'emporte sur les photos, plus longues ;
+ *  - tête : les photos × 1.15, la tête est stylisée (lisibilité à distance) ;
+ *  - membre avant : ≤ 12° du droit, exigé par la demande (photos ~150-165°).
+ * Une fourchette trop large ne mesure rien : le cou, la gorge et la hauteur du
+ * garrot sont ceux qui ont échoué sur le modèle d'avant (cou long et mince,
+ * tête haute, membre avant à 166°).
+ */
+function mesurerProportions(root, mesh) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const geo = mesh.geometry, n = geo.attributes.position.count;
+  const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+  const bones = mesh.skeleton.bones;
+  const t = new THREE.Vector3();
+  const V = [], dom = [];
+  for (let v = 0; v < n; v++) {
+    mesh.getVertexPosition(v, t); mesh.localToWorld(t); t.applyMatrix4(inv);
+    V.push(t.clone());
+    let b = -1, bi = 0;
+    for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > b) { b = w; bi = si.getComponent(v, c); } }
+    dom.push(bones[bi].name);
+  }
+  const osMonde = (nom) => bones.find((o) => o.name === nom).getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+  const paire = (k) => osMonde(k + 'L').add(osMonde(k + 'R')).multiplyScalar(0.5);
+  const axe = (v) => Math.abs(v.x) < 0.04;
+  const dYZ = (a, b) => Math.hypot(a.y - b.y, a.z - b.z);
+  const angle = (a, b, c) => {
+    const u = a.clone().sub(b), w = c.clone().sub(b);
+    return Math.acos(u.dot(w) / (u.length() * w.length())) * 180 / Math.PI;
+  };
+  // Garrot : le plus haut du dos entre le milieu du tronc et l'omoplate ; le
+  // cou commence à z = 0.22, là où la ligne de dos se met à monter vers la tête.
+  let H = -Infinity, Hz = 0.22, yCou = -Infinity;
+  V.forEach((v) => {
+    if (!axe(v)) return;
+    if (v.z > 0.0 && v.z < 0.22 && v.y > H) H = v.y;
+    if (v.z > 0.20 && v.z < 0.24 && v.y > yCou) yCou = v.y;
+  });
+  const tete = (d) => d === 'head' || d === 'jaw';
+  let occ = null, nez = null, crane = -Infinity;
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || !axe(v)) return;
+    if (!occ || v.y - v.z > occ.y - occ.z) occ = v;   // arrière-haut du crâne
+    if (!nez || v.z > nez.z) nez = v;
+    crane = Math.max(crane, v.y);
+  });
+  let poitrail = -Infinity, croupe = Infinity, sternum = null, gorge = null;
+  V.forEach((v, i) => {
+    if (!axe(v)) return;
+    if (v.y > 0.35 && v.y < 0.62 && v.z > poitrail) { poitrail = v.z; sternum = v; }
+    if (v.y > 0.45 && v.y < 0.85 && v.z < croupe) croupe = v.z;
+  });
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || !axe(v) || v.z > nez.z - 0.17 || v.z < nez.z - 0.33) return;
+    if (!gorge || v.y < gorge.y) gorge = v;           // dessous de la tête, côté gorge
+  });
+  const lCou = dYZ({ y: yCou, z: Hz }, occ);
+  // Épaisseur du cou : perpendiculairement à l'axe garrot → occiput, à mi-cou.
+  const ax = new THREE.Vector2(occ.z - Hz, occ.y - yCou).normalize();
+  const pr = new THREE.Vector2(-ax.y, ax.x);
+  const mi = new THREE.Vector2((occ.z + Hz) / 2, (occ.y + yCou) / 2);
+  let pMin = Infinity, pMax = -Infinity;
+  V.forEach((v) => {
+    if (!axe(v)) return;
+    const d = new THREE.Vector2(v.z, v.y).sub(mi);
+    if (Math.abs(d.dot(ax)) > 0.015 || Math.abs(d.dot(pr)) > 0.45) return;
+    pMin = Math.min(pMin, d.dot(pr)); pMax = Math.max(pMax, d.dot(pr));
+  });
+  const epaule = paire('hipF'), coude = paire('kneeF'), carpe = paire('pawF');
+  const hanche = paire('hipB'), grasset = paire('kneeB'), jarret = paire('pawB');
+  let pieds = Infinity, piedsZ = 0;
+  V.forEach((v, i) => { if (dom[i] === 'pawBL' && v.y < pieds) { pieds = v.y; piedsZ = v.z; } });
+  return {
+    H,
+    longueur: (poitrail - croupe) / H,
+    cou: lCou / H,
+    angTete: Math.atan2(nez.y - occ.y, nez.z - occ.z) * 180 / Math.PI,
+    coupEpais: (pMax - pMin) / lCou,
+    gorge: dYZ(gorge, sternum) / H,
+    tete: dYZ(occ, nez) / H,
+    crane: crane / H,
+    coude: coude.y / H,
+    jarret: jarret.y / H,
+    angAvant: angle(epaule, coude, carpe),
+    angGrasset: angle(hanche, grasset, jarret),
+    angJarret: angle(grasset, jarret, new THREE.Vector3(jarret.x, pieds, piedsZ)),
+  };
+}
+{
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
+  if (r) {
+    const m = mesurerProportions(r.root, r.mesh);
+    // Le chien VIVANT, à l'arrêt : le crouch de marche ne doit pas l'accroupir.
+    const dog = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+    dog.update(0, 0.016, null);
+    dog.group.updateMatrixWorld(true);
+    let meshVivant = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) meshVivant = o; });
+    const vivant = mesurerProportions(meshVivant.parent.name === 'shiba' ? meshVivant.parent : dog.group.children[0], meshVivant);
+    dog.dispose();
+    const dansF = (x, lo, hi) => x >= lo && x <= hi;
+    const bornes = [
+      ['H/withers', m.H / SHIBA_BUILD.withers, 0.97, 1.03],
+      ['L/H', m.longueur, 1.04, 1.18],
+      ['cou', m.cou, 0.26, 0.34],
+      ['épais/long', m.coupEpais, 1.05, 9],
+      ['gorge', m.gorge, 0.18, 0.28],
+      ['tête', m.tete, 0.40, 0.50],
+      ['crâne', m.crane, 1.20, 1.32],
+      ['coude', m.coude, 0.38, 0.48],
+      ['jarret', m.jarret, 0.21, 0.27],
+      ['angAvant', m.angAvant, 168, 180],
+      ['grasset', m.angGrasset, 105, 130],
+      ['angJarret', m.angJarret, 120, 145],
+      ['arrêt/withers', vivant.H / SHIBA_BUILD.withers, 0.97, 1.03],
+    ];
+    const hors = bornes.filter(([, x, lo, hi]) => !dansF(x, lo, hi));
+    ok = hors.length === 0;
+    detail = bornes.map(([k, x, lo, hi]) => `${k} ${x.toFixed(2)}${dansF(x, lo, hi) ? '' : ` ✗[${lo};${hi}]`}`).join(', ');
+  }
+  check('proportions shiba : cou court et épais, membres presque droits, mesurées sur la peau', ok, detail);
+}
+
+/* ── tête de shiba : large, haute, masque urajiro ────────────────────────
+ * « Tête trop petite et étroite (renard), cou qui paraît long » : sur les
+ * photos, la tête + la collerette crème mangent le cou. Mesures sur la PEAU
+ * skinnée, au repos, repère du root (H = garrot) ; photos à la main (±0.03),
+ * Wikimedia Commons (https://commons.wikimedia.org/wiki/File:<nom>) :
+ *  - largeur des joues / H : 0.40 (photo de l'utilisateur, 3/4 avant, joues
+ *    comprises) ; face : File:2008-01-13_a_Shiba_Inu_in_Tainan.jpg, largeur de
+ *    tête ≈ largeur du poitrail (0.97) ; File:A_Shiba_Inu.jpg, tête large.
+ *  - hauteur crâne → menton / H : 0.37 (File:1Shiba_Inu_Kazumi.jpg, profil),
+ *    0.40 (File:Shiba_Inu_red.jpg, 3/4), 0.40 (photo de l'utilisateur).
+ *  - oreille visible / hauteur de tête : 0.36–0.38 (photo de l'utilisateur,
+ *    Shiba_Inu_red) ; la fourchette large garde l'oreille proportionnée.
+ *  - urajiro : part de crème sur la tête vue de 3/4 avant, classée par la
+ *    couleur de robe la plus proche : photos 0.28 (Tainan, masque sombre),
+ *    0.43 (Shiba_Inu_red), 0.45 (A_Shiba_Inu), 0.66 (photo de l'utilisateur) ;
+ *    poitrail et gorge de face : ≈ 0.9 sur la photo de l'utilisateur.
+ * T4b — la tête doit se LIRE à distance de jeu : museau court et épais, front
+ * large, oreilles franches. Photos (profil/face/3/4, mesure à la main ±0.03 ;
+ * Commons sous https://commons.wikimedia.org/wiki/File:<nom>) :
+ *  - museau (stop → truffe) / tête (occiput → truffe) : 0.20–0.36 selon
+ *    l'occiput retenu (poil ou crâne) sur Shiba_Inu_Kazumi (profil) et
+ *    A_Shiba_Inu_head (3/4) ; standard FCI ≈ 0.4 (crâne : museau = 3 : 2).
+ *  - largeur du museau à mi-longueur / largeur des joues : 0.47 (photo de
+ *    l'utilisateur) à 0.63 (2008-01-13_a_Shiba_Inu_in_Tainan, de face).
+ *  - longueur / profondeur du museau : 1.15 (Kazumi, profil) : un museau aussi
+ *    long que haut, bout carré, jamais la pointe du renard.
+ *  - stop : la chute du chanfrein sur 4 cm vaut 0.2 de la hauteur de tête
+ *    (Kazumi, A_Shiba_Inu_head).
+ *  - oreille visible / hauteur de tête : 0.44 (Shiba_Inu_red), 0.42 (Tainan),
+ *    ≈ 0.45 (Kazumi) ; centres des oreilles / largeur de tête : 0.70–0.77
+ *    (Tainan de face 0.77, photo de l'utilisateur 0.70 en 3/4) ; inclinaison :
+ *    0° (Tainan, droites) à ≈ 20° vers l'avant (Kazumi).
+ *  833783f : oreille/tête 0.38, écartement 0.50, inclinaison -5°, museau
+ *  base/crâne 0.33, museau/tête 0.37, gorge 0.17 : hors bornes (l'inclinaison est
+ *  mesurée au repos, os à plat ; en jeu l'os d'oreille ajoute ≈ 14° vers l'avant).
+ * Mesuré sur df5dd25 : largeur 0.356 H (tête / poitrail 0.82), hauteur 0.297 H,
+ * crème tête 0.35, poitrail 0.63. La queue n'est PAS en cause : épaisseur
+ * 0.185 H (photos 0.21–0.29) et boucle 0.37 H de large (photos 0.48–0.52).
+ */
+function mesurerTete(root, mesh) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const geo = mesh.geometry, n = geo.attributes.position.count;
+  const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+  const nor = geo.attributes.normal, col = geo.attributes.color;
+  const bones = mesh.skeleton.bones;
+  const t = new THREE.Vector3(), nn = new THREE.Vector3(), c = new THREE.Color();
+  const V = [], dom = [];
+  for (let v = 0; v < n; v++) {
+    mesh.getVertexPosition(v, t); mesh.localToWorld(t); t.applyMatrix4(inv);
+    V.push(t.clone());
+    let b = -1, bi = 0;
+    for (let k = 0; k < 4; k++) { const w = sw.getComponent(v, k); if (w > b) { b = w; bi = si.getComponent(v, k); } }
+    dom.push(bones[bi].name);
+  }
+  let H = -Infinity;
+  V.forEach((v) => { if (Math.abs(v.x) < 0.04 && v.z > 0 && v.z < 0.22 && v.y > H) H = v.y; });
+  const tete = (d) => d === 'head' || d === 'jaw';
+  let nez = -Infinity, crane = -Infinity;
+  V.forEach((v, i) => { if (tete(dom[i])) { nez = Math.max(nez, v.z); crane = Math.max(crane, v.y); } });
+  // Joues et menton : la tête entre l'arrière de l'œil et le museau (sans le cou).
+  let x0 = Infinity, x1 = -Infinity, bas = Infinity;
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || v.z < 0.46) return;
+    if (v.z < nez - 0.12) { x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); }
+    bas = Math.min(bas, v.y);
+  });
+  // Poitrail : la tranche z 0.28–0.36 du tronc et des omoplates.
+  let c0 = Infinity, c1 = -Infinity;
+  V.forEach((v, i) => {
+    if (!/^(body|scapF)/.test(dom[i]) || v.z < 0.28 || v.z > 0.36 || v.y < 0.45 || v.y > 0.75) return;
+    c0 = Math.min(c0, v.x); c1 = Math.max(c1, v.x);
+  });
+  // Oreille visible : de la base posée sur le crâne à la pointe.
+  let oreille = 0;
+  root.traverse((o) => {
+    if (o.name !== 'ear' || !o.parent) return;
+    const top = new THREE.Box3().setFromObject(o).max.y;
+    oreille = Math.max(oreille, top - o.parent.getWorldPosition(new THREE.Vector3()).y);
+  });
+  // Profil dorsal (|x| < 0.03) de la tête, par tranches de 1 cm : le stop est la
+  // plus forte chute du chanfrein, de l'arcade au museau (zone z 0.54 → nez).
+  const crete = new Map();
+  let occ = Infinity;
+  V.forEach((v, i) => {
+    if (dom[i] === 'head' && v.y > 0.85) occ = Math.min(occ, v.z);
+    if (!tete(dom[i]) || Math.abs(v.x) > 0.03 || v.z < 0.50) return;
+    const k = Math.round(v.z * 100);
+    crete.set(k, Math.max(crete.get(k) ?? -Infinity, v.y));
+  });
+  let stopZ = 0, chute = 0;
+  for (let k = 54; k <= Math.round(nez * 100) - 4; k++) {
+    const d = (crete.get(k) ?? 0) - (crete.get(k + 4) ?? 0);
+    if (d > chute) { chute = d; stopZ = (k + 2) / 100; }
+  }
+  // Museau à mi-longueur : largeur de la peau (tête + mâchoire) et profondeur sur l'axe.
+  const zm = nez - 0.55 * (nez - stopZ);
+  let mx0 = Infinity, mx1 = -Infinity, my0 = Infinity, my1 = -Infinity;
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || Math.abs(v.z - zm) > 0.006) return;
+    mx0 = Math.min(mx0, v.x); mx1 = Math.max(mx1, v.x);
+    if (Math.abs(v.x) < 0.03) { my0 = Math.min(my0, v.y); my1 = Math.max(my1, v.y); }
+  });
+  // Oreilles : écartement des centres, inclinaison de l'axe base → pointe (+ = vers l'avant).
+  const cs = [];
+  let incl = Infinity;
+  const pt = new THREE.Vector3(), tip = new THREE.Vector3();
+  root.traverse((o) => {
+    if (o.name !== 'ear' || !o.parent) return;
+    const bx = new THREE.Box3().setFromObject(o);
+    cs.push((bx.min.x + bx.max.x) / 2);
+    const g = o.geometry.attributes.position;
+    let top = -Infinity;
+    for (let q = 0; q < g.count; q++) {
+      pt.fromBufferAttribute(g, q); o.localToWorld(pt);
+      if (pt.y > top) { top = pt.y; tip.copy(pt); }
+    }
+    const base = o.parent.getWorldPosition(new THREE.Vector3());
+    incl = Math.min(incl, Math.atan2(tip.z - base.z, tip.y - base.y) * 180 / Math.PI);
+  });
+  // Urajiro : crème contre roux/selle/flanc, sommets tournés vers une caméra
+  // 3/4 avant (40° du museau, légèrement en plongée), symétrisée.
+  const a = 40 * Math.PI / 180;
+  const vue = new THREE.Vector3(Math.sin(a), 0.15, Math.cos(a)).normalize();
+  const cible = new THREE.Vector3();
+  const part = { tete: [0, 0], poitrail: [0, 0] };
+  V.forEach((v, i) => {
+    nn.fromBufferAttribute(nor, i);
+    cible.set(Math.sign(v.x || 1) * vue.x, vue.y, vue.z);
+    if (nn.dot(cible) < 0.15) return;
+    c.fromBufferAttribute(col, i);
+    if (Math.max(c.r, c.g, c.b) < 0.25) return;           // truffe, yeux, lèvre
+    const d = (k) => Math.hypot(c.r - k.r, c.g - k.g, c.b - k.b);
+    const creme = d(COAT.cream) < Math.min(d(COAT.red), d(COAT.saddle), d(COAT.flank));
+    const zone = tete(dom[i]) && v.z > 0.46 ? 'tete'
+      : (dom[i] === 'neck' || dom[i] === 'body') && v.z > 0.28 && v.y > 0.5 && Math.abs(v.x) < 0.14 ? 'poitrail' : null;
+    if (zone) part[zone][creme ? 0 : 1]++;
+  });
+  return {
+    H,
+    largeur: (x1 - x0) / H,
+    surPoitrail: (x1 - x0) / (c1 - c0),
+    hauteur: (crane - bas) / H,
+    oreille: oreille / (crane - bas),
+    cremeTete: part.tete[0] / (part.tete[0] + part.tete[1]),
+    cremePoitrail: part.poitrail[0] / (part.poitrail[0] + part.poitrail[1]),
+    museau: (nez - stopZ) / (nez - occ),
+    museauBase: (mx1 - mx0) / (x1 - x0),
+    museauLP: (nez - stopZ) / (my1 - my0),
+    stop: chute / (crane - bas),
+    ecart: cs.length === 2 ? Math.abs(cs[1] - cs[0]) / (x1 - x0) : 0,
+    inclin: incl,
+  };
+}
+/* T4c — la FACE : bajoues « ourson », gris des joues/gorge, base d'oreille.
+ * Rejetées au visuel sur 833783f puis b842643 : les bornes ci-dessus ne
+ * mesuraient ni le renflement des joues, ni la couleur RENDUE de la crème, ni
+ * la largeur de la base de l'oreille. Photos DE FACE, mesure à la main sur la
+ * silhouette (±0.04 ; Commons sous https://commons.wikimedia.org/wiki/File:<nom>) :
+ *  - 2008-01-13_a_Shiba_Inu_in_Tainan.jpg, Shiba_Inu_Dog_Portrait_(cc)_(4115686100).jpg,
+ *    Shiba_Inu_im_Schnee_1.jpg.
+ *  - cheeksH : hauteur de la tranche la plus large de la face, du menton à la ligne des yeux
+ *    (0 = menton, 1 = crâne ; les oreilles sont exclues) : 0.41 (Tainan), 0.44 (Portrait), 0.54 (Schnee). Les joues sont
+ *    HAUTES (sous l'œil), la face s'affine vers la gueule ; un renflement qui
+ *    pend sous la bouche (bajoues) la fait tomber à 0.33.
+ *  - bouche : largeur de la tête au niveau de la bouche / largeur max aux
+ *    pommettes : 0.87 (Tainan), 0.94 (Portrait), ≈ 0.9 (Schnee, contour du
+ *    masque crème). Jamais plus large qu'aux pommettes.
+ *  - baseOreille : largeur de la base / hauteur de l'oreille visible : 0.95
+ *    (Schnee, deux oreilles 0.91 / 0.98), 0.84 (Portrait), ≈ 0.8 (Tainan) :
+ *    triangle épais, pas la plaque haute et étroite du renard.
+ *  - crème RENDUE (pixels, éclairage de l'atelier : hémisphère + soleil + ombres
+ *    + ACES) sur les joues et sous le menton, comme les photos (sRGB, Y =
+ *    0.2126 R + 0.7152 V + 0.0722 B) : joue claire Y 0.62 (Schnee) – 0.81
+ *    (Tainan), gorge/poitrail à l'ombre Y 0.54 (Schnee) – 0.74 (Tainan),
+ *    saturation (max-min)/max 0.12–0.21 : crème chaude, jamais le gris-brun
+ *    (rendu b842643 : gorge Y 0.38, gorge/joue 0.49).
+ *  Mesuré sur b842643 : joues hautes 0.36, bouche/pommettes 0.96, gorge Y 0.38 :
+ *  les trois hors bornes (le test T4c est ROUGE dessus). Après T4c : 0.47, 0.89,
+ *  0.59. La base d'oreille (1.1) dépasse un peu les photos (0.8–1.0) : style
+ *  exagéré exprès pour la lisibilité à 7.5 m. */
+function mesurerFace(root, mesh) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const geo = mesh.geometry, n = geo.attributes.position.count;
+  const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+  const bones = mesh.skeleton.bones;
+  const t = new THREE.Vector3();
+  const V = [], dom = [];
+  for (let v = 0; v < n; v++) {
+    mesh.getVertexPosition(v, t); mesh.localToWorld(t); t.applyMatrix4(inv);
+    V.push(t.clone());
+    let b = -1, bi = 0;
+    for (let k = 0; k < 4; k++) { const w = sw.getComponent(v, k); if (w > b) { b = w; bi = si.getComponent(v, k); } }
+    dom.push(bones[bi].name);
+  }
+  const tete = (d) => d === 'head' || d === 'jaw';
+  let crane = -Infinity, bas = Infinity;
+  V.forEach((v, i) => { if (tete(dom[i]) && v.z > 0.46) { crane = Math.max(crane, v.y); bas = Math.min(bas, v.y); } });
+  const jaw = bones.find((b) => b.name === 'jaw').getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+  // Largeur de la peau (tête, mâchoire et collerette) par tranches de 1 cm, vue de face.
+  const rows = new Map();
+  V.forEach((v) => {
+    if (v.z < 0.50) return;
+    const k = Math.round(v.y * 100);
+    const r = rows.get(k) || [Infinity, -Infinity];
+    r[0] = Math.min(r[0], v.x); r[1] = Math.max(r[1], v.x); rows.set(k, r);
+  });
+  const w = (y) => { const r = rows.get(Math.round(y * 100)); return r ? r[1] - r[0] : 0; };
+  const hh = crane - bas;
+  let yMax = 0, wMax = 0;
+  for (let k = Math.round((bas + 0.10 * hh) * 100); k <= Math.round((bas + 0.62 * hh) * 100); k++) {
+    const x = w(k / 100);
+    if (x > wMax) { wMax = x; yMax = k / 100; }
+  }
+  // Base de l'oreille : largeur 1 cm au-dessus de la peau du crâne / hauteur visible.
+  let baseOreille = 0;
+  const pt = new THREE.Vector3();
+  root.traverse((o) => {
+    if (o.name !== 'ear' || !o.geometry) return;
+    const g = o.geometry.attributes.position;
+    const P = [];
+    for (let q = 0; q < g.count; q++) { pt.fromBufferAttribute(g, q); o.localToWorld(pt); pt.applyMatrix4(inv); P.push(pt.clone()); }
+    const cx = P.reduce((a, v) => a + v.x, 0) / P.length, cz = P.reduce((a, v) => a + v.z, 0) / P.length;
+    let peau = -Infinity, top = -Infinity;
+    V.forEach((v, i) => { if (tete(dom[i]) && Math.abs(v.x - cx) < 0.03 && Math.abs(v.z - cz) < 0.03) peau = Math.max(peau, v.y); });
+    P.forEach((v) => { top = Math.max(top, v.y); });
+    let x0 = Infinity, x1 = -Infinity;
+    P.forEach((v) => { if (v.y > peau + 0.008 && v.y < peau + 0.020) { x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); } });
+    baseOreille = Math.max(baseOreille, (x1 - x0) / (top - peau));
+  });
+  return { cheeksH: (yMax - bas) / hh, bouche: w(jaw.y) / wMax, baseOreille };
+}
+/** Crème RENDUE : un vrai rendu (hémisphère + soleil + ombres + ACES, éclairage
+ *  de l'atelier) du rig, vu de face à hauteur de poitrail, puis lecture des
+ *  pixels sous les sommets crème des joues et de la gorge. null sans WebGL. */
+function mesurerCreme() {
+  let rend = null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 480; canvas.height = 360;
+    rend = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+    rend.setSize(480, 360, false);
+    rend.shadowMap.enabled = true;
+    rend.toneMapping = THREE.ACESFilmicToneMapping;
+    const sc = new THREE.Scene();
+    sc.background = new THREE.Color(0xc9d6dc);
+    sc.add(new THREE.HemisphereLight(0xdfeaff, 0x6a5a40, 1.1));
+    const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
+    sun.position.set(2.5, 4, 3); sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5 });
+    sc.add(sun);
+    const rig = buildBody();
+    sc.add(rig.root);
+    rig.root.updateMatrixWorld(true);
+    const cam = new THREE.PerspectiveCamera(16, 480 / 360, 0.1, 30);
+    cam.position.set(0.15, 0.80, 3.2); cam.lookAt(0, 0.84, 0.55);
+    cam.updateMatrixWorld(true);
+    rend.render(sc, cam);
+    const gl = rend.getContext();
+    const px = new Uint8Array(480 * 360 * 4);
+    gl.readPixels(0, 0, 480, 360, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const mesh = rig.mesh, geo = mesh.geometry, n = geo.attributes.position.count;
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, nor = geo.attributes.normal, col = geo.attributes.color;
+    const bones = mesh.skeleton.bones;
+    const t = new THREE.Vector3(), nn = new THREE.Vector3(), c = new THREE.Color(), p = new THREE.Vector3();
+    const zones = { joue: [], gorge: [] };
+    const d = (k) => Math.hypot(c.r - k.r, c.g - k.g, c.b - k.b);
+    for (let v = 0; v < n; v++) {
+      mesh.getVertexPosition(v, t); mesh.localToWorld(t); t.applyMatrix4(new THREE.Matrix4().copy(rig.root.matrixWorld).invert());
+      nn.fromBufferAttribute(nor, v);
+      if (nn.z < 0.45) continue;                          // tourné vers l'objectif
+      c.fromBufferAttribute(col, v);
+      if (!(d(COAT.cream) < Math.min(d(COAT.red), d(COAT.saddle), d(COAT.flank)))) continue;
+      let b = -1, bi = 0;
+      for (let k = 0; k < 4; k++) { const ww = sw.getComponent(v, k); if (ww > b) { b = ww; bi = si.getComponent(v, k); } }
+      const dm = bones[bi].name;
+      const ax = Math.abs(t.x);
+      const zone = (dm === 'head' || dm === 'jaw') && ax > 0.10 && ax < 0.16 && t.y > 0.84 && t.y < 0.88 && t.z > 0.48 ? 'joue'
+        : t.z > 0.44 && t.z < 0.60 && ax < 0.08 && t.y > 0.70 && t.y < 0.77 ? 'gorge' : null;
+      if (!zone) continue;
+      p.copy(t).applyMatrix4(rig.root.matrixWorld).project(cam);
+      const X = Math.round((p.x * 0.5 + 0.5) * 479), Y = Math.round((p.y * 0.5 + 0.5) * 359);
+      if (X < 0 || X > 479 || Y < 0 || Y > 359) continue;
+      const o = (Y * 480 + X) * 4;
+      zones[zone].push([px[o] / 255, px[o + 1] / 255, px[o + 2] / 255]);
+    }
+    const stat = (L) => {
+      if (L.length < 20) return null;
+      const f = (k) => L.map((q) => q[k]).sort((a, b) => a - b)[Math.floor(L.length / 2)];
+      const r = f(0), g = f(1), bl = f(2);
+      return { Y: 0.2126 * r + 0.7152 * g + 0.0722 * bl, sat: (Math.max(r, g, bl) - Math.min(r, g, bl)) / Math.max(r, g, bl), n: L.length };
+    };
+    return { joue: stat(zones.joue), gorge: stat(zones.gorge) };
+  } catch (e) {
+    return null;
+  } finally {
+    if (rend) rend.dispose();
+  }
+}
+{
+  const r = shibaRig;
+  let ok = false, detail = rigCause;
+  if (r) {
+    const m = mesurerTete(r.root, r.mesh), f = mesurerFace(r.root, r.mesh);
+    const bornes = [
+      ['largeur/H', m.largeur, 0.39, 0.50],
+      ['tête/poitrail', m.surPoitrail, 0.92, 1.15],
+      ['hauteur/H', m.hauteur, 0.34, 0.45],
+      ['oreille/tête', m.oreille, 0.40, 0.58],
+      ['écartement oreilles', m.ecart, 0.55, 0.85],
+      ['inclinaison oreille°', m.inclin, 0, 35],
+      ['museau/tête', m.museau, 0.22, 0.36],
+      ['museau base/crâne', m.museauBase, 0.45, 0.70],
+      ['museau long/prof', m.museauLP, 0.9, 1.6],
+      ['stop', m.stop, 0.12, 0.35],
+      ['crème tête', m.cremeTete, 0.48, 0.80],
+      ['crème poitrail', m.cremePoitrail, 0.75, 1],
+      // T4c : la face (sources : commentaire « T4c » ci-dessus).
+      ['joues hautes (largeur max)', f.cheeksH, 0.38, 0.62],
+      ['bouche/pommettes (pas de bajoues)', f.bouche, 0.60, 0.93],
+      ['base oreille/hauteur', f.baseOreille, 0.85, 1.20],
+    ];
+    // Crème rendue : joue claire, gorge pas grise, saturation chaude (null = pas de WebGL).
+    const cr = mesurerCreme();
+    if (cr && cr.joue && cr.gorge) {
+      bornes.push(['crème rendue joue Y', cr.joue.Y, 0.60, 0.95], ['crème rendue gorge Y', cr.gorge.Y, 0.52, 0.95],
+        ['gorge/joue', cr.gorge.Y / cr.joue.Y, 0.75, 1.15], ['saturation joue', cr.joue.sat, 0.10, 0.30], ['saturation gorge', cr.gorge.sat, 0.10, 0.30]);
+    }
+    const hors = bornes.filter(([, x, lo, hi]) => !(x >= lo && x <= hi));
+    ok = hors.length === 0;
+    detail = bornes.map(([k, x, lo, hi]) => `${k} ${x.toFixed(2)}${x >= lo && x <= hi ? '' : ` ✗[${lo};${hi}]`}`).join(', ') + (cr && cr.joue && cr.gorge ? '' : ' (crème rendue non mesurée : pas de WebGL)');
+  }
+  check('tête de shiba : large et haute (joues pleines), masque urajiro visible, mesurés sur la peau', ok, detail);
+}
+
+/* ── port de tête en mouvement ────────────────────────────────────────────
+ * « Le cou paraît long » en jeu alors que le banc de repos (« proportions
+ * shiba », chien à l'arrêt, tête neutre) mesure cou 0.29 : ce banc ne voit pas
+ * ce que l'œil voit, un chien qui court ou qui lève le nez. Mêmes mesures sur
+ * la peau, mais sur le chien VIVANT : au galop (le hochement et le pompage du
+ * cou) et debout à regarder un pétale (look + lookUp).
+ * D'OÙ VIENNENT LES BORNES (Wikimedia Commons, shibas adultes, mesures à la
+ * main, mêmes définitions que le banc ci-dessus, ±0.03) :
+ *  - cou garrot→occiput / H ≤ 0.34 : photos de profil debout 0.27–0.35
+ *    (File:Cream_shiba_inu_dllu.jpg, File:Shiba_Inu_red.jpg, File:1Shiba_Inu_Kazumi.jpg) ;
+ *    en course la tête se TASSE sur les épaules, elle ne s'allonge pas
+ *    (File:2020-09-22_Shiba_Inu_running.jpg : occiput presque à l'aplomb du garrot) ;
+ *  - crâne haut / H ≤ 0.30 au-dessus du garrot : photos 1.23–1.29 H ;
+ *  - angle occiput→truffe ≤ −2° : la tête la plus levée de toutes les photos est
+ *    celle de Kazumi (−2°, truffe pointée vers l'avant et légèrement vers le
+ *    haut) ; au repos −18 à −31° (Shiba_Inu_red, 2021-03-19 DSC05361 en marche).
+ * Mesuré avant correction : cou 0.36 et crâne +0.33 au galop, −1.4° au regard.
+ */
+{
+  const tenir = (touches, regarde) => {
+    const dog = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    let t = 0;
+    const pire = { cou: 0, crane: 0, ang: -90 };
+    let mesh = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    for (let i = 0; i < (regarde ? 1500 : 480); i++) {
+      t += 1 / 60;
+      if (regarde) {
+        // un pétale à 1.5–3 m, à 0.9–3 m de haut, renouvelé toutes les 3 s
+        const k = Math.floor(t / 3), a = dog.heading + 0.6 * Math.sin(k * 1.7);
+        dog.setLookTargets([{ x: dog.position.x + Math.sin(a) * (1.5 + (k % 3) * 0.8), y: dog.position.y + 0.9 + ((k * 0.37) % 1) * 2.1, z: dog.position.z + Math.cos(a) * (1.5 + (k % 3) * 0.8), kind: 'petal', id: k }]);
+        dog.state.idleTime = 0;
+      }
+      dog.update(t, 1 / 60, null);
+      if (i < 150 || i % 3) continue;
+      dog.group.updateMatrixWorld(true);
+      const m = mesurerProportions(mesh.parent.name === 'shiba' ? mesh.parent : dog.group.children[0], mesh);
+      // Rapportés au garrot NOMINAL, pas à celui de l'instant : le tronc s'abaisse
+      // en foulée, et diviser par un garrot plus bas gonflerait le ratio.
+      pire.cou = Math.max(pire.cou, m.cou * m.H / SHIBA_BUILD.withers);
+      pire.crane = Math.max(pire.crane, (m.crane - 1) * m.H / SHIBA_BUILD.withers);
+      pire.ang = Math.max(pire.ang, m.angTete);
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    dog.dispose();
+    return pire;
+  };
+  const galop = tenir(['KeyW', 'ShiftLeft'], false), regard = tenir([], true);
+  const ok = galop.cou <= 0.34 && galop.crane <= 0.30 && regard.ang <= -2 && regard.cou <= 0.34;
+  check('port de tête : le cou ne s’allonge pas au galop ni quand il lève le nez',
+    ok,
+    `galop : cou ${galop.cou.toFixed(2)} (≤ 0.34), crâne +${galop.crane.toFixed(2)} (≤ 0.30) ; `
+    + `regard d’un pétale : angle ${regard.ang.toFixed(1)}° (≤ −2), cou ${regard.cou.toFixed(2)} (≤ 0.34)`);
 }
 
 /* ── empreintes sur la terre battue ───────────────────────────────────────
@@ -1817,6 +2339,146 @@ function milieuAppuis(r) {
       `semelle min ${bas.toFixed(3)} (plancher -0.020), glissé ${glisse.toFixed(3)} `
       + `(plafond ${glisseMax}), appuis FL FR BL BR ${appuis.join(' ')}`);
   }
+}
+
+/* ── appuis des pattes, pente ─────────────────────────────────────────────
+ * Pente 0.36 (≈ 20°, sentes raides), départ → régime → arrêt (90 images après
+ * le relâchement, 60 images de repos avant), relâché à dix phases de foulée. Le dessous du coussinet ne descend
+ * pas sous le sol de plus de 1 cm. Un arrêt en pleine foulée laisse le pied
+ * posé hors de portée de la patte : le solveur le ramène à l'horizontale, donc
+ * DANS la pente (pente × recul : -0.036 mesuré le 29/10 au trot, -0.009 avant
+ * le commit des allures naturelles). Garde de portée dans animate().
+ */
+{
+  const pente = 0.36;
+  // Le creux dépend de la phase des pieds au relâchement : on relâche à
+  // dix instants décalés de 6 images (une foulée dure ≈ 30 images).
+  const mesure = (touches, vitesse) => {
+    let pire = Infinity;
+    for (let n = 0; n < 10; n++) pire = Math.min(pire, mesure1(touches, vitesse, 240 + 6 * n));
+    return pire;
+  };
+  const mesure1 = (touches, vitesse, course) => {
+    const hf = (x, z) => pente * z;
+    const dog = createShiba({
+      heightAt: hf, normalAt: (x, z, o) => o.set(0, 1, -pente).normalize(), water: { surfaceAt: () => null },
+    });
+    const p = new THREE.Vector3();
+    let bas = Infinity, t = 0;
+    const pas = (mesurer) => {
+      t += 1 / 60; dog.update(t, 1 / 60, null);
+      if (!mesurer) return;
+      dog.group.updateMatrixWorld(true);
+      for (const k of ['FL', 'FR', 'BL', 'BR']) {
+        dog.group.getObjectByName('paw' + k).localToWorld(p.fromArray(PAW_SOLE[k[0]]));
+        bas = Math.min(bas, p.y - hf(p.x, p.z));
+      }
+    };
+    for (let i = 0; i < 60; i++) pas(false);
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    for (let i = 0; i < course; i++) { if (vitesse != null) dog.state.speed = vitesse; pas(true); }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    for (let i = 0; i < 90; i++) pas(true);
+    dog.dispose();
+    return bas;
+  };
+  const trot = mesure(['KeyW'], null);
+  const marche = mesure(['KeyW'], 0.9);
+  check('pattes en pente (0.36) : la semelle ne s\'enfonce pas, départ et arrêt compris',
+    trot >= -0.01 && marche >= -0.01,
+    `semelle min trot ${trot.toFixed(4)}, marche ${marche.toFixed(4)} (plancher -0.0100)`);
+}
+
+/* ── allure shiba : trot diagonal, pas latéral, dos stable ─────────────────
+ * Sol plat, régime établi (images 150 à 480). D'OÙ VIENNENT LES SEUILS :
+ *  - Forme (sources publiées, qualitatives) : le trot du chien est une allure à
+ *    DEUX temps, diagonales synchrones, avec suspension — Carlisle et al. 2019,
+ *    « Relationship Between Gait Mechanics and the Speed of the Trot in the
+ *    Weimaraner Dog Breed », doi 10.1053/j.tcam.2019.03.003
+ *    (digitalcommons.pvamu.edu/agriculture-facpubs/465) ; le pas est une
+ *    séquence LATÉRALE à quatre temps (arrière puis avant du même côté) —
+ *    Hildebrand 1968, J. Morphol. 124:353, doi 10.1002/jmor.1051240308
+ *    (animations : vanat.ahc.umn.edu/gaits). D'où : diagonales ≤ 8 % de la
+ *    période, pas BL FL BR FR espacés autour du quart de période (0.17–0.33).
+ *    Les 8 % et la fenêtre 0.17–0.33 sont NOTRE tolérance, pas une valeur publiée.
+ *  - Cadence ≈ 2 foulées/s au trot : ordre de grandeur, NON repris d'un chiffre
+ *    publié (le résumé de Carlisle ne donne pas la fréquence ; il donne les
+ *    vitesses, trot lent 1.2–1.7 m/s, rapide 1.9–2.3 m/s). Fenêtre 1.6–2.4 Hz =
+ *    ±20 %. Un shiba étant plus petit qu'un Weimaraner, il ne doit pas
+ *    tomber SOUS cette fenêtre ; le piétinement (3.8 Hz avant le 29/10) la dépasse.
+ *  - Tangage du bassin ≤ 3°, tête ≤ 2.5° / 0.03 u, creux d'appui ≤ 6 % : SEUILS
+ *    DE NON-RÉGRESSION calés sur le modèle (mesuré avant le 29/10 : 4.1°, 3.1°,
+ *    9.0 %), faute de chiffre publié trouvé. Ils verrouillent l'état
+ *    atteint (1.7°, 1.6°, 4.9 %), ils ne prétendent pas décrire un shiba réel.
+ * Le garrot (amplitude verticale) n'est plus testé : 2.4 % avant comme après,
+ * le critère ne discriminait rien.
+ */
+{
+  const names = ['FL', 'FR', 'BL', 'BR'];
+  const mesure = (touches, vitesse) => {
+    const dog = createShiba({ heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    const G = dog.group, p = new THREE.Vector3(), d = new THREE.Vector3();
+    const get = (n) => G.getObjectByName(n);
+    const pitch = (o) => { d.set(0, 0, 1).transformDirection(o.matrixWorld); return Math.asin(d.y) * 180 / Math.PI; };
+    const on = [false, false, false, false], hits = [[], [], [], []];
+    const S = { y: [], pel: [], hp: [], hy: [] };
+    let t = 0, y0 = 0;
+    for (let i = 0; i < 480; i++) {
+      t += 1 / 60;
+      if (vitesse != null) dog.state.speed = vitesse;
+      dog.update(t, 1 / 60, null);
+      if (i === 1) { G.updateMatrixWorld(true); y0 = get('body').getWorldPosition(p).y; }
+      if (i < 150) continue;
+      G.updateMatrixWorld(true);
+      names.forEach((k, j) => {
+        get('paw' + k).localToWorld(p.fromArray(PAW_SOLE[k[0]]));
+        const down = p.y < 0.03;
+        if (down && !on[j]) hits[j].push(t);
+        on[j] = down;
+      });
+      S.y.push(get('body').getWorldPosition(p).y);
+      S.pel.push(pitch(get('pelvis'))); S.hp.push(pitch(get('head')));
+      S.hy.push(get('head').getWorldPosition(p).y);
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    dog.dispose();
+    const pk = (a) => Math.max(...a) - Math.min(...a);
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const hz = mean(hits.map((h) => (h.length - 1) / (h[h.length - 1] - h[0])));
+    const T = 1 / hz;
+    const circ = (a) => {
+      let sx = 0, sy = 0;
+      a.forEach((v) => { sx += Math.cos(v * 2 * Math.PI); sy += Math.sin(v * 2 * Math.PI); });
+      return ((Math.atan2(sy, sx) / (2 * Math.PI)) % 1 + 1) % 1;
+    };
+    const ph = hits.map((h) => circ(h.map((x) => (((x - hits[2][0]) / T) % 1 + 1) % 1)));
+    const dist = (a, b) => { const x = Math.abs(a - b) % 1; return Math.min(x, 1 - x); };
+    const sc = SHIBA_BUILD.scale;
+    return {
+      hz, ph, diag: Math.max(dist(ph[0], ph[3]), dist(ph[1], ph[2])),
+      pitch: pk(S.pel), head: pk(S.hp), headY: pk(S.hy) / sc,
+      drop: 100 * (y0 - mean(S.y)) / y0,
+    };
+  };
+  const trot = mesure(['KeyW'], null);
+  check('allure shiba : trot en diagonales synchrones, dos et tête stables',
+    trot.diag <= 0.08 && trot.pitch <= 3 && trot.head <= 2.5 && trot.headY <= 0.03
+    && trot.drop <= 6 && trot.hz >= 1.6 && trot.hz <= 2.4,
+    `diagonales ${(100 * trot.diag).toFixed(1)} % (≤ 8), tangage bassin ${trot.pitch.toFixed(2)}° (≤ 3), `
+    + `tête ${trot.head.toFixed(2)}° (≤ 2.5) / ${trot.headY.toFixed(3)} u (≤ 0.03), `
+    + `creux d'appui ${trot.drop.toFixed(1)} % (≤ 6), cadence ${trot.hz.toFixed(2)} Hz (1.6–2.4)`);
+  const lent = mesure(['KeyW'], 2.4);
+  check('allure shiba : le trot lent garde ≈ 2 foulées/s (pas de piétinement)',
+    lent.hz >= 1.6 && lent.hz <= 2.5 && lent.diag <= 0.08 && lent.pitch <= 3,
+    `cadence ${lent.hz.toFixed(2)} Hz (1.6–2.5), diagonales ${(100 * lent.diag).toFixed(1)} %, tangage ${lent.pitch.toFixed(2)}°`);
+  const pas = mesure(['KeyW'], 0.8);
+  // BL, FL, BR, FR : chaque appui suit le précédent d'environ un quart de foulée.
+  const ordre = [2, 0, 3, 1].map((j) => pas.ph[j]);
+  const ecarts = ordre.map((v, k) => ((ordre[(k + 1) % 4] - v) % 1 + 1) % 1);
+  check('allure shiba : au pas, séquence latérale à 4 temps (BL FL BR FR)',
+    ecarts.every((e) => e > 0.17 && e < 0.33),
+    `écarts ${ecarts.map((e) => e.toFixed(2)).join(' ')} (0.17–0.33), phases BL FL BR FR ${ordre.map((v) => v.toFixed(2)).join(' ')}`);
 }
 
 /* ── lot 6. shiba : aboie, se secoue, regarde ─────────────────────────────
@@ -2187,6 +2849,287 @@ function milieuAppuis(r) {
   check('ambiance : grenouilles au crépuscule près d’un étang, pas au large',
     pondDusk.frogs > 0.45 && pondFar.frogs < 0.08,
     `near=${pondDusk.frogs.toFixed(2)} far=${pondFar.frogs.toFixed(2)}`);
+}
+
+/* ── pattes arrière d'aplomb ──────────────────────────────────────────────
+ * L'utilisateur trouvait les postérieurs trop angulés face à la photo d'un vrai
+ * shiba debout (vrai-shiba.png) : le jarret et le grasset trop fléchis, le pied
+ * trop loin devant la pointe de fesse. Mesures (T5, 30/10/2026), plan sagittal,
+ * repère du root, hauteur du garrot H = 0.80 ; photos à la main, ±8° :
+ *  - vrai-shiba.png (shiba debout de profil) : métatarse vertical (≤ 5°), angle
+ *    du jarret (grasset-jarret-pied) ≈ 135-140°, grasset ≈ 100-110°, pied à
+ *    ≈ 0.09 H devant la pointe de fesse, jarret à ≈ 0.06 H devant elle ;
+ *  - File:Cream_shiba_inu_dllu.jpg (profil) : jarret ≈ 135°, pied à ≈ 0.16 H ;
+ *  - File:Shiba_Inu_red.jpg (profil) : jarret ≈ 133°, métatarse ≤ 8°.
+ * Planchers choisis dans la partie haute des fourchettes (demande « quasi
+ * droit »), jamais au-delà de ce que les photos montrent (jarret ≤ 145° mesuré
+ * sur la peau par « proportions shiba »). Avant (df5dd25) au repos :
+ * jarret 130°, grasset 115°, métatarse 9.0°, pied à 0.151 H ; au trot (mi-appui)
+ * jarret 120°, grasset 101° ; au pas jarret 131°, grasset 109°.
+ * Les angles se lisent aux OS (hanche, grasset, jarret, dessous du coussinet
+ * PAW_SOLE) ; la pointe de fesse est le sommet le plus reculé du bassin.
+ */
+{
+  const WITHERS = SHIBA_BUILD.withers;
+  const angle = (a, b, c) => {
+    const u = a.clone().sub(b), w = c.clone().sub(b);
+    return Math.acos(Math.min(1, Math.max(-1, u.dot(w) / (u.length() * w.length())))) * 180 / Math.PI;
+  };
+  const mesurerArriere = (dog) => {
+    dog.group.updateMatrixWorld(true);
+    let mesh = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    const root = mesh.parent;
+    const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const os = (n) => dog.group.getObjectByName(n).getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+    const hanche = os('hipBL'), grasset = os('kneeBL'), jarret = os('pawBL');
+    const pied = dog.group.getObjectByName('pawBL').localToWorld(new THREE.Vector3().fromArray(PAW_SOLE.B)).applyMatrix4(inv);
+    return {
+      hanche, grasset, jarret, pied, mesh, inv,
+      angGrasset: angle(hanche, grasset, jarret),
+      angJarret: angle(grasset, jarret, pied),
+      metatarse: Math.abs(Math.atan2(pied.z - jarret.z, jarret.y - pied.y)) * 180 / Math.PI,
+    };
+  };
+  const pointeDeFesse = (m) => {
+    const geo = m.mesh.geometry, si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    const bones = m.mesh.skeleton.bones, t = new THREE.Vector3();
+    let z = Infinity;
+    for (let v = 0; v < geo.attributes.position.count; v++) {
+      m.mesh.getVertexPosition(v, t); m.mesh.localToWorld(t); t.applyMatrix4(m.inv);
+      if (t.y < 0.45 || t.y > 0.85 || t.x < 0.02 || t.z >= z) continue;
+      let b = -1, bi = 0;
+      for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > b) { b = w; bi = si.getComponent(v, c); } }
+      if (bones[bi].name === 'pelvis') z = t.z;
+    }
+    return z;
+  };
+  const dog = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+  dog.update(0, 0.016, null);
+  const repos = mesurerArriere(dog);
+  const fesse = pointeDeFesse(repos);
+  const piedFesse = (repos.pied.z - fesse) / WITHERS;
+  // Mi-appui du postérieur gauche : le pied passe sous la hanche, au sol. On
+  // garde le pire (le plus plié) des passages, régime établi.
+  const miAppui = (touches, vitesse) => {
+    const d = createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keydown', { code: c }));
+    let t = 0, prev = null, gMin = 1e9, jMin = 1e9, n = 0;
+    for (let i = 0; i < 480; i++) {
+      t += 1 / 60;
+      if (vitesse) d.state.speed = vitesse;
+      d.update(t, 1 / 60, null);
+      if (i < 120) continue;
+      const m = mesurerArriere(d), rel = m.pied.z - m.hanche.z;
+      if (prev !== null && prev > 0 && rel <= 0 && m.pied.y < 0.12) {
+        gMin = Math.min(gMin, m.angGrasset); jMin = Math.min(jMin, m.angJarret); n++;
+      }
+      prev = rel;
+    }
+    for (const c of touches) dispatchEvent(new KeyboardEvent('keyup', { code: c }));
+    d.dispose();
+    return { grasset: gMin, jarret: jMin, n };
+  };
+  const trot = miAppui(['KeyW'], 0);
+  const pas = miAppui(['KeyW'], 0.7);
+  dog.dispose();
+  const f = (x) => x.toFixed(1);
+  const regles = [
+    ['repos : métatarse ≤ 6° de la verticale', repos.metatarse <= 6, `${f(repos.metatarse)}°`],
+    ['repos : jarret ≥ 135°', repos.angJarret >= 135, `${f(repos.angJarret)}°`],
+    ['repos : grasset ≥ 118° (photos 100-120°)', repos.angGrasset >= 118, `${f(repos.angGrasset)}°`],
+    ['repos : pied à ≤ 0.11 H devant la pointe de fesse', piedFesse <= 0.11 && piedFesse >= 0.03, `${piedFesse.toFixed(3)} H`],
+    ['pas : jarret ≥ 135°, grasset ≥ 110°', pas.n >= 2 && pas.jarret >= 135 && pas.grasset >= 110, `${pas.n} appuis, jarret ${f(pas.jarret)}°, grasset ${f(pas.grasset)}°`],
+    // Le grasset au trot (≈ 100°, comme avant) tient au crouch 0.035 : en dessous le glissé dépasse 0.03 (pieges.md n° 12), donc seul le jarret est exigé.
+    ['trot : jarret ≥ 128°', trot.n >= 2 && trot.jarret >= 128, `${trot.n} appuis, jarret ${f(trot.jarret)}°, grasset ${f(trot.grasset)}° (non exigé)`],
+  ];
+  const hors = regles.filter(([, ok]) => !ok);
+  check('pattes arrière d\'aplomb : jarret et grasset peu fléchis, métatarse vertical, pied sous la pointe de fesse',
+    hors.length === 0, regles.map(([k, ok, v]) => `${k} → ${v}${ok ? '' : ' ✗'}`).join(' ; '));
+}
+
+/* ── pose assise de shiba ─────────────────────────────────────────────────
+ * T6 (01/11/2026) : l'assise était tassée (jeu-actuel.png). T6b : encore
+ * penchée en arrière (dos 45°, antérieurs en biais à l'œil) et le relevé
+ * passait la semelle à -0.19 sous l'herbe. Mesures à la main sur des photos de
+ * shibas adultes assis (Wikimedia Commons,
+ * https://commons.wikimedia.org/wiki/File:<nom>), ± 8° et ± 0.05 H ; une
+ * seule est un vrai profil, les autres sont en 3/4 (angle apparent) :
+ *  - Mame_shiba_dog_(52368813513).jpg (3/4 de face) : antérieurs droits sous
+ *    le poitrail, pieds posés sous l'épaule (≤ 0.08 u), coude ≈ 175°, poitrail
+ *    haut, garrot ≈ 0.95 H, fesse posée sur le sol, métatarses à plat ;
+ *  - Shiba_Inu_Kazumi.jpg (3/4) : dos garrot→croupe ≈ 50° apparent
+ *    (raccourci par la perspective : l'angle vrai est plus fermé), antérieurs
+ *    ≤ 5° du vertical ; Shiba5.jpg (3 chiens) : dos 50-60°, antérieurs
+ *    verticaux ; Sitting_nicely_-_shiba_taro… et Shiba_Inu_black-and-tan.jpg
+ *    (face) : antérieurs verticaux, pieds sous les épaules, arrière-train
+ *    compact posé ; Hembra_blanca.jpg, Dog20110929_2.jpg,
+ *    2008-01-13_a_Shiba_Inu_in_Tainan.jpg : garrot ≈ 0.95 H.
+ * Le dos est le segment garrot → croupe SUIVI par deux sommets de peau (ceux
+ * du garrot et du sommet de croupe, repérés debout), pas le point le plus haut
+ * du tronc, qui glisse vers le cou quand le tronc se redresse. Avant T6b
+ * (89aca8b) : dos 41°, garrot 0.964 H, fesse à 0.165 du sol, relevé à -0.19.
+ * Bornes : dos 55-70°, garrot ≥ 0.90 H, antérieurs ≤ 10° du vertical et pieds
+ * à ≤ 0.08 u du pivot d'épaule, coude ≥ 165°, fesse ≤ 0.12 au-dessus du sol.
+ * Le contact au sol vient de la physique : aucun sommet de peau, ni semelle,
+ * sous -0.01 à aucune image de la descente (debout → assis) ni du relevé
+ * (assis → debout, en marchant), à 1/60 s ; la tête ne saute pas.
+ */
+{
+  const nouveau = () => createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+  const T = new THREE.Vector3();
+  let gi = -1, ci = -1;
+  const preparer = (dog) => {
+    dog.group.updateMatrixWorld(true);
+    let mesh = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    const root = mesh.parent;
+    const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const geo = mesh.geometry, n = geo.attributes.position.count;
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, bones = mesh.skeleton.bones;
+    const dom = new Array(n);
+    for (let v = 0; v < n; v++) {
+      let b = -1, bi = 0;
+      for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > b) { b = w; bi = si.getComponent(v, c); } }
+      dom[v] = bones[bi].name;
+    }
+    return { dog, mesh, root, inv, n, dom };
+  };
+  // Garrot et sommet de croupe, une fois pour toutes, sur le chien debout.
+  const rafraichir = (m) => { m.dog.group.updateMatrixWorld(true); m.inv.copy(m.root.matrixWorld).invert(); };
+  const reperer = (m) => {
+    rafraichir(m);
+    let gy = -1e9, cy = -1e9;
+    for (let v = 0; v < m.n; v++) {
+      m.mesh.getVertexPosition(v, T); m.mesh.localToWorld(T); T.applyMatrix4(m.inv);
+      if (Math.abs(T.x) >= 0.04) continue;
+      if (m.dom[v] === 'body' && T.z > 0.1 && T.z < 0.4 && T.y > gy) { gy = T.y; gi = v; }
+      if (m.dom[v] === 'pelvis' && T.y > cy) { cy = T.y; ci = v; }
+    }
+  };
+  const monde = (m, nom) => m.dog.group.getObjectByName(nom).getWorldPosition(new THREE.Vector3());
+  const local = (m, nom) => monde(m, nom).applyMatrix4(m.inv);
+  const solePts = (m) => ['pawFL', 'pawFR', 'pawBL', 'pawBR'].map((k) => m.dog.group.getObjectByName(k)
+    .localToWorld(new THREE.Vector3().fromArray(k[3] === 'F' ? PAW_SOLE.F : PAW_SOLE.B)).y);
+  // Creux : plus bas sommet de peau, plus bas coussinet (sole), par groupe d'os.
+  const creux = (m) => {
+    m.dog.group.updateMatrixWorld(true);
+    let minTout = 1e9, minAvant = 1e9, minArriere = 1e9, minFesse = 1e9;
+    for (let v = 0; v < m.n; v++) {
+      m.mesh.getVertexPosition(v, T); m.mesh.localToWorld(T);
+      const y = T.y, nom = m.dom[v];
+      if (y < minTout) minTout = y;
+      if ((nom === 'pawFL' || nom === 'pawFR') && y < minAvant) minAvant = y;
+      if ((nom === 'pawBL' || nom === 'pawBR') && y < minArriere) minArriere = y;
+      if (nom === 'pelvis' && y < minFesse) minFesse = y;
+    }
+    return { minTout, minAvant, minArriere, minFesse, sole: Math.min(...solePts(m)) };
+  };
+  const ang3 = (a, b, c) => {
+    const u = a.clone().sub(b), w = c.clone().sub(b);
+    return Math.acos(Math.min(1, Math.max(-1, u.dot(w) / (u.length() * w.length())))) * 180 / Math.PI;
+  };
+  const poseComplete = (m) => {
+    rafraichir(m);
+    const g = new THREE.Vector3(), c = new THREE.Vector3();
+    m.mesh.getVertexPosition(gi, g); m.mesh.localToWorld(g); const garrotMonde = g.y; g.applyMatrix4(m.inv);
+    m.mesh.getVertexPosition(ci, c); m.mesh.localToWorld(c); c.applyMatrix4(m.inv);
+    const hF = local(m, 'hipFL'), kF = local(m, 'kneeFL'), pF = local(m, 'pawFL');
+    const hB = local(m, 'hipBL'), kB = local(m, 'kneeBL'), pB = local(m, 'pawBL');
+    return {
+      dos: Math.atan2(g.y - c.y, g.z - c.z) * 180 / Math.PI, garrot: garrotMonde,
+      verticalAvant: Math.abs(Math.atan2(hF.z - pF.z, hF.y - pF.y)) * 180 / Math.PI,
+      coude: ang3(hF, kF, pF), piedSousEpaule: pF.z - hF.z,
+      genouDevantHanche: kB.z - hB.z, piedArriereDerrierePiedAvant: pF.z - pB.z,
+      grasset: ang3(hB, kB, pB), ...creux(m),
+    };
+  };
+  const suivis = ['head', 'hipFL', 'hipBL', 'kneeFL', 'kneeFR', 'pawFL', 'pawFR'];
+  const corps = ['head', 'hipFL', 'hipBL'];
+  const capter = (m) => (rafraichir(m), { s: m.dog.state.sitting, ...creux(m), p: suivis.map((k) => local(m, k)) });
+  // Saut = dérivée seconde d'une position (repère du root) ; seuls ceux du
+  // tronc et de la tête comptent au relevé (les pattes y marchent).
+  const saut = (fr, noms) => {
+    let mx = 0;
+    for (let i = 1; i < fr.length - 1; i++) {
+      if (!(fr[i].s > 0 && fr[i].s < 1)) continue;
+      for (const k of noms) {
+        const j = suivis.indexOf(k), a = fr[i - 1].p[j], b = fr[i].p[j], c = fr[i + 1].p[j];
+        mx = Math.max(mx, Math.hypot(a.x - 2 * b.x + c.x, a.y - 2 * b.y + c.y, a.z - 2 * b.z + c.z));
+      }
+    }
+    return mx;
+  };
+  const stat = (fr) => {
+    const e = fr.filter((x) => x.s > 0 && x.s < 1);
+    return {
+      n: e.length, minPeau: Math.min(...e.map((x) => x.minTout)), minSole: Math.min(...e.map((x) => x.sole)),
+      minAvant: Math.min(...e.map((x) => x.minAvant)), minArriere: Math.min(...e.map((x) => x.minArriere)),
+    };
+  };
+
+  const deb = preparer(nouveau());
+  deb.dog.update(0, 0.016, null);
+  reperer(deb);
+  const dbt = poseComplete(deb);
+  const garrotDebout = dbt.garrot;
+  deb.dog.dispose();
+
+  // Assis : arrêt > idleBeforeSit (4.2 s), bascule (~0.75 s), avant le couché (12 s).
+  // La descente est enregistrée image par image, puis le relevé (touche W).
+  const m = preparer(nouveau());
+  let t = 0, assisPleinSeuil = 0, commence = false, tFin = 0;
+  const descente = [];
+  m.dog.update(0, 1 / 60, null);
+  for (let i = 0; i < 7 * 60; i++) {
+    t += 1 / 60;
+    m.dog.update(t, 1 / 60, null);
+    const s = m.dog.state.sitting;
+    if (s > 0.0005) commence = true;
+    if (commence && !tFin) descente.push(capter(m));
+    if (s >= 1 && !assisPleinSeuil) assisPleinSeuil = t;
+    if (s >= 1 && !tFin) tFin = t;
+    if (tFin && t > tFin + 0.5) break;
+  }
+  const a = poseComplete(m);
+  const sitFin = m.dog.state.sitting;
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+  const releve = [];
+  for (let i = 0; i < 120; i++) {
+    t += 1 / 60;
+    m.dog.update(t, 1 / 60, null);
+    releve.push(capter(m));
+    if (m.dog.state.sitting <= 0 && i > 30) break;
+  }
+  window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+  const dn = stat(descente), up = stat(releve);
+  const sautDescente = saut(descente, suivis), sautReleve = saut(releve, corps);
+  m.dog.dispose();
+
+  const f = (x, d = 1) => x.toFixed(d);
+  const rapport = a.garrot / garrotDebout;
+  const regles = [
+    ['dos garrot→croupe 55-70° sur l\'horizontale (photos 50-60° apparent)', a.dos >= 55 && a.dos <= 70, `${f(a.dos)}°`],
+    ['garrot assis ≥ 0.90 de la hauteur debout (photos ≈ 0.95)', rapport >= 0.90 && rapport <= 1.0, `${f(rapport, 3)} (${f(a.garrot, 3)} / ${f(garrotDebout, 3)})`],
+    ['antérieurs ≤ 10° du vertical, coude ≥ 165°', a.verticalAvant <= 10 && a.coude >= 165, `${f(a.verticalAvant)}° / coude ${f(a.coude)}°`],
+    ['pieds avant sous l\'épaule (≤ 0.08 u)', Math.abs(a.piedSousEpaule) <= 0.08, `${f(a.piedSousEpaule, 3)}`],
+    ['pieds avant posés : sommet le plus bas -0.01…+0.03', a.minAvant >= -0.01 && a.minAvant <= 0.03, `${f(a.minAvant, 3)}`],
+    ['pieds arrière posés (métatarse à plat) : -0.01…+0.03', a.minArriere >= -0.01 && a.minArriere <= 0.03, `${f(a.minArriere, 3)}`],
+    ['aucune peau dans le sol : corps ≥ -0.01 ; fesse posée (≤ 0.12 du sol)', a.minTout >= -0.01 && a.minFesse <= 0.12, `fesse ${f(a.minFesse, 3)}, min ${f(a.minTout, 3)}`],
+    ['patte arrière hors du corps : genou devant la hanche, pied derrière les pieds avant',
+      a.genouDevantHanche > 0 && a.piedArriereDerrierePiedAvant > 0.15, `genou ${f(a.genouDevantHanche, 3)} devant la hanche, pied ${f(a.piedArriereDerrierePiedAvant, 3)} derrière les antérieurs`],
+    ['arrière-train replié mais pas écrasé : grasset ≥ 25°', a.grasset >= 25, `${f(a.grasset)}°`],
+    ['assis complet atteint', sitFin >= 0.999 && assisPleinSeuil > 0, `sitting ${f(sitFin, 3)} à t=${f(assisPleinSeuil, 2)} s`],
+    ['descente debout → assis, image par image : peau et semelle ≥ -0.01',
+      dn.n > 20 && dn.minPeau >= -0.01 && dn.minSole >= -0.01, `${dn.n} images, peau ${f(dn.minPeau, 3)}, semelle ${f(dn.minSole, 3)}`],
+    ['relevé assis → debout, image par image : peau et semelle ≥ -0.01',
+      up.n > 10 && up.minPeau >= -0.01 && up.minSole >= -0.01, `${up.n} images, peau ${f(up.minPeau, 3)} (avant ${f(up.minAvant, 3)}, arrière ${f(up.minArriere, 3)}), semelle ${f(up.minSole, 3)}`],
+    ['pas de saut : tête, hanches et genoux ≤ 0.08 u par image² (descente), tête et hanches (relevé)',
+      sautDescente <= 0.08 && sautReleve <= 0.08, `descente ${f(sautDescente, 4)}, relevé ${f(sautReleve, 4)}`],
+  ];
+  const hors = regles.filter(([, ok]) => !ok);
+  check('pose assise de shiba : dos redressé, antérieurs droits posés, arrière-train compact, aucun pied dans le sol à la descente ni au relevé',
+    hors.length === 0, regles.map(([k, ok, v]) => `${k} → ${v}${ok ? '' : ' ✗'}`).join(' ; '));
 }
 
 finish();
