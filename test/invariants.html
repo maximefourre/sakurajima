@@ -1869,7 +1869,7 @@ function mesurerProportions(root, mesh) {
       ['L/H', m.longueur, 1.04, 1.18],
       ['cou', m.cou, 0.26, 0.34],
       ['épais/long', m.coupEpais, 1.05, 9],
-      ['gorge', m.gorge, 0.16, 0.28],   // 0.18 avant la grosse tête : elle mange la gorge, voulu (test « tête de shiba »)
+      ['gorge', m.gorge, 0.18, 0.28],
       ['tête', m.tete, 0.40, 0.50],
       ['crâne', m.crane, 1.20, 1.32],
       ['coude', m.coude, 0.38, 0.48],
@@ -1902,6 +1902,25 @@ function mesurerProportions(root, mesh) {
  *    couleur de robe la plus proche : photos 0.28 (Tainan, masque sombre),
  *    0.43 (Shiba_Inu_red), 0.45 (A_Shiba_Inu), 0.66 (photo de l'utilisateur) ;
  *    poitrail et gorge de face : ≈ 0.9 sur la photo de l'utilisateur.
+ * T4b — la tête doit se LIRE à distance de jeu : museau court et épais, front
+ * large, oreilles franches. Photos (profil/face/3/4, mesure à la main ±0.03 ;
+ * Commons sous https://commons.wikimedia.org/wiki/File:<nom>) :
+ *  - museau (stop → truffe) / tête (occiput → truffe) : 0.20–0.36 selon
+ *    l'occiput retenu (poil ou crâne) sur Shiba_Inu_Kazumi (profil) et
+ *    A_Shiba_Inu_head (3/4) ; standard FCI ≈ 0.4 (crâne : museau = 3 : 2).
+ *  - largeur du museau à mi-longueur / largeur des joues : 0.47 (photo de
+ *    l'utilisateur) à 0.63 (2008-01-13_a_Shiba_Inu_in_Tainan, de face).
+ *  - longueur / profondeur du museau : 1.15 (Kazumi, profil) : un museau aussi
+ *    long que haut, bout carré, jamais la pointe du renard.
+ *  - stop : la chute du chanfrein sur 4 cm vaut 0.2 de la hauteur de tête
+ *    (Kazumi, A_Shiba_Inu_head).
+ *  - oreille visible / hauteur de tête : 0.44 (Shiba_Inu_red), 0.42 (Tainan),
+ *    ≈ 0.45 (Kazumi) ; centres des oreilles / largeur de tête : 0.70–0.77
+ *    (Tainan de face 0.77, photo de l'utilisateur 0.70 en 3/4) ; inclinaison :
+ *    0° (Tainan, droites) à ≈ 20° vers l'avant (Kazumi).
+ *  833783f : oreille/tête 0.38, écartement 0.50, inclinaison -5°, museau
+ *  base/crâne 0.33, museau/tête 0.37, gorge 0.17 : hors bornes (l'inclinaison est
+ *  mesurée au repos, os à plat ; en jeu l'os d'oreille ajoute ≈ 14° vers l'avant).
  * Mesuré sur df5dd25 : largeur 0.356 H (tête / poitrail 0.82), hauteur 0.297 H,
  * crème tête 0.35, poitrail 0.63. La queue n'est PAS en cause : épaisseur
  * 0.185 H (photos 0.21–0.29) et boucle 0.37 H de large (photos 0.48–0.52).
@@ -1947,6 +1966,46 @@ function mesurerTete(root, mesh) {
     const top = new THREE.Box3().setFromObject(o).max.y;
     oreille = Math.max(oreille, top - o.parent.getWorldPosition(new THREE.Vector3()).y);
   });
+  // Profil dorsal (|x| < 0.03) de la tête, par tranches de 1 cm : le stop est la
+  // plus forte chute du chanfrein, de l'arcade au museau (zone z 0.54 → nez).
+  const crete = new Map();
+  let occ = Infinity;
+  V.forEach((v, i) => {
+    if (dom[i] === 'head' && v.y > 0.85) occ = Math.min(occ, v.z);
+    if (!tete(dom[i]) || Math.abs(v.x) > 0.03 || v.z < 0.50) return;
+    const k = Math.round(v.z * 100);
+    crete.set(k, Math.max(crete.get(k) ?? -Infinity, v.y));
+  });
+  let stopZ = 0, chute = 0;
+  for (let k = 54; k <= Math.round(nez * 100) - 4; k++) {
+    const d = (crete.get(k) ?? 0) - (crete.get(k + 4) ?? 0);
+    if (d > chute) { chute = d; stopZ = (k + 2) / 100; }
+  }
+  // Museau à mi-longueur : largeur de la peau (tête + mâchoire) et profondeur sur l'axe.
+  const zm = nez - 0.55 * (nez - stopZ);
+  let mx0 = Infinity, mx1 = -Infinity, my0 = Infinity, my1 = -Infinity;
+  V.forEach((v, i) => {
+    if (!tete(dom[i]) || Math.abs(v.z - zm) > 0.006) return;
+    mx0 = Math.min(mx0, v.x); mx1 = Math.max(mx1, v.x);
+    if (Math.abs(v.x) < 0.03) { my0 = Math.min(my0, v.y); my1 = Math.max(my1, v.y); }
+  });
+  // Oreilles : écartement des centres, inclinaison de l'axe base → pointe (+ = vers l'avant).
+  const cs = [];
+  let incl = Infinity;
+  const pt = new THREE.Vector3(), tip = new THREE.Vector3();
+  root.traverse((o) => {
+    if (o.name !== 'ear' || !o.parent) return;
+    const bx = new THREE.Box3().setFromObject(o);
+    cs.push((bx.min.x + bx.max.x) / 2);
+    const g = o.geometry.attributes.position;
+    let top = -Infinity;
+    for (let q = 0; q < g.count; q++) {
+      pt.fromBufferAttribute(g, q); o.localToWorld(pt);
+      if (pt.y > top) { top = pt.y; tip.copy(pt); }
+    }
+    const base = o.parent.getWorldPosition(new THREE.Vector3());
+    incl = Math.min(incl, Math.atan2(tip.z - base.z, tip.y - base.y) * 180 / Math.PI);
+  });
   // Urajiro : crème contre roux/selle/flanc, sommets tournés vers une caméra
   // 3/4 avant (40° du museau, légèrement en plongée), symétrisée.
   const a = 40 * Math.PI / 180;
@@ -1973,6 +2032,12 @@ function mesurerTete(root, mesh) {
     oreille: oreille / (crane - bas),
     cremeTete: part.tete[0] / (part.tete[0] + part.tete[1]),
     cremePoitrail: part.poitrail[0] / (part.poitrail[0] + part.poitrail[1]),
+    museau: (nez - stopZ) / (nez - occ),
+    museauBase: (mx1 - mx0) / (x1 - x0),
+    museauLP: (nez - stopZ) / (my1 - my0),
+    stop: chute / (crane - bas),
+    ecart: cs.length === 2 ? Math.abs(cs[1] - cs[0]) / (x1 - x0) : 0,
+    inclin: incl,
   };
 }
 {
@@ -1984,7 +2049,13 @@ function mesurerTete(root, mesh) {
       ['largeur/H', m.largeur, 0.39, 0.50],
       ['tête/poitrail', m.surPoitrail, 0.92, 1.15],
       ['hauteur/H', m.hauteur, 0.34, 0.45],
-      ['oreille/tête', m.oreille, 0.30, 0.50],
+      ['oreille/tête', m.oreille, 0.40, 0.58],
+      ['écartement oreilles', m.ecart, 0.55, 0.85],
+      ['inclinaison oreille°', m.inclin, 0, 35],
+      ['museau/tête', m.museau, 0.22, 0.36],
+      ['museau base/crâne', m.museauBase, 0.45, 0.70],
+      ['museau long/prof', m.museauLP, 0.9, 1.6],
+      ['stop', m.stop, 0.12, 0.35],
       ['crème tête', m.cremeTete, 0.48, 0.80],
       ['crème poitrail', m.cremePoitrail, 0.75, 1],
     ];
