@@ -22,8 +22,8 @@ import { TAU, UP, SHIBA_BUILD, SIT_POSE, PAW_SOLE, buildBody } from './shiba-geo
 export const SHIBA = {
   walkSpeed: 6.4,
   runSpeed: 14.8,
-  accel: 14.0,
-  brake: 18.0,
+  accel: 11.0,
+  brake: 11.0,
   turnRate: 7.0,          // rad/s the body swings toward its heading
   /** Above this terrain slope he refuses to climb — cliffs are not for dogs. */
   maxSlope: 0.72,
@@ -71,7 +71,7 @@ const GAITS = {
     amp: 0.62,
     knee: 1.35,
     bob: 1.0,
-    duty: 0.17, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.06, leadF: 0.03, leadB: 0,
+    duty: 0.17, dutySlow: 0.45, sweepSlow: 0.44, sweep: 0.55, lift: 0.15, fold: 0.85, crouch: 0.035, leadF: 0.03, leadB: 0,
   },
   gallop: {
     ph: [0, 0.35, Math.PI, Math.PI + 0.35],
@@ -87,6 +87,8 @@ const CADENCE_MIN = 0.8;
 // Une ancre d'appui ne s'écarte pas de plus de ça (u modèle) de sa place
 // nominale : virage sur place, arrêt brusque, téléportation (Échap).
 const ANCHOR_SLACK = 0.10;
+// Creux (u monde) de la sole sous le sol en deçà duquel on ne repose pas la patte.
+const SOLE_SUNK_MIN = 0.002;
 const wrapPi = (a) => a - TAU * Math.round(a / TAU);
 // Décollage par les doigts : en fin d'appui le talon (carpe, jarret) se lève
 // jusqu'à TOE_PITCH rad, le pied pivote sur le bout des doigts, à TOE_LEN
@@ -403,7 +405,7 @@ export function createShiba({
   // Par patte : en appui ? ancre MONDE de l'appui en cours ; écart (repère
   // root) entre le décollage et la trajectoire nominale, résorbé en vol.
   const feet = rig.legs.map(() => ({
-    stance: false, init: false, anchor: new THREE.Vector3(), off: new THREE.Vector3(),
+    stance: false, init: false, anchor: new THREE.Vector3(), off: new THREE.Vector3(), reachV: new THREE.Vector3(),
   }));
   const footStance = [true, true, true, true];
   const reachArgs = rig.legs.map(() => ({ hip: 0, knee: 0, opts: null }));
@@ -411,6 +413,48 @@ export function createShiba({
   const _nom = new THREE.Vector3();
   const _foot = new THREE.Vector3();
   const _gnd = new THREE.Vector3();
+  // Garde-sol de l'assise / du relevé : sommets de peau (échantillon) de
+  // chaque patte, relus en pose finale. Le mélange d'angles FK ↔ IK faisait
+  // passer la sole 4 à 20 cm sous l'herbe pendant quelques images.
+  const footSkin = rig.legs.map(() => []);
+  {
+    const geo = rig.mesh.geometry, bi = rig.skeleton.bones;
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    const pawIdx = rig.legs.map((l) => bi.indexOf(l.paw));
+    for (let v = 0; v < geo.attributes.position.count; v++) {
+      for (let c = 0; c < 4; c++) {
+        const k = pawIdx.indexOf(si.getComponent(v, c));
+        if (k >= 0 && sw.getComponent(v, c) > 0.5) footSkin[k].push(v);
+      }
+    }
+    footSkin.forEach((a, k) => { footSkin[k] = a.filter((_, j) => j % Math.ceil(a.length / 220) === 0); });
+  }
+  const _gv = new THREE.Vector3(), _gt = new THREE.Vector3();
+  const _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gz = new THREE.Vector3();
+  const FOOT_FLOOR = 0.004;
+  /** Aucune patte sous le sol : si la peau du pied passe sous le terrain, on
+   *  repose la patte par IK, sole relevée du creux, pied tenu à son tangage. */
+  const guardFoot = (i, hip, knee, base) => {
+    const leg = rig.legs[i];
+    for (let it = 0; it < 3; it++) {
+      leg.hip.updateWorldMatrix(true, true);
+      let low = 1e9;
+      for (const v of footSkin[i]) {
+        rig.mesh.getVertexPosition(v, _gv); rig.mesh.localToWorld(_gv);
+        low = Math.min(low, _gv.y - heightAt(_gv.x, _gv.z));
+      }
+      const need = FOOT_FLOOR - low;
+      if (need <= 0) return;
+      const par = leg.hip.parent;
+      rig.root.getWorldQuaternion(_gq1).invert().multiply(par.getWorldQuaternion(_gq2));
+      _gz.set(0, 0, 1).applyQuaternion(_gq1);
+      const flat = -Math.atan2(-_gz.y, _gz.z);
+      const rel = leg.hip.rotation.x + leg.knee.rotation.x + leg.paw.rotation.x;
+      leg.paw.localToWorld(_gt.fromArray(leg.front ? PAW_SOLE.F : PAW_SOLE.B));
+      _gt.y += need;
+      rig.poseLeg(leg, hip, knee, { ...base, reach: _gt, ik: 1, footPitch: rel - flat, toe: 0, fold: 0 });
+    }
+  };
   let airW = 0;
 
   /** Local root (y = repos + levée) → monde, en suivant le relief : la sole
@@ -648,18 +692,24 @@ export function createShiba({
     const shake = state.shake;
     // The transition bands do not overlap. Defining trot as the remainder makes
     // the three scalar weights sum to exactly one, including at the endpoints.
-    const trotGate = smoothstep(0.26, 0.42, speedN);
+    const trotGate = smoothstep(0.07, 0.13, speedN);
     const gallopGate = smoothstep(0.64, 0.80, speedN);
     const walkW = 1 - trotGate;
     const gallopW = gallopGate;
     const trotW = 1 - walkW - gallopW;
+    // Le trot lent s'appuie plus longtemps (un trot à 17 % d'appui n'existe qu'à
+    // pleine vitesse) : la cadence reste ≈ 2 Hz de 2 u/s à la course.
+    const trotRamp = smoothstep(0.08, 0.40, speedN);
+    const trotDuty = mix(GAITS.trot.dutySlow, GAITS.trot.duty, trotRamp);
+    const trotSweep = mix(GAITS.trot.sweepSlow, GAITS.trot.sweep, trotRamp);
     const gaitMix = (k) => walkW * GAITS.walk[k] + trotW * GAITS.trot[k] + gallopW * GAITS.gallop[k];
 
     // Cadence : vitesse × duty / sweep, pour que le pied posé ne glisse pas.
     // Avant (28/10) une cadence fixée par speedN donnait 0.9 foulée/s à
     // 6.4 u/s : 3.5 u parcourus pendant un appui, par une patte de 0.85 u.
-    const duty = gaitMix('duty');
-    const cadence = Math.max(CADENCE_MIN, state.speed * duty / gaitMix('sweep'));
+    const sweep = walkW * GAITS.walk.sweep + trotW * trotSweep + gallopW * GAITS.gallop.sweep;
+    const duty = walkW * GAITS.walk.duty + trotW * trotDuty + gallopW * GAITS.gallop.duty;
+    const cadence = Math.max(CADENCE_MIN, state.speed * duty / sweep);
     // One integrated land phase feeds every gait output. In particular, never
     // turn this into sin(t * rate): a changing rate would inject t * dRate/dt.
     if (shake <= 0) state.gait += dt * TAU * cadence;
@@ -668,7 +718,11 @@ export function createShiba({
     // Poids des pieds posés (IK) : au sol seulement — ni nage, ni assise,
     // ni secouage, ni saut.
     airW += ((state.airborne ? 1 : 0) - airW) * Math.min(1, dt * 14);
-    const ikW = rig.poseLeg ? (1 - swim) * (1 - sit) * (1 - lie) * (1 - shake) * (1 - airW) : 0;
+    // Assise : l'IK s'efface vite (dès sit = 0.4) et la pose FK prend le relais
+    // pendant que le bassin descend ; un fondu linéaire jusqu'à sit = 1 laissait
+    // le jarret à 0.07 sous le sol, puis le relevait (pop).
+    const sitIk = 1 - smoothstep(0.0, 0.4, sit);
+    const ikW = rig.poseLeg ? (1 - swim) * sitIk * (1 - lie) * (1 - shake) * (1 - airW) : 0;
 
     // Body carriage AVANT les pattes : poseLeg garde le pied à plat en
     // compensant le tangage du tronc — posé après, il compenserait celui de la
@@ -682,11 +736,11 @@ export function createShiba({
     // Pieds posés, le tronc s'abaisse un peu en mouvement et rebondit moins :
     // l'antérieur est presque tendu au repos, sans cette marge il ne couvre
     // pas la fin de l'appui (le pied quittait le sol à mi-poussée).
-    const crouch = gaitMix('crouch') * smoothstep(0.0, 0.3, speedN) * ikW;
+    const crouch = gaitMix('crouch') * smoothstep(0.0, 0.1, speedN) * ikW;
     const locomotionBodyY = Math.sin(state.gait * 2) * 0.056 * speedN * gaitBob * mix(1, 0.4, ikW) - crouch;
     const locomotionRoll = Math.sin(state.gait) * 0.055 * speedN;
     const locomotionPitch = -0.05 * speedN
-      + Math.sin(state.gait) * 0.09 * gallopW
+      + Math.sin(state.gait) * 0.05 * gallopW
       + (state.airborne ? state.vy * 0.025 : 0);
     const shakeS = clamp(state.shakeElapsed / SHAKE_DURATION, 0, 1);
     const shakeEnvelope = Math.sin(Math.PI * shakeS);
@@ -694,17 +748,21 @@ export function createShiba({
     const shakeTailWave = Math.sin((shakeS - 0.14) * 34) * shakeEnvelope;
 
     let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
-    bodyY = mix(bodyY, SIT_POSE.drop, sit);
-    bodyY = mix(bodyY, -0.36, lie);
+    // `drop` pose les semelles des antérieurs à l'arrivée ; entre les deux, le
+    // tronc plonge d'abord (le pivot d'épaule, linéaire, soulève sinon les
+    // antérieurs de 7 cm) : courbe relevée au banc « pose assise de shiba ».
+    bodyY = mix(bodyY, SIT_POSE.drop, sit) - SIT_POSE.dip * sit * (1 - sit);
+    bodyY = mix(bodyY, -0.32, lie);
     let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
     bodyRoll = mix(bodyRoll, 0, sit);
     // Negative X lifts the +Z nose and sinks the croup: a slight, stable trim.
     let bodyPitch = mix(locomotionPitch, -0.18, swim);
     bodyPitch = mix(bodyPitch, SIT_POSE.pitch, sit);
     bodyPitch = mix(bodyPitch, 0, lie);
-    // Même contrat que poseLeg : les trois valeurs sont FINALES. L'assise ne
-    // descend presque pas le tronc (-0.03) : c'est le tangage, pivoté sur les
-    // épaules par poseBody, qui pose l'arrière-train au sol.
+    // Même contrat que poseLeg : les trois valeurs sont FINALES. Assis, le
+    // tronc ne descend pas (drop > 0 le remonte : sole des antérieurs au sol) :
+    // c'est le tangage, pivoté sur les épaules par poseBody, qui pose
+    // l'arrière-train.
     const bodyYF = mix(bodyY, 0, shake);
     const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
     const bodyPitchF = mix(bodyPitch, 0, shake);
@@ -724,7 +782,7 @@ export function createShiba({
       + trotW * 0.04 * Math.sin(state.gait + GAITS.trot.ph[2])) * moving * free;
     // Sagittal biphasique (deux fois par foulée) et rebond du bassin, plus
     // marqué que celui du poitrail.
-    const sag = 0.035 * (walkW + trotW) * moving * Math.sin(state.gait * 2 + 0.9) * free;
+    const sag = 0.014 * (walkW + trotW) * moving * Math.sin(state.gait * 2 + 0.9) * free;
     const bounce = 0.010 * (walkW + trotW) * speedN * Math.sin(state.gait * 2 + 0.6) * free;
     // Dos arqué dans le virage : la vitesse de lacet, lissée.
     let dHead = state.heading - lastHeading;
@@ -793,7 +851,7 @@ export function createShiba({
       // Sitting. Sign convention matters more than the magnitudes here: a
       // positive rotation.x swings a limb BACKWARD and pitches the nose DOWN,
       // because the model faces +Z. The shake pose is a neutral braced stance.
-      // Assis, le tronc bascule de -0.60 autour des épaules (poseBody) : les
+      // Assis, le tronc bascule de SIT_POSE.pitch autour des épaules (poseBody) : les
       // antérieurs compensent pour rester d'aplomb, l'arrière se plie en Z.
       const sitHip = leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip;
       const sitKnee = leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee;
@@ -801,10 +859,13 @@ export function createShiba({
       let knee = mix(locomotionKnee, swimKnee, swim);
       hip = mix(hip, sitHip, sit);
       knee = mix(knee, sitKnee, sit);
+      // En cours d'assise le jarret plongerait sous le sol : le grasset se plie
+      // un peu plus au milieu du mouvement, et revient à SIT_POSE à l'arrivée.
+      if (!leg.front) knee += SIT_POSE.hindBump * sit * (1 - sit);
       // Sphinx : antérieurs allongés devant (avant-bras au sol), postérieurs
       // repliés sous la hanche, métatarses à plat. Tronc posé, de niveau.
-      hip = mix(hip, leg.front ? -0.60 : -0.66, lie);
-      knee = mix(knee, leg.front ? -1.86 : 1.26, lie);
+      hip = mix(hip, leg.front ? -0.60 : -0.77, lie);
+      knee = mix(knee, leg.front ? -1.86 : 1.387, lie);
       // Le mélange de secouage est appliqué ICI, en amont du hook : si chaque
       // rig devait y penser, l'oubli ferait régresser le chien procédural. Le
       // hook reçoit donc les angles FINAUX ; les poids ne sont passés qu'à
@@ -867,7 +928,8 @@ export function createShiba({
         }
         ft.stance = stance;
         ft.init = true;
-        opts.reach = ft.anchor;
+        ft.reachV.copy(ft.anchor);
+        opts.reach = ft.reachV;
         opts.ik = ikW;
         opts.fold = foldMax * arc;
         // Talon levé en fin d'appui, relâché au début du vol ; puis le repli :
@@ -893,6 +955,30 @@ export function createShiba({
     // on les repose sur leurs parents définitifs.
     if (ikW > 0) {
       for (const i of [0, 2]) rig.poseLeg(rig.legs[i], reachArgs[i].hip, reachArgs[i].knee, reachArgs[i].opts);
+    }
+    // Pied hors de portée (arrêt en pleine foulée, écart de décollage) : le
+    // solveur garde la hauteur de la cible et rapproche le pied à l'horizontale,
+    // donc DANS la pente (pente × recul sous le sol). On relève la cible de ce
+    // creux et on repose la patte (une fois ; un pied en l'air n'a pas de creux).
+    if (ikW > 0) {
+      for (let i = 0; i < 4; i++) {
+        const ft = feet[i], leg = rig.legs[i];
+        if (!ft.init) continue;
+        leg.paw.updateWorldMatrix(true, false);
+        leg.paw.localToWorld(_sole.fromArray(leg.front ? PAW_SOLE.F : PAW_SOLE.B));
+        const sunk = heightAt(_sole.x, _sole.z) + restSole[i].y * SHIBA_BUILD.scale - _sole.y;
+        if (sunk > SOLE_SUNK_MIN) {
+          ft.reachV.y += Math.min(sunk, 0.08);
+          rig.poseLeg(leg, reachArgs[i].hip, reachArgs[i].knee, reachArgs[i].opts);
+        }
+      }
+    }
+
+    // Assise / relevé : aucune patte sous le sol, quel que soit le mélange.
+    if (rig.poseLeg && sit > 0.0005 && sit < 0.9995 && swim < 0.5 && lie < 0.05) {
+      for (let i = 0; i < 4; i++) {
+        guardFoot(i, reachArgs[i].hip, reachArgs[i].knee, { sit, swim, shake, speedN, lie });
+      }
     }
 
     // Every ground-reaction consumer keys off the same stance as the IK: a
@@ -977,7 +1063,7 @@ export function createShiba({
     // lookUp : il lève le nez vers ce qui passe. Debout, franchement ; assis
     // ou couché, à peine — 0.62 rad sur un tronc déjà basculé le faisait
     // fixer le ciel (retour utilisateur).
-    let headPitch = mix(-0.06 * speedN - lookUp * 0.38, -0.24, swim);
+    let headPitch = mix(-0.06 * speedN - lookUp * 0.30, -0.24, swim);
     headPitch = mix(headPitch, 0.02 - lookUp * 0.16, sit);
     headPitch = mix(headPitch, 0.10 - lookUp * 0.10, lie);
     headYaw = mix(headYaw, lookHeadYaw, state.look);
@@ -994,17 +1080,17 @@ export function createShiba({
     // foulée au pas et au trot, une fois (et fort) au galop, où le cou pompe
     // avec l'avant-main. Au pas, elle balaie aussi un peu de côté.
     const nodFree = (1 - swim) * (1 - sit) * (1 - shake);
-    const nod = (walkW * 0.085 * Math.sin(state.gait * 2 + 1.2)
-      + trotW * 0.075 * Math.sin(state.gait * 2 + 0.9)) * moving
-      + gallopW * speedN * 0.16 * Math.sin(state.gait + 0.6);
+    const nod = (walkW * 0.05 * Math.sin(state.gait * 2 + 1.2)
+      + trotW * 0.035 * Math.sin(state.gait * 2 + 0.9)) * moving
+      + gallopW * speedN * 0.09 * Math.sin(state.gait + 0.6);
     neckPitch += nod * 0.6 * nodFree;
     headPitch += nod * 0.4 * nodFree;
     headYaw += walkW * moving * 0.07 * Math.sin(state.gait + 0.4) * nodFree;
     // Balancier VERTICAL de la tête (unités de construction), en retard d'un
     // quart de temps sur le rebond du corps : c'est ce petit flottement qui
     // fait lire une tête portée par un cou, et pas vissée au poitrail.
-    const bob = ((walkW * 0.016 + trotW * 0.022) * moving * Math.sin(state.gait * 2 + 2.2)
-      + gallopW * speedN * 0.032 * Math.sin(state.gait + 1.4)) * nodFree;
+    const bob = ((walkW * 0.016 + trotW * 0.012) * moving * Math.sin(state.gait * 2 + 2.2)
+      + gallopW * speedN * 0.018 * Math.sin(state.gait + 1.4)) * nodFree;
     const barkS = state.bark > 0 ? clamp(state.barkElapsed / BARK_DURATION, 0, 1) : 0;
     const barkEnv = state.bark > 0 ? Math.sin(Math.PI * barkS) : 0;
     headPitch += barkEnv * 0.22;
@@ -1414,7 +1500,7 @@ export function createShiba({
       const dy = (Number.isFinite(lookAim.y) ? lookAim.y : position.y + 1)
         - (position.y + 0.85);
       const horiz = Math.hypot(lookAim.x - position.x, lookAim.z - position.z) || 1;
-      pitchWant = clamp(-Math.atan2(dy, horiz), -0.55, 0.35);
+      pitchWant = clamp(-Math.atan2(dy, horiz), -0.30, 0.35);
     }
     const kLook = dt > 0 ? 1 - Math.exp(-dt / SHIBA.lookYawTau) : 1;
     lookHeadYaw += (yawWant - lookHeadYaw) * kLook;
@@ -1449,7 +1535,9 @@ export function createShiba({
 
     /* — place and align — */
     rig.root.position.copy(position);
-    rig.root.position.y -= 0.04 * state.sitting;
+    // Couché en sphinx seulement : assis, les semelles des antérieurs sont
+    // posées par SIT_POSE.drop (l'ancien -0.04 les enfonçait de 11 cm).
+    rig.root.position.y -= 0.04 * state.lying;
 
     // A swimmer is supported by the surface, not aligned to the invisible bed.
     if (state.swimming) _n.copy(UP);

@@ -22,6 +22,29 @@
  *    taches crème au-dessus des yeux (admises, et c'est la « tête » du shiba).
  * Stylisé : tête grossie d'environ 15 % pour rester lisible à distance de jeu.
  *
+ * Références photo (Wikimedia Commons, shibas adultes, lues le 28/10/2026),
+ * mesurées à la main sur le profil debout ; H = hauteur du garrot ;
+ *  - profil debout : File:Cream_shiba_inu_dllu.jpg, File:Shiba_Inu_red.jpg,
+ *    File:BIR_Grupp_5-_SHIBA,_Noven’s_Irai_No_Kami_Wasa_(24208118066).jpg
+ *  - trot / course : File:2020-09-22_Shiba_Inu_running.jpg
+ *  - 3/4 : File:Chien_Shiba_France.jpg, File:2011-04-02_a_Shiba_Inu_in_Japan.jpg
+ *  - face : File:Foto_Shiba_Inu_.jpg
+ *    (https://commons.wikimedia.org/wiki/File:<nom>)
+ *  rapport              photos (moy. ; fourchette)   cible du modèle
+ *  cou garrot→occiput/H  0.32 ; 0.27–0.35             0.29
+ *  épaisseur/longueur    ~1.2 (cou plus épais que long) 1.3
+ *  gorge (tête→poitrail)/H 0.25 ; 0.24–0.27           0.17 (la grosse tête mange la gorge)
+ *  largeur de tête/H     0.40 (photo utilisateur)      0.44 (≈ poitrail)
+ *  crâne→menton/H        0.37–0.40                    0.35
+ *  tête occiput→truffe/H 0.42 ; 0.39–0.44 (× 1.15 stylisé) 0.48
+ *  crâne haut/H          1.26 ; 1.23–1.29             1.24
+ *  coude/H               0.43 ; 0.40–0.49             0.44
+ *  jarret/H              0.24 ; 0.22–0.26             0.23
+ *  grasset / jarret (°)  ~105 / ~125 (debout, fourrure) 116 / 138
+ *  membre avant (°)      ~150–165 (photos)            175 (demande : ≤ 12° du droit)
+ *  longueur/H            1.17–1.38 (photos)           1.13 (standard 10 : 11 = 1.10)
+ * Le banc « proportions shiba » (test/invariants.html) verrouille ces rapports.
+ *
  * Unités de construction : sol à y = 0, museau vers +Z, garrot à 0.80.
  * shiba.js applique root.scale = SHIBA_BUILD.scale.
  */
@@ -53,13 +76,25 @@ export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
  *  de l'ellipsoïde de sole moins sa demi-hauteur, moins la position de l'os
  *  (LEG.paw). L'os `paw` est la cheville (le jarret derrière), 13 à 22 cm
  *  au-dessus du sol : c'est ce point-ci qui touche la terre. */
-export const PAW_SOLE = Object.freeze({ F: [0, -0.100, 0.038], B: [0, -0.170, 0.050] });
+export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.010] });
 
 /** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
- *  seule source pour animate(), le banc 26 et l'atelier. Les angles arrière
- *  tiennent compte des angles de repos du fémur (-0.34) et du tibia (+0.67). */
+ *  seule source pour animate(), le banc 26, le banc « pose assise de shiba »
+ *  et l'atelier. Réglée le 01/11/2026 sur des photos de shibas assis
+ *  (Wikimedia Commons, mesures dans le bloc de test). T6b : le tronc se
+ *  redresse (tangage -1.0 autour des épaules : dos garrot→croupe ≈ 60°, il
+ *  était à 41°), les antérieurs restent verticaux sous le poitrail (frontHip
+ *  compense le tangage), les pieds avant sont posés (`drop`), la fesse touche
+ *  le sol, le grasset se replie (≈ 28°) et le métatarse est à plat
+ *  (`hindFoot`). `hindHip` / `hindKnee` amènent le jarret au sol. */
 export const SIT_POSE = Object.freeze({
-  frontHip: 0.52, frontKnee: -0.04, hindHip: -0.31, hindKnee: 1.24, pitch: -0.60, drop: -0.03,
+  frontHip: 0.92, frontKnee: -0.04, hindHip: -0.60, hindKnee: 1.65, pitch: -1.0, drop: 0.040,
+  // Tangage MONDE du métatarse assis (rad, depuis la verticale) : -π/2 = à plat.
+  hindFoot: -1.50,
+  // Creux du tronc en cours de transition (assis ↔ debout), unités du root.
+  dip: 0.19,
+  // Surplus de flexion du grasset arrière en cours de transition (rad).
+  hindBump: 1.0,
 });
 
 /* ── maths ─────────────────────────────────────────────────────── */
@@ -252,11 +287,11 @@ const BONES = [
   ['tilt', null, [0, SHIBA_BUILD.standHeight, 0]],
   ['body', 'tilt', [0, SHIBA_BUILD.standHeight, 0]],
   ['pelvis', 'body', [0, 0.66, -0.14]],
-  ['neck', 'body', [0, 0.72, 0.34]],
-  ['head', 'neck', [0, 0.93, 0.46]],
-  ['jaw', 'head', [0, 0.895, 0.585]],
-  ['earL', 'head', [-0.072, 1.06, 0.48]],
-  ['earR', 'head', [0.072, 1.06, 0.48]],
+  ['neck', 'body', [0, 0.715, 0.325]],
+  ['head', 'neck', [0, 0.855, 0.460]],
+  ['jaw', 'head', [0, 0.820, 0.585]],
+  ['earL', 'head', [-0.092, 0.985, 0.480]],
+  ['earR', 'head', [0.092, 0.985, 0.480]],
   ['tailBase', 'pelvis', [0, 0.775, -0.40]],
 ];
 // Avant : épaule → coude → carpe. Arrière : hanche → grasset → jarret.
@@ -267,8 +302,8 @@ const BONES = [
 // C'est ce qui fait bouger le relief du garrot quand l'antérieur travaille.
 const SCAPULA = [0.088, 0.735, 0.250];
 const LEG = {
-  F: { parent: 'body', hip: [0.100, 0.60, 0.28], knee: [0.100, 0.39, 0.255], paw: [0.098, 0.095, 0.29] },
-  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.38, -0.185], paw: [0.110, 0.165, -0.355] },
+  F: { parent: 'body', hip: [0.100, 0.60, 0.275], knee: [0.100, 0.360, 0.262], paw: [0.098, 0.105, 0.268] },
+  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.385, -0.195], paw: [0.110, 0.185, -0.360] },
 };
 for (const fb of ['F', 'B']) {
   for (const [lr, s] of [['L', -1], ['R', 1]]) {
@@ -297,17 +332,17 @@ function bodyPrims() {
     return [['body', 1 - w], ['pelvis', w]];
   };
   const neckBones = (x, y, z) => {
-    const w = ss(0.71, 0.84, y + 0.35 * (z - 0.36));
+    const w = ss(0.68, 0.80, y + 0.35 * (z - 0.36));
     return [['body', 1 - w], ['neck', w]];
   };
 
   /* — tronc — garrot à 0.80, sternum à 0.40 (poitrail = 1/2 hauteur), ventre
    * relevé sous le rein (0.53), croupe de niveau avec le dos. */
-  add(ellipsoid([0, 0.605, 0.215], [0.150, 0.200, 0.210]), 'body', 'torso');
-  add(ellipsoid([0, 0.585, 0.35], [0.115, 0.145, 0.110]), 'body', 'torso');
+  add(ellipsoid([0, 0.590, 0.215], [0.150, 0.215, 0.215]), 'body', 'torso');
+  add(ellipsoid([0, 0.560, 0.355], [0.118, 0.170, 0.115]), 'body', 'torso');
   add(ellipsoid([0, 0.730, 0.24], [0.100, 0.070, 0.120]), 'body', 'torso');
-  add(ellipsoid([0, 0.630, 0.03], [0.145, 0.200, 0.195]), spineBones, 'torso');
-  add(ellipsoid([0, 0.662, -0.145], [0.127, 0.150, 0.160]), spineBones, 'torso');
+  add(ellipsoid([0, 0.620, 0.03], [0.145, 0.185, 0.195]), spineBones, 'torso');
+  add(ellipsoid([0, 0.655, -0.145], [0.127, 0.148, 0.160]), spineBones, 'torso');
   add(ellipsoid([0, 0.655, -0.29], [0.140, 0.150, 0.140]), 'pelvis', 'torso');
   for (const s of [-1, 1]) {
     // Omoplate et masse de cuisse : partagées entre le tronc et l'os haut du
@@ -320,18 +355,33 @@ function bodyPrims() {
   }
 
   /* — cou et collerette — épais, de longueur moyenne, porté haut. */
-  add(cone([0, 0.70, 0.32], [0, 0.90, 0.45], 0.120, 0.095), neckBones, 'neck', 0.07);
-  add(ellipsoid([0, 0.775, 0.385], [0.150, 0.150, 0.130]), neckBones, 'neck', 0.07);
+  add(cone([0, 0.645, 0.335], [0, 0.86, 0.445], 0.128, 0.118), neckBones, 'neck', 0.07);
+  add(ellipsoid([0, 0.750, 0.380], [0.172, 0.148, 0.124]), neckBones, 'neck', 0.07);
+  // Les favoris : le poil des joues retombe sur la collerette et mange le cou.
+  for (const s of [-1, 1]) add(ellipsoid([s * 0.098, 0.800, 0.430], [0.070, 0.080, 0.070]), neckBones, 'neck', 0.06);
 
-  /* — tête — occiput 0.385 → truffe 0.78 : 0.395 de long, museau 0.16 (40 %).
-   * Crâne large et plat, joues pleines derrière l'œil, chanfrein droit. */
-  add(ellipsoid([0, 0.985, 0.50], [0.120, 0.105, 0.115]), 'head', 'head', 0.05);
+  /* — tête — occiput 0.385 → truffe 0.76. Crâne large et plat, joues pleines
+   * (c'est elles qui font la largeur du poitrail), chanfrein droit, museau
+   * court et épais. Chez le vrai chien la tête et la collerette mangent le cou.
+   * Largeur des joues 0.44 H, crâne → menton 0.36 H (photos 0.40 / 0.37–0.40). */
+  add(ellipsoid([0, 0.912, 0.497], [0.148, 0.118, 0.128]), 'head', 'head', 0.06);
+  // Front large et plat, d'où le museau tombe net : c'est ce stop qui fait
+  // le chien (et non le renard, dont le chanfrein est une pente continue).
+  add(ellipsoid([0, 0.938, 0.566], [0.092, 0.050, 0.080]), 'head', 'head', 0.05);
   for (const s of [-1, 1]) {
-    add(ellipsoid([s * 0.072, 0.935, 0.545], [0.072, 0.070, 0.075]), 'head', 'head', 0.05);
+    // Joues plates et hautes (pas de bajoues) : elles prolongent le museau.
+    add(ellipsoid([s * 0.090, 0.880, 0.536], [0.080, 0.066, 0.086]), 'head', 'head', 0.06);
+    // Socle de l'oreille : la fourrure épaissit le crâne autour de sa base, qui
+    // s'y enfonce sans laisser dépasser la tranche de la plaque.
+    add(ellipsoid([s * 0.100, 0.966, 0.498], [0.064, 0.044, 0.060]), 'head', 'head', 0.05);
     // L'arcade sourcilière : c'est son ombre qui fait le stop.
-    add(ellipsoid([s * 0.050, 1.003, 0.585], [0.038, 0.024, 0.034]), 'head', 'head', 0.025);
+    add(ellipsoid([s * 0.058, 0.940, 0.602], [0.044, 0.028, 0.034]), 'head', 'head', 0.02);
   }
-  add(cone([0, 0.932, 0.580], [0, 0.920, 0.712], 0.069, 0.047, 0.82), 'head', 'muzzle', 0.045);
+  // Menton : petit, net et avancé (face qui s'affine, pas de bajoue). Les joues
+  // sont HAUTES (sous l'œil) : c'est leur chute sous la bouche qui faisait l'ourson.
+  add(ellipsoid([0, 0.794, 0.628], [0.044, 0.046, 0.058]), 'head', 'head', 0.035);
+  // Museau court, épais, bout carré : le rayon final reste grand (pas de pointe).
+  add(cone([0, 0.848, 0.605], [0, 0.838, 0.676], 0.106, 0.086, 0.66), 'head', 'muzzle', 0.03);
 
   /* — membres — avant droits, coude contre le poitrail ; arrière : cuisse
    * longue et musclée (culotte), seconde cuisse courte, jarret net. Les pieds
@@ -340,16 +390,16 @@ function bodyPrims() {
     const k = s < 0 ? 'L' : 'R';
     const W = (p) => [s * p[0], p[1], p[2]];
     const F = LEG.F, B = LEG.B;
-    add(cone(W(F.hip), W(F.knee), 0.080, 0.062), 'hipF' + k, 'leg', 0.045);
-    add(cone(W(F.knee), W(F.paw), 0.056, 0.043), 'kneeF' + k, 'leg', 0.03);
-    add(cone(W(F.paw), W([0.098, 0.040, 0.308]), 0.042, 0.040), 'pawF' + k, 'paw', 0.025);
-    add(ellipsoid(W([0.098, 0.031, 0.328]), [0.051, 0.036, 0.060]), 'pawF' + k, 'paw', 0.03);
+    add(cone(W(F.hip), W(F.knee), 0.084, 0.066), 'hipF' + k, 'leg', 0.045);
+    add(cone(W(F.knee), W(F.paw), 0.058, 0.045), 'kneeF' + k, 'leg', 0.03);
+    add(cone(W(F.paw), W([0.098, 0.042, 0.300]), 0.043, 0.040), 'pawF' + k, 'paw', 0.025);
+    add(ellipsoid(W([0.098, 0.031, 0.322]), [0.051, 0.036, 0.060]), 'pawF' + k, 'paw', 0.03);
 
     add(cone(W(B.hip), W(B.knee), 0.098, 0.068), 'hipB' + k, 'leg', 0.05);
-    add(ellipsoid(W([0.102, 0.50, -0.255]), [0.074, 0.135, 0.110]), 'hipB' + k, 'leg', 0.05);
+    add(ellipsoid(W([0.104, 0.50, -0.225]), [0.076, 0.140, 0.115]), 'hipB' + k, 'leg', 0.05);
     add(cone(W(B.knee), W(B.paw), 0.064, 0.040), 'kneeB' + k, 'leg', 0.03);
-    add(cone(W(B.paw), W([0.110, 0.045, -0.325]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
-    add(ellipsoid(W([0.110, 0.031, -0.305]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
+    add(cone(W(B.paw), W([0.110, 0.045, -0.360]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
+    add(ellipsoid(W([0.110, 0.031, -0.350]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
   }
   return P;
 }
@@ -357,8 +407,8 @@ function bodyPrims() {
 /** Pelage : une rugosité de surface à ~2 cm, plus forte sur la collerette et
  *  les culottes, quasi nulle sur la face (le standard : « short on face »). */
 function furAmp(x, y, z) {
-  const face = ss(0.50, 0.60, z) * ss(0.85, 0.95, y);
-  const ruff = Math.exp(-((z - 0.37) ** 2 + (y - 0.76) ** 2) / 0.012);
+  const face = ss(0.50, 0.60, z) * ss(0.775, 0.875, y);
+  const ruff = Math.exp(-((z - 0.37) ** 2 + (y - 0.73) ** 2) / 0.012);
   return 0.0016 * (1 - 0.8 * face) + 0.0022 * ruff;
 }
 
@@ -380,6 +430,19 @@ const _c = new THREE.Color();
 /** Bord de robe cassé par le poil : un seuil net lit comme de la peinture. */
 const fur = (x, y, z, a = 1) => a * noise3(x * 38, y * 38, z * 38);
 
+/** Le crème du dessous (menton, gorge, joues) est vu à contre-jour sous le ciel :
+ *  il virait au gris. On l'éclaircit là où la normale regarde vers le bas ; la
+ *  couleur reste claire, jamais saturée (valeurs un peu > 1 acceptées par le rendu). */
+const liftCream = (out, amt, ny) => {
+  const dark = amt * ss(0.40, -0.45, ny);
+  out.multiplyScalar(1 + 1.7 * dark + 0.12 * amt);
+  // Une valeur > 1 écrête vers le blanc sous le ton mapping : on garde la teinte
+  // chaude (crème, pas gris ni blanc) en retirant du bleu là où on a éclairci.
+  out.g *= 1 - 0.03 * dark;
+  out.b *= 1 - 0.10 * dark;
+  return out;
+};
+
 const PAINT = {
   torso(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.12);
@@ -388,37 +451,48 @@ const PAINT = {
     out.lerp(COAT.saddle, ss(0.55, 0.95, ny + j) * 0.65);
     // Ventre et poitrail (le « nœud papillon » crème du poitrail).
     const under = ss(-0.10, -0.50, ny + j);
-    const bib = ss(0.30, 0.42, z + j * 0.3) * ss(0.20, 0.55, nz + j) * ss(0.74, 0.62, y)
-      * ss(0.13, 0.06, Math.abs(x));
+    const bib = ss(0.30, 0.40, z + j * 0.3) * ss(0.10, 0.45, nz + j) * ss(0.78, 0.66, y)
+      * ss(0.16, 0.09, Math.abs(x));
     const vent = ss(-0.36, -0.44, z) * ss(-0.2, -0.6, nz) * ss(0.72, 0.62, y + j * 0.2);
-    out.lerp(COAT.cream, Math.max(under, bib, vent));
+    const cr = Math.max(under, bib, vent);
+    out.lerp(COAT.cream, cr);
+    liftCream(out, bib, ny);
   },
   neck(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.12);
     out.copy(COAT.red).lerp(COAT.saddle, ss(0.6, 0.95, ny) * 0.5);
     // Gorge crème, qui remonte sur les côtés de la collerette.
-    const throat = ss(0.0, 0.45, nz + j) * ss(0.25, -0.35, ny + j);
-    out.lerp(COAT.cream, throat);
+    const throat = ss(-0.1, 0.35, nz + j) * ss(0.45, -0.25, ny + j);
+    // Favoris : le crème des joues descend sur les côtés de la collerette.
+    const ruff = ss(0.41, 0.47, z + j * 0.05) * ss(0.84, 0.76, y + j * 0.03) * ss(0.02, 0.10, Math.abs(x));
+    const cr = Math.max(throat, ruff);
+    out.lerp(COAT.cream, cr);
+    liftCream(out, cr, ny);
   },
   head(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.08);
-    out.copy(COAT.red).lerp(COAT.saddle, ss(0.7, 1.0, ny) * 0.35);
+    out.copy(COAT.red).lerp(COAT.saddle, ss(0.7, 1.0, ny) * 0.22);
     const ax = Math.abs(x);
     // Joues : le bas et l'arrière des flancs de la tête, derrière l'œil.
-    const cheek = ss(0.050, 0.095, ax + j * 0.02) * ss(0.975, 0.935, y + j * 0.015)
-      * ss(0.46, 0.52, z);
-    const under = ss(-0.15, -0.55, ny + j);
+    // La limite haute monte vers l'oreille (favoris), comme sur les photos.
+    const yb = 0.866 + 0.75 * Math.max(0, ax - 0.05);
+    const cheek = ss(0.030, 0.070, ax + j * 0.02) * ss(yb + 0.020, yb - 0.020, y + j * 0.015)
+      * ss(0.44, 0.50, z);
+    const under = ss(0.20, -0.30, ny + j);
     // Taches crème au-dessus des yeux.
-    const sx = (ax - 0.050) / 0.020, sy = (y - 1.022) / 0.012, sz = (z - 0.590) / 0.030;
+    const sx = (ax - 0.056) / 0.020, sy = (y - 0.949) / 0.012, sz = (z - 0.594) / 0.030;
     const spot = 1 - ss(0.6, 1.0, Math.sqrt(sx * sx + sy * sy + sz * sz));
-    out.lerp(COAT.cream, Math.max(cheek, under, spot * 0.9));
+    const cr = Math.max(cheek, under, spot * 0.9);
+    out.lerp(COAT.cream, cr);
+    liftCream(out, cr, ny);
   },
   muzzle(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.06);
     out.copy(COAT.red);
     // Chanfrein roux, côtés et dessous crème : c'est le masque de la race.
-    const sides = ss(0.25, -0.15, ny + j);
+    const sides = ss(0.78, 0.35, ny + j);
     out.lerp(COAT.cream, sides);
+    liftCream(out, sides, ny);
     // Lèvre : liseré noir sous le museau, vers l'avant.
     const lip = ss(-0.55, -0.85, ny) * ss(0.64, 0.70, z);
     out.lerp(COAT.dark, lip * 0.35);
@@ -563,16 +637,18 @@ function sdTriIso(px, py, qx, qy) {
 /** Oreille : plaque triangulaire épaisse, pointe arrondie, conque creusée sur
  *  la face avant (+Z). Repère local : base à l'origine, pointe vers +Y. La base
  *  descend sous y = 0 pour s'enfoncer dans le crâne. */
-const EAR = { tip: 0.098, base: -0.050, halfW: 0.050, round: 0.010 };
+const EAR = { tip: 0.140, base: -0.060, halfW: 0.068, round: 0.014 };
 function earSdf(x, y, z) {
-  const H = EAR.tip - EAR.base;
+  // Triangle jusqu'à y = 0 (la surface du crâne), puis flancs droits qui
+  // s'enfoncent dans la tête : sinon les coins du bas pendent hors du crâne.
+  const H = EAR.tip + 0.05;
   const qx = EAR.halfW * H / EAR.tip;
-  const d2 = sdTriIso(x, EAR.tip - y, qx, H);
-  const ht = mix(0.017, 0.006, clamp01(y / EAR.tip));
+  const d2 = Math.max(sdTriIso(x, EAR.tip - Math.max(y, 0), qx, H), EAR.base - y);
+  const ht = mix(0.034, 0.009, clamp01(y / EAR.tip)) * (y < 0 ? 0.35 + 0.65 * clamp01(1 + y / -EAR.base) : 1);
   const dz = Math.abs(z + 0.004) - ht;
   const ox = Math.max(d2, 0), oz = Math.max(dz, 0);
   let d = Math.hypot(ox, oz) + Math.min(Math.max(d2, dz), 0) - EAR.round;
-  d = smax(d, -ellipsoid([0, 0.042, 0.025], [0.027, 0.044, 0.015])(x, y, z), 0.012);
+  d = smax(d, -ellipsoid([0, 0.056, 0.027], [0.036, 0.058, 0.016])(x, y, z), 0.012);
   return d + 0.0015 * noise3(x * 90, y * 90, z * 90);
 }
 function earPaint(x, y, z, nx, ny, nz, out) {
@@ -612,7 +688,7 @@ function tailPaint(x, y, z, nx, ny, nz, out) {
 }
 
 /** Mâchoire inférieure, repère local = os jaw. Crème, liseré noir sur le dessus. */
-const jawPrim = cone([0, -0.002, 0.010], [0, -0.006, 0.118], 0.046, 0.026, 0.62);
+const jawPrim = cone([0, -0.006, 0.012], [0, -0.009, 0.100], 0.066, 0.046, 0.62);
 const jawSdf = (x, y, z) => jawPrim(x, y, z);
 function jawPaint(x, y, z, nx, ny, nz, out) {
   out.copy(COAT.cream).lerp(COAT.dark, ss(0.45, 0.85, ny) * ss(0.03, 0.07, z) * 0.5);
@@ -634,11 +710,11 @@ function bake() {
   // quelle que soit la retouche de forme.
   const headPrims = prims.filter((p) => p.group === 'head' || p.group === 'muzzle');
   const headSdf = (x, y, z) => { let d = 1e9; for (const p of headPrims) d = smin(d, p.d(x, y, z), p.k); return d; };
-  const eyes = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.058, 0.988, 0.80], [0, 0, -1]));
-  const nose = surfaceHit(headSdf, [0, 0.936, 0.90], [0, 0, -1]);
-  const ears = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.072, 1.20, 0.475], [0, -1, 0]));
+  const eyes = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.066, 0.917, 0.80], [0, 0, -1]));
+  const nose = surfaceHit(headSdf, [0, 0.861, 0.90], [0, 0, -1]);
+  const ears = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.104, 1.125, 0.504], [0, -1, 0]));
 
-  const ear = partGeometry(earSdf, [-0.095, -0.06, -0.045], [0.095, 0.125, 0.045], 0.0038, earPaint);
+  const ear = partGeometry(earSdf, [-0.11, -0.066, -0.05], [0.11, 0.156, 0.05], 0.0038, earPaint);
   const tail = partGeometry(tailSdf, [-0.13, -0.10, -0.16], [0.21, 0.30, 0.33], 0.0075, tailPaint);
   const jaw = partGeometry(jawSdf, [-0.06, -0.06, -0.05], [0.06, 0.04, 0.18], 0.0045, jawPaint);
   CACHE = { body, skin, eyes, nose, ears, ear, tail, jaw };
@@ -801,11 +877,11 @@ export function buildBody() {
    * sombre n'apparaît que dans l'ouverture. */
   rigid(toGeometry(B.jaw), jaw, 'mandible');
   const cavity = rigid(paintSolid(new THREE.SphereGeometry(1, 10, 8), COAT.dark), head, 'mouth-cavity');
-  cavity.position.copy(local('head', new THREE.Vector3(0, 0.894, 0.665)));
-  cavity.scale.set(0.040, 0.020, 0.070);
+  cavity.position.copy(local('head', new THREE.Vector3(0, 0.819, 0.665)));
+  cavity.scale.set(0.048, 0.020, 0.070);
   const tongue = rigid(paintSolid(new THREE.SphereGeometry(1, 10, 6), COAT.tongue), jaw, 'tongue');
   tongue.position.set(0, 0.010, 0.075);
-  tongue.scale.set(0.030, 0.008, 0.055);
+  tongue.scale.set(0.034, 0.008, 0.055);
 
   /* — oreilles — l'os pivote ; la pièce porte un lacet fixe pour présenter la
    * conque vers l'avant, à peine ouverte vers l'extérieur. */
@@ -816,13 +892,13 @@ export function buildBody() {
     const hit = B.ears[i];
     // L'os est replacé SUR le crâne mesuré (aucun vertex skinné n'en dépend).
     bone.position.copy(local('head', hit));
-    bone.position.y -= 0.016;
+    bone.position.y -= 0.046;
     const geo = i === 0 ? earGeo : earGeo.clone();
     if (i === 1) parts.push(geo);
     const m = new THREE.Mesh(geo, material);
     m.name = 'ear';
     m.castShadow = true; m.receiveShadow = true;
-    m.rotation.y = side * 0.28;
+    m.rotation.y = side * 0.18;
     bone.add(m);
   });
   parts.push(earGeo);
@@ -1069,8 +1145,10 @@ export function buildBody() {
       const plant = -(bodyPitch + hip + stifle);
       const walk = plant - 0.55 * fold;
       // Assis : métatarse couché vers l'avant (-1.45 rad ≈ vers +Z). Son
-      // angle de repos (-0.24, il descend déjà un peu vers l'avant) se retire.
-      const sitFoot = -1.21 - (bodyPitch + hip + stifle);
+      // angle de repos (il est presque vertical : 0.05 rad) se retire.
+      // Couché, le métatarse garde son ancien angle (-1.315) : seule l'assise
+      // droite le pose à plat (SIT_POSE.hindFoot).
+      const sitFoot = mix(SIT_POSE.hindFoot, -1.315, lie) - (bodyPitch + hip + stifle);
       leg.paw.rotation.x = mix(walk, sitFoot, sit);
     }
     leg.hip.rotation.z = 0;
@@ -1098,12 +1176,13 @@ export function buildBody() {
   // Les INTENTIONS viennent d'animate() (qui connaît les phases) ; ici on les
   // répartit sur les os.
   const pelvisRest = pelvis.position.clone();
-  let chestYaw = 0, pelvisYaw = 0;
+  let chestYaw = 0, pelvisYaw = 0, bodySwim = 0;
   const poseBody = (y, pitch, roll, {
-    sit = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
+    sit = 0, swim = 0, flex = 0, lat = 0, sag = 0, bounce = 0, bend = 0, sway = 0,
   } = {}) => {
     bodyPitch = pitch;
     bodyRoll = roll;
+    bodySwim = swim;
     // La torsion se partage à parts presque égales : le poitrail porte autant
     // le geste que le bassin (sinon tout le mouvement part dans l'arrière-train).
     chestYaw = -0.9 * lat + bend + 0.6 * sway;
@@ -1141,7 +1220,12 @@ export function buildBody() {
     const comp = mix(0.5, 0.85, clamp01(p.rest ?? 0));
     neck.rotation.x = lissCou - 0.5 * comp * bodyPitch;
     // Balancier vertical de la tête, porté par la base du cou.
-    neck.position.set(neckRest.x, neckRest.y + (p.bob ?? 0), neckRest.z);
+    // Le tangage du tronc (±0.13 au galop) fait battre la tête de ±5 cm autour
+    // du garrot : le cou paraissait s'allonger et se raccourcir à chaque foulée,
+    // alors qu'un chien qui court garde la tête à peu près en place. On rend
+    // 0.24 rad⁻¹ de ce mouvement à la base du cou ; seulement en locomotion.
+    const tasse = 0.24 * Math.max(-0.16, Math.min(0.08, bodyPitch)) * (1 - clamp01(p.rest ?? 0)) * (1 - bodySwim);
+    neck.position.set(neckRest.x, neckRest.y + (p.bob ?? 0) + tasse, neckRest.z);
     // Le cou contre-tourne une PARTIE de la torsion du poitrail : la tête
     // suit les épaules sans que le regard ne quitte l'axe de la marche.
     neck.rotation.y = -0.40 * chestYaw;
