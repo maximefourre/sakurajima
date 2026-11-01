@@ -76,13 +76,25 @@ export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
  *  de l'ellipsoïde de sole moins sa demi-hauteur, moins la position de l'os
  *  (LEG.paw). L'os `paw` est la cheville (le jarret derrière), 13 à 22 cm
  *  au-dessus du sol : c'est ce point-ci qui touche la terre. */
-export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.030] });
+export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.010] });
 
 /** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
- *  seule source pour animate(), le banc 26 et l'atelier. Les angles arrière
- *  tiennent compte des angles de repos du fémur (-0.34) et du tibia (+0.67). */
+ *  seule source pour animate(), le banc 26, le banc « pose assise de shiba »
+ *  et l'atelier. Réglée le 01/11/2026 sur des photos de shibas assis
+ *  (Wikimedia Commons, mesures dans le bloc de test). T6b : le tronc se
+ *  redresse (tangage -1.0 autour des épaules : dos garrot→croupe ≈ 60°, il
+ *  était à 41°), les antérieurs restent verticaux sous le poitrail (frontHip
+ *  compense le tangage), les pieds avant sont posés (`drop`), la fesse touche
+ *  le sol, le grasset se replie (≈ 28°) et le métatarse est à plat
+ *  (`hindFoot`). `hindHip` / `hindKnee` amènent le jarret au sol. */
 export const SIT_POSE = Object.freeze({
-  frontHip: 0.52, frontKnee: -0.04, hindHip: -0.31, hindKnee: 1.24, pitch: -0.60, drop: -0.03,
+  frontHip: 0.92, frontKnee: -0.04, hindHip: -0.60, hindKnee: 1.65, pitch: -1.0, drop: 0.040,
+  // Tangage MONDE du métatarse assis (rad, depuis la verticale) : -π/2 = à plat.
+  hindFoot: -1.50,
+  // Creux du tronc en cours de transition (assis ↔ debout), unités du root.
+  dip: 0.19,
+  // Surplus de flexion du grasset arrière en cours de transition (rad).
+  hindBump: 1.0,
 });
 
 /* ── maths ─────────────────────────────────────────────────────── */
@@ -291,7 +303,7 @@ const BONES = [
 const SCAPULA = [0.088, 0.735, 0.250];
 const LEG = {
   F: { parent: 'body', hip: [0.100, 0.60, 0.275], knee: [0.100, 0.360, 0.262], paw: [0.098, 0.105, 0.268] },
-  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.385, -0.165], paw: [0.110, 0.185, -0.335] },
+  B: { parent: 'pelvis', hip: [0.100, 0.62, -0.27], knee: [0.110, 0.385, -0.195], paw: [0.110, 0.185, -0.360] },
 };
 for (const fb of ['F', 'B']) {
   for (const [lr, s] of [['L', -1], ['R', 1]]) {
@@ -386,8 +398,8 @@ function bodyPrims() {
     add(cone(W(B.hip), W(B.knee), 0.098, 0.068), 'hipB' + k, 'leg', 0.05);
     add(ellipsoid(W([0.104, 0.50, -0.225]), [0.076, 0.140, 0.115]), 'hipB' + k, 'leg', 0.05);
     add(cone(W(B.knee), W(B.paw), 0.064, 0.040), 'kneeB' + k, 'leg', 0.03);
-    add(cone(W(B.paw), W([0.110, 0.045, -0.320]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
-    add(ellipsoid(W([0.110, 0.031, -0.305]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
+    add(cone(W(B.paw), W([0.110, 0.045, -0.360]), 0.039, 0.040), 'pawB' + k, 'paw', 0.025);
+    add(ellipsoid(W([0.110, 0.031, -0.350]), [0.051, 0.036, 0.059]), 'pawB' + k, 'paw', 0.03);
   }
   return P;
 }
@@ -1085,8 +1097,10 @@ export function buildBody() {
       const plant = -(bodyPitch + hip + stifle);
       const walk = plant - 0.55 * fold;
       // Assis : métatarse couché vers l'avant (-1.45 rad ≈ vers +Z). Son
-      // angle de repos (-0.24, il descend déjà un peu vers l'avant) se retire.
-      const sitFoot = -1.21 - (bodyPitch + hip + stifle);
+      // angle de repos (il est presque vertical : 0.05 rad) se retire.
+      // Couché, le métatarse garde son ancien angle (-1.315) : seule l'assise
+      // droite le pose à plat (SIT_POSE.hindFoot).
+      const sitFoot = mix(SIT_POSE.hindFoot, -1.315, lie) - (bodyPitch + hip + stifle);
       leg.paw.rotation.x = mix(walk, sitFoot, sit);
     }
     leg.hip.rotation.z = 0;
