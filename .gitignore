@@ -5,3 +5,4 @@ dist/
 .claude/worktrees/
 .vercel
 .hermes/
+.codebase-memory/
