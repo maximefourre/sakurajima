@@ -79,15 +79,14 @@ export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.
 /** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
  *  seule source pour animate(), le banc 26, le banc « pose assise de shiba »
  *  et l'atelier. Réglée le 01/11/2026 sur des photos de shibas assis
- *  (Wikimedia Commons, mesures dans le bloc de test) : les antérieurs sont
- *  DROITS sous l'épaule et les pieds POSÉS (avant : enfoncés de 11 cm, le
- *  chien semblait tassé, garrot à 0.87 de sa hauteur debout), le dos penche de
- *  ~46° (tangage -0.68 autour des épaules), l'arrière-train se pose sur les
- *  métatarses à plat, grasset ouvert à ~55° (avant 45°). `drop` remonte le tronc
- *  pour que la sole des antérieurs touche le sol ; `hindHip` / `hindKnee`
- *  amènent le jarret au sol, sous la hanche. */
+ *  (Wikimedia Commons, mesures dans le bloc de test). T6b : le tronc se
+ *  redresse (tangage -1.0 autour des épaules : dos garrot→croupe ≈ 60°, il
+ *  était à 41°), les antérieurs restent verticaux sous le poitrail (frontHip
+ *  compense le tangage), les pieds avant sont posés (`drop`), la fesse touche
+ *  le sol, le grasset se replie (≈ 28°) et le métatarse est à plat
+ *  (`hindFoot`). `hindHip` / `hindKnee` amènent le jarret au sol. */
 export const SIT_POSE = Object.freeze({
-  frontHip: 0.60, frontKnee: -0.04, hindHip: -0.20, hindKnee: 1.19, pitch: -0.68, drop: 0.026,
+  frontHip: 0.92, frontKnee: -0.04, hindHip: -0.60, hindKnee: 1.65, pitch: -1.0, drop: 0.040,
   // Tangage MONDE du métatarse assis (rad, depuis la verticale) : -π/2 = à plat.
   hindFoot: -1.50,
   // Creux du tronc en cours de transition (assis ↔ debout), unités du root.

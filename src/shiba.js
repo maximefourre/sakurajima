@@ -407,6 +407,48 @@ export function createShiba({
   const _nom = new THREE.Vector3();
   const _foot = new THREE.Vector3();
   const _gnd = new THREE.Vector3();
+  // Garde-sol de l'assise / du relevé : sommets de peau (échantillon) de
+  // chaque patte, relus en pose finale. Le mélange d'angles FK ↔ IK faisait
+  // passer la sole 4 à 20 cm sous l'herbe pendant quelques images.
+  const footSkin = rig.legs.map(() => []);
+  {
+    const geo = rig.mesh.geometry, bi = rig.skeleton.bones;
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    const pawIdx = rig.legs.map((l) => bi.indexOf(l.paw));
+    for (let v = 0; v < geo.attributes.position.count; v++) {
+      for (let c = 0; c < 4; c++) {
+        const k = pawIdx.indexOf(si.getComponent(v, c));
+        if (k >= 0 && sw.getComponent(v, c) > 0.5) footSkin[k].push(v);
+      }
+    }
+    footSkin.forEach((a, k) => { footSkin[k] = a.filter((_, j) => j % Math.ceil(a.length / 220) === 0); });
+  }
+  const _gv = new THREE.Vector3(), _gt = new THREE.Vector3();
+  const _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gz = new THREE.Vector3();
+  const FOOT_FLOOR = 0.004;
+  /** Aucune patte sous le sol : si la peau du pied passe sous le terrain, on
+   *  repose la patte par IK, sole relevée du creux, pied tenu à son tangage. */
+  const guardFoot = (i, hip, knee, base) => {
+    const leg = rig.legs[i];
+    for (let it = 0; it < 3; it++) {
+      leg.hip.updateWorldMatrix(true, true);
+      let low = 1e9;
+      for (const v of footSkin[i]) {
+        rig.mesh.getVertexPosition(v, _gv); rig.mesh.localToWorld(_gv);
+        low = Math.min(low, _gv.y - heightAt(_gv.x, _gv.z));
+      }
+      const need = FOOT_FLOOR - low;
+      if (need <= 0) return;
+      const par = leg.hip.parent;
+      rig.root.getWorldQuaternion(_gq1).invert().multiply(par.getWorldQuaternion(_gq2));
+      _gz.set(0, 0, 1).applyQuaternion(_gq1);
+      const flat = -Math.atan2(-_gz.y, _gz.z);
+      const rel = leg.hip.rotation.x + leg.knee.rotation.x + leg.paw.rotation.x;
+      leg.paw.localToWorld(_gt.fromArray(leg.front ? PAW_SOLE.F : PAW_SOLE.B));
+      _gt.y += need;
+      rig.poseLeg(leg, hip, knee, { ...base, reach: _gt, ik: 1, footPitch: rel - flat, toe: 0, fold: 0 });
+    }
+  };
   let airW = 0;
 
   /** Local root (y = repos + levée) → monde, en suivant le relief : la sole
@@ -783,7 +825,7 @@ export function createShiba({
       // Sitting. Sign convention matters more than the magnitudes here: a
       // positive rotation.x swings a limb BACKWARD and pitches the nose DOWN,
       // because the model faces +Z. The shake pose is a neutral braced stance.
-      // Assis, le tronc bascule de -0.60 autour des épaules (poseBody) : les
+      // Assis, le tronc bascule de SIT_POSE.pitch autour des épaules (poseBody) : les
       // antérieurs compensent pour rester d'aplomb, l'arrière se plie en Z.
       const sitHip = leg.front ? SIT_POSE.frontHip : SIT_POSE.hindHip;
       const sitKnee = leg.front ? SIT_POSE.frontKnee : SIT_POSE.hindKnee;
@@ -903,6 +945,13 @@ export function createShiba({
           ft.reachV.y += Math.min(sunk, 0.08);
           rig.poseLeg(leg, reachArgs[i].hip, reachArgs[i].knee, reachArgs[i].opts);
         }
+      }
+    }
+
+    // Assise / relevé : aucune patte sous le sol, quel que soit le mélange.
+    if (rig.poseLeg && sit > 0.0005 && sit < 0.9995 && swim < 0.5 && lie < 0.05) {
+      for (let i = 0; i < 4; i++) {
+        guardFoot(i, reachArgs[i].hip, reachArgs[i].knee, { sit, swim, shake, speedN, lie });
       }
     }
 
