@@ -344,32 +344,32 @@ function bodyPrims() {
 
   /* — cou et collerette — épais, de longueur moyenne, porté haut. */
   add(cone([0, 0.645, 0.335], [0, 0.86, 0.445], 0.128, 0.118), neckBones, 'neck', 0.07);
-  add(ellipsoid([0, 0.750, 0.392], [0.182, 0.152, 0.138]), neckBones, 'neck', 0.07);
+  add(ellipsoid([0, 0.750, 0.380], [0.172, 0.148, 0.124]), neckBones, 'neck', 0.07);
   // Les favoris : le poil des joues retombe sur la collerette et mange le cou.
-  for (const s of [-1, 1]) add(ellipsoid([s * 0.100, 0.790, 0.445], [0.075, 0.085, 0.080]), neckBones, 'neck', 0.06);
+  for (const s of [-1, 1]) add(ellipsoid([s * 0.098, 0.800, 0.430], [0.070, 0.080, 0.070]), neckBones, 'neck', 0.06);
 
   /* — tête — occiput 0.385 → truffe 0.76. Crâne large et plat, joues pleines
    * (c'est elles qui font la largeur du poitrail), chanfrein droit, museau
    * court et épais. Chez le vrai chien la tête et la collerette mangent le cou.
    * Largeur des joues 0.44 H, crâne → menton 0.36 H (photos 0.40 / 0.37–0.40). */
-  add(ellipsoid([0, 0.919, 0.497], [0.162, 0.110, 0.130]), 'head', 'head', 0.05);
+  add(ellipsoid([0, 0.912, 0.497], [0.148, 0.118, 0.128]), 'head', 'head', 0.06);
   // Front large et plat, d'où le museau tombe net : c'est ce stop qui fait
   // le chien (et non le renard, dont le chanfrein est une pente continue).
-  add(ellipsoid([0, 0.946, 0.575], [0.112, 0.040, 0.070]), 'head', 'head', 0.035);
+  add(ellipsoid([0, 0.938, 0.566], [0.092, 0.050, 0.080]), 'head', 'head', 0.05);
   for (const s of [-1, 1]) {
     // Joues plates et hautes (pas de bajoues) : elles prolongent le museau.
-    add(ellipsoid([s * 0.098, 0.852, 0.545], [0.088, 0.076, 0.088]), 'head', 'head', 0.05);
+    add(ellipsoid([s * 0.090, 0.880, 0.536], [0.080, 0.066, 0.086]), 'head', 'head', 0.06);
     // Socle de l'oreille : la fourrure épaissit le crâne autour de sa base, qui
     // s'y enfonce sans laisser dépasser la tranche de la plaque.
-    add(ellipsoid([s * 0.100, 0.982, 0.474], [0.074, 0.040, 0.058]), 'head', 'head', 0.04);
+    add(ellipsoid([s * 0.100, 0.966, 0.498], [0.064, 0.044, 0.060]), 'head', 'head', 0.05);
     // L'arcade sourcilière : c'est son ombre qui fait le stop.
     add(ellipsoid([s * 0.058, 0.940, 0.602], [0.044, 0.028, 0.034]), 'head', 'head', 0.02);
   }
-  // Sous le museau, les joues se rejoignent : sans ce pont elles pendent en deux
-  // bajoues séparées par un creux.
-  add(ellipsoid([0, 0.811, 0.585], [0.092, 0.050, 0.070]), 'head', 'head', 0.05);
+  // Menton : petit, net et avancé (face qui s'affine, pas de bajoue). Les joues
+  // sont HAUTES (sous l'œil) : c'est leur chute sous la bouche qui faisait l'ourson.
+  add(ellipsoid([0, 0.794, 0.628], [0.044, 0.046, 0.058]), 'head', 'head', 0.035);
   // Museau court, épais, bout carré : le rayon final reste grand (pas de pointe).
-  add(cone([0, 0.848, 0.605], [0, 0.838, 0.660], 0.116, 0.098, 0.62), 'head', 'muzzle', 0.03);
+  add(cone([0, 0.848, 0.605], [0, 0.838, 0.676], 0.106, 0.086, 0.66), 'head', 'muzzle', 0.03);
 
   /* — membres — avant droits, coude contre le poitrail ; arrière : cuisse
    * longue et musclée (culotte), seconde cuisse courte, jarret net. Les pieds
@@ -421,7 +421,15 @@ const fur = (x, y, z, a = 1) => a * noise3(x * 38, y * 38, z * 38);
 /** Le crème du dessous (menton, gorge, joues) est vu à contre-jour sous le ciel :
  *  il virait au gris. On l'éclaircit là où la normale regarde vers le bas ; la
  *  couleur reste claire, jamais saturée (valeurs un peu > 1 acceptées par le rendu). */
-const liftCream = (out, amt, ny) => out.multiplyScalar(1 + 0.30 * amt * ss(0.35, -0.75, ny) + 0.06 * amt);
+const liftCream = (out, amt, ny) => {
+  const dark = amt * ss(0.40, -0.45, ny);
+  out.multiplyScalar(1 + 1.7 * dark + 0.12 * amt);
+  // Une valeur > 1 écrête vers le blanc sous le ton mapping : on garde la teinte
+  // chaude (crème, pas gris ni blanc) en retirant du bleu là où on a éclairci.
+  out.g *= 1 - 0.03 * dark;
+  out.b *= 1 - 0.10 * dark;
+  return out;
+};
 
 const PAINT = {
   torso(x, y, z, nx, ny, nz, out) {
@@ -434,7 +442,9 @@ const PAINT = {
     const bib = ss(0.30, 0.40, z + j * 0.3) * ss(0.10, 0.45, nz + j) * ss(0.78, 0.66, y)
       * ss(0.16, 0.09, Math.abs(x));
     const vent = ss(-0.36, -0.44, z) * ss(-0.2, -0.6, nz) * ss(0.72, 0.62, y + j * 0.2);
-    out.lerp(COAT.cream, Math.max(under, bib, vent));
+    const cr = Math.max(under, bib, vent);
+    out.lerp(COAT.cream, cr);
+    liftCream(out, bib, ny);
   },
   neck(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.12);
@@ -449,10 +459,12 @@ const PAINT = {
   },
   head(x, y, z, nx, ny, nz, out) {
     const j = fur(x, y, z, 0.08);
-    out.copy(COAT.red).lerp(COAT.saddle, ss(0.7, 1.0, ny) * 0.35);
+    out.copy(COAT.red).lerp(COAT.saddle, ss(0.7, 1.0, ny) * 0.22);
     const ax = Math.abs(x);
     // Joues : le bas et l'arrière des flancs de la tête, derrière l'œil.
-    const cheek = ss(0.040, 0.085, ax + j * 0.02) * ss(0.915, 0.880, y + j * 0.015)
+    // La limite haute monte vers l'oreille (favoris), comme sur les photos.
+    const yb = 0.866 + 0.75 * Math.max(0, ax - 0.05);
+    const cheek = ss(0.030, 0.070, ax + j * 0.02) * ss(yb + 0.020, yb - 0.020, y + j * 0.015)
       * ss(0.44, 0.50, z);
     const under = ss(0.20, -0.30, ny + j);
     // Taches crème au-dessus des yeux.
@@ -613,12 +625,14 @@ function sdTriIso(px, py, qx, qy) {
 /** Oreille : plaque triangulaire épaisse, pointe arrondie, conque creusée sur
  *  la face avant (+Z). Repère local : base à l'origine, pointe vers +Y. La base
  *  descend sous y = 0 pour s'enfoncer dans le crâne. */
-const EAR = { tip: 0.138, base: -0.045, halfW: 0.066, round: 0.010 };
+const EAR = { tip: 0.140, base: -0.060, halfW: 0.068, round: 0.014 };
 function earSdf(x, y, z) {
-  const H = EAR.tip - EAR.base;
+  // Triangle jusqu'à y = 0 (la surface du crâne), puis flancs droits qui
+  // s'enfoncent dans la tête : sinon les coins du bas pendent hors du crâne.
+  const H = EAR.tip + 0.05;
   const qx = EAR.halfW * H / EAR.tip;
-  const d2 = sdTriIso(x, EAR.tip - y, qx, H);
-  const ht = mix(0.017, 0.006, clamp01(y / EAR.tip));
+  const d2 = Math.max(sdTriIso(x, EAR.tip - Math.max(y, 0), qx, H), EAR.base - y);
+  const ht = mix(0.034, 0.009, clamp01(y / EAR.tip)) * (y < 0 ? 0.35 + 0.65 * clamp01(1 + y / -EAR.base) : 1);
   const dz = Math.abs(z + 0.004) - ht;
   const ox = Math.max(d2, 0), oz = Math.max(dz, 0);
   let d = Math.hypot(ox, oz) + Math.min(Math.max(d2, dz), 0) - EAR.round;
@@ -662,7 +676,7 @@ function tailPaint(x, y, z, nx, ny, nz, out) {
 }
 
 /** Mâchoire inférieure, repère local = os jaw. Crème, liseré noir sur le dessus. */
-const jawPrim = cone([0, -0.003, 0.012], [0, -0.007, 0.100], 0.062, 0.044, 0.62);
+const jawPrim = cone([0, -0.006, 0.012], [0, -0.009, 0.100], 0.066, 0.046, 0.62);
 const jawSdf = (x, y, z) => jawPrim(x, y, z);
 function jawPaint(x, y, z, nx, ny, nz, out) {
   out.copy(COAT.cream).lerp(COAT.dark, ss(0.45, 0.85, ny) * ss(0.03, 0.07, z) * 0.5);
@@ -686,7 +700,7 @@ function bake() {
   const headSdf = (x, y, z) => { let d = 1e9; for (const p of headPrims) d = smin(d, p.d(x, y, z), p.k); return d; };
   const eyes = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.066, 0.917, 0.80], [0, 0, -1]));
   const nose = surfaceHit(headSdf, [0, 0.861, 0.90], [0, 0, -1]);
-  const ears = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.108, 1.125, 0.468], [0, -1, 0]));
+  const ears = [-1, 1].map((s) => surfaceHit(headSdf, [s * 0.104, 1.125, 0.504], [0, -1, 0]));
 
   const ear = partGeometry(earSdf, [-0.11, -0.066, -0.05], [0.11, 0.156, 0.05], 0.0038, earPaint);
   const tail = partGeometry(tailSdf, [-0.13, -0.10, -0.16], [0.21, 0.30, 0.33], 0.0075, tailPaint);
@@ -866,7 +880,7 @@ export function buildBody() {
     const hit = B.ears[i];
     // L'os est replacé SUR le crâne mesuré (aucun vertex skinné n'en dépend).
     bone.position.copy(local('head', hit));
-    bone.position.y -= 0.022;
+    bone.position.y -= 0.046;
     const geo = i === 0 ? earGeo : earGeo.clone();
     if (i === 1) parts.push(geo);
     const m = new THREE.Mesh(geo, material);
