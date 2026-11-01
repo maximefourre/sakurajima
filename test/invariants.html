@@ -2611,6 +2611,133 @@ function mesurerProportions(root, mesh) {
     hors.length === 0, regles.map(([k, ok, v]) => `${k} → ${v}${ok ? '' : ' ✗'}`).join(' ; '));
 }
 
+/* ── pose assise de shiba ─────────────────────────────────────────────────
+ * L'utilisateur trouvait l'assise tassée, l'arrière-train très replié
+ * (jeu-actuel.png). Mesures (T6, 01/11/2026), plan sagittal, à la main sur des
+ * photos de shibas adultes assis (Wikimedia Commons, https://commons.wikimedia.org/wiki/File:<nom>),
+ * ± 8° et ± 0.05 H :
+ *  - Mame_shiba_dog_(52368813513).jpg (3/4 quasi profil, la meilleure) : dos
+ *    garrot→croupe ≈ 38° sur l'horizontale, antérieurs droits (pied à 0-15°
+ *    devant l'épaule, coude ≈ 175°), pieds au sol, poitrail haut, métatarses à
+ *    plat, jarret au sol derrière la cuisse, nuque à ≈ 1.0 H ;
+ *  - Shiba_Inu_Kazumi.jpg (3/4) : dos ≈ 50° (raccourci par la perspective),
+ *    antérieurs verticaux (≤ 5°), poitrail haut, cuisse ronde posée ;
+ *  - Hembra_blanca.jpg / Dog20110929_2.jpg / 2008-01-13_a_Shiba_Inu_in_Tainan.jpg
+ *    (face / 3/4 avant) : antérieurs verticaux sous l'épaule, pieds posés,
+ *    garrot à ≈ 0.95 H ; Shiba5.jpg (3 chiens assis) : dos 50-60°.
+ * Avant (586289a, assis) : dos 40.8°, garrot à 0.87 de la hauteur debout, pieds
+ * avant ENFONCÉS de 11 cm (semelle -0.109), jarret 0.25 → -0.07 sous le sol
+ * pendant la transition, glissé de pied 0.031 / image. Les bornes sont celles
+ * des photos (dos 38-58°, garrot 0.92-1.0 H, antérieurs ≤ 12° du vertical, coude
+ * ≥ 165°) ; le contact au sol vient de la physique : aucun sommet de peau sous
+ * -0.01, aucun pied avant qui flotte à plus de 0.03.
+ */
+{
+  const WITHERS = SHIBA_BUILD.withers;
+  const mesurer = (dog) => {
+    dog.group.updateMatrixWorld(true);
+    let mesh = null;
+    dog.group.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    const root = mesh.parent;
+    const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const geo = mesh.geometry, n = geo.attributes.position.count;
+    const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, bones = mesh.skeleton.bones;
+    const t = new THREE.Vector3();
+    let garrot = null, croupe = null, minAvant = 1e9, minArriere = 1e9, minFesse = 1e9, minTout = 1e9;
+    for (let v = 0; v < n; v++) {
+      mesh.getVertexPosition(v, t); mesh.localToWorld(t);
+      const monde = t.clone();
+      t.applyMatrix4(inv);
+      let b = -1, bi = 0;
+      for (let c = 0; c < 4; c++) { const w = sw.getComponent(v, c); if (w > b) { b = w; bi = si.getComponent(v, c); } }
+      const nom = bones[bi].name;
+      minTout = Math.min(minTout, monde.y);
+      if (nom === 'pawFL' || nom === 'pawFR') minAvant = Math.min(minAvant, monde.y);
+      if (nom === 'pawBL' || nom === 'pawBR') minArriere = Math.min(minArriere, monde.y);
+      if (nom === 'pelvis') minFesse = Math.min(minFesse, monde.y);
+      if (Math.abs(t.x) < 0.04) {
+        if (nom === 'body' && t.z > 0.1 && t.z < 0.4 && (!garrot || t.y > garrot.y)) garrot = { y: t.y, z: t.z, yMonde: monde.y };
+        if (nom === 'pelvis' && (!croupe || t.y > croupe.y)) croupe = { y: t.y, z: t.z };
+      }
+    }
+    const os = (nm) => dog.group.getObjectByName(nm).getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+    const hF = os('hipFL'), kF = os('kneeFL'), pF = os('pawFL');
+    const hB = os('hipBL'), kB = os('kneeBL'), pB = os('pawBL');
+    const ang = (a, b, c) => {
+      const u = a.clone().sub(b), w = c.clone().sub(b);
+      return Math.acos(Math.min(1, Math.max(-1, u.dot(w) / (u.length() * w.length())))) * 180 / Math.PI;
+    };
+    return {
+      dos: Math.atan2(garrot.y - croupe.y, garrot.z - croupe.z) * 180 / Math.PI,
+      garrot: garrot.yMonde,
+      verticalAvant: Math.abs(Math.atan2(hF.z - pF.z, hF.y - pF.y)) * 180 / Math.PI,
+      coude: ang(hF, kF, pF),
+      minAvant, minArriere, minFesse, minTout,
+      genouDevantHanche: kB.z - hB.z, jarretSousHanche: pB.z - hB.z,
+      piedArriereDerrierePiedAvant: pF.z - pB.z,
+      grasset: ang(hB, kB, pB),
+    };
+  };
+  const nouveau = () => createShiba({ seed: SEED, heightAt: () => 0, water: { surfaceAt: () => null } });
+  const debout = nouveau();
+  debout.update(0, 0.016, null);
+  const garrotDebout = mesurer(debout).garrot;
+  debout.dispose();
+
+  // Assis : arrêt > idleBeforeSit (4.2 s), puis la bascule (~0.75 s), avant le couché (12 s).
+  const dog = nouveau();
+  let t = 0, assisPleinSeuil = 0;
+  for (let i = 0; i < 7 * 60; i++) {
+    t += 1 / 60;
+    dog.update(t, 1 / 60, null);
+    if (dog.state.sitting >= 1 && !assisPleinSeuil) assisPleinSeuil = t;
+  }
+  const a = mesurer(dog);
+  const sitFin = dog.state.sitting;
+  dog.dispose();
+
+  // Transition debout → assis : sommets sous le sol, glissé des pieds avant,
+  // saut de la tête entre deux images.
+  const tr = nouveau();
+  tr.update(0, 1 / 60, null);
+  let tt = 0, minAvantTr = 1e9, minArriereTr = 1e9, glisse = 0, prevFoot = null, hautAvantTr = -1e9;
+  const pawFL = tr.group.getObjectByName('pawFL');
+  const solePt = new THREE.Vector3();
+  for (let i = 0; i < 6.5 * 60; i++) {
+    tt += 1 / 60;
+    tr.update(tt, 1 / 60, null);
+    if (tr.state.sitting > 0.02 && tr.state.sitting < 0.98) {
+      const m = mesurer(tr);
+      minAvantTr = Math.min(minAvantTr, m.minAvant);
+      minArriereTr = Math.min(minArriereTr, m.minArriere);
+      pawFL.getWorldPosition(solePt);
+      if (prevFoot) glisse = Math.max(glisse, Math.hypot(solePt.x - prevFoot.x, solePt.z - prevFoot.z));
+      prevFoot = solePt.clone();
+    } else prevFoot = null;
+  }
+  tr.dispose();
+
+  const f = (x, d = 1) => x.toFixed(d);
+  const rapport = a.garrot / garrotDebout;
+  const regles = [
+    ['dos 38-58° sur l\'horizontale', a.dos >= 38 && a.dos <= 58, `${f(a.dos)}°`],
+    ['garrot assis 0.92-1.0 de la hauteur debout', rapport >= 0.92 && rapport <= 1.0, `${f(rapport, 3)} (${f(a.garrot, 3)} / ${f(garrotDebout, 3)})`],
+    ['antérieurs ≤ 12° du vertical, coude ≥ 165°', a.verticalAvant <= 12 && a.coude >= 165, `${f(a.verticalAvant)}° / coude ${f(a.coude)}°`],
+    ['pieds avant posés : sommet le plus bas -0.01…+0.03', a.minAvant >= -0.01 && a.minAvant <= 0.03, `${f(a.minAvant, 3)}`],
+    ['pieds arrière posés (métatarse à plat) : -0.01…+0.03', a.minArriere >= -0.01 && a.minArriere <= 0.03, `${f(a.minArriere, 3)}`],
+    ['aucune peau dans le sol : fesse et corps ≥ -0.01', a.minFesse >= -0.01 && a.minTout >= -0.01, `fesse ${f(a.minFesse, 3)}, min ${f(a.minTout, 3)}`],
+    ['patte arrière hors du corps : genou devant la hanche, pied derrière les pieds avant',
+      a.genouDevantHanche > 0 && a.piedArriereDerrierePiedAvant > 0.15, `genou ${f(a.genouDevantHanche, 3)} devant la hanche, pied ${f(a.piedArriereDerrierePiedAvant, 3)} derrière les antérieurs`],
+    ['grasset ≥ 50° (arrière-train compact mais pas tassé ; avant 45°)', a.grasset >= 50, `${f(a.grasset)}°`],
+    ['assis complet atteint', sitFin >= 0.999 && assisPleinSeuil > 0, `sitting ${f(sitFin, 3)} à t=${f(assisPleinSeuil, 2)} s`],
+    ['transition : aucun sommet sous -0.02 (avant et arrière), pied avant ≤ 0.02 / image',
+      minAvantTr >= -0.02 && minArriereTr >= -0.02 && glisse <= 0.02, `avant ${f(minAvantTr, 3)}, arrière ${f(minArriereTr, 3)}, glissé ${f(glisse, 4)}`],
+  ];
+  const hors = regles.filter(([, ok]) => !ok);
+  check('pose assise de shiba : dos redressé, antérieurs droits posés, arrière-train compact, sans pied dans le sol',
+    hors.length === 0, regles.map(([k, ok, v]) => `${k} → ${v}${ok ? '' : ' ✗'}`).join(' ; '));
+}
+
 finish();
 </script>
 </body>

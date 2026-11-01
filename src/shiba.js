@@ -650,7 +650,11 @@ export function createShiba({
     // Poids des pieds posés (IK) : au sol seulement — ni nage, ni assise,
     // ni secouage, ni saut.
     airW += ((state.airborne ? 1 : 0) - airW) * Math.min(1, dt * 14);
-    const ikW = rig.poseLeg ? (1 - swim) * (1 - sit) * (1 - lie) * (1 - shake) * (1 - airW) : 0;
+    // Assise : l'IK s'efface vite (dès sit = 0.4) et la pose FK prend le relais
+    // pendant que le bassin descend ; un fondu linéaire jusqu'à sit = 1 laissait
+    // le jarret à 0.07 sous le sol, puis le relevait (pop).
+    const sitIk = 1 - smoothstep(0.0, 0.4, sit);
+    const ikW = rig.poseLeg ? (1 - swim) * sitIk * (1 - lie) * (1 - shake) * (1 - airW) : 0;
 
     // Body carriage AVANT les pattes : poseLeg garde le pied à plat en
     // compensant le tangage du tronc — posé après, il compenserait celui de la
@@ -676,7 +680,10 @@ export function createShiba({
     const shakeTailWave = Math.sin((shakeS - 0.14) * 34) * shakeEnvelope;
 
     let bodyY = mix(locomotionBodyY, Math.sin(state.swimGait * 2) * 0.018, swim);
-    bodyY = mix(bodyY, SIT_POSE.drop, sit);
+    // `drop` pose les semelles des antérieurs à l'arrivée ; entre les deux, le
+    // tronc plonge d'abord (le pivot d'épaule, linéaire, soulève sinon les
+    // antérieurs de 7 cm) : courbe relevée au banc « pose assise de shiba ».
+    bodyY = mix(bodyY, SIT_POSE.drop, sit) - SIT_POSE.dip * sit * (1 - sit);
     bodyY = mix(bodyY, -0.32, lie);
     let bodyRoll = mix(locomotionRoll, Math.sin(state.swimGait) * 0.035, swim);
     bodyRoll = mix(bodyRoll, 0, sit);
@@ -684,9 +691,10 @@ export function createShiba({
     let bodyPitch = mix(locomotionPitch, -0.18, swim);
     bodyPitch = mix(bodyPitch, SIT_POSE.pitch, sit);
     bodyPitch = mix(bodyPitch, 0, lie);
-    // Même contrat que poseLeg : les trois valeurs sont FINALES. L'assise ne
-    // descend presque pas le tronc (-0.03) : c'est le tangage, pivoté sur les
-    // épaules par poseBody, qui pose l'arrière-train au sol.
+    // Même contrat que poseLeg : les trois valeurs sont FINALES. Assis, le
+    // tronc ne descend pas (drop > 0 le remonte : sole des antérieurs au sol) :
+    // c'est le tangage, pivoté sur les épaules par poseBody, qui pose
+    // l'arrière-train.
     const bodyYF = mix(bodyY, 0, shake);
     const bodyRollF = mix(bodyRoll, shakeWave * 0.42, shake);
     const bodyPitchF = mix(bodyPitch, 0, shake);
@@ -783,6 +791,9 @@ export function createShiba({
       let knee = mix(locomotionKnee, swimKnee, swim);
       hip = mix(hip, sitHip, sit);
       knee = mix(knee, sitKnee, sit);
+      // En cours d'assise le jarret plongerait sous le sol : le grasset se plie
+      // un peu plus au milieu du mouvement, et revient à SIT_POSE à l'arrivée.
+      if (!leg.front) knee += SIT_POSE.hindBump * sit * (1 - sit);
       // Sphinx : antérieurs allongés devant (avant-bras au sol), postérieurs
       // repliés sous la hanche, métatarses à plat. Tronc posé, de niveau.
       hip = mix(hip, leg.front ? -0.60 : -0.77, lie);
@@ -1426,7 +1437,9 @@ export function createShiba({
 
     /* — place and align — */
     rig.root.position.copy(position);
-    rig.root.position.y -= 0.04 * state.sitting;
+    // Couché en sphinx seulement : assis, les semelles des antérieurs sont
+    // posées par SIT_POSE.drop (l'ancien -0.04 les enfonçait de 11 cm).
+    rig.root.position.y -= 0.04 * state.lying;
 
     // A swimmer is supported by the surface, not aligned to the invisible bed.
     if (state.swimming) _n.copy(UP);

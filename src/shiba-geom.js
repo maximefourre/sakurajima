@@ -77,12 +77,23 @@ export const SHIBA_BUILD = { scale: 1.35, standHeight: 0.66, withers: 0.80 };
 export const PAW_SOLE = Object.freeze({ F: [0, -0.110, 0.054], B: [0, -0.190, 0.010] });
 
 /** La pose assise, en INTENTIONS (angles passés à poseLeg / poseBody) : une
- *  seule source pour animate(), le banc 26 et l'atelier. Les angles arrière
- *  sont calés pour que le genou, le jarret et le pied assis restent où ils
- *  étaient avant le redressement des postérieurs (30/10 : fémur plus vertical,
- *  métatarse vertical au repos) : -0.11 hanche, +0.126 grasset, -0.105 pied. */
+ *  seule source pour animate(), le banc 26, le banc « pose assise de shiba »
+ *  et l'atelier. Réglée le 01/11/2026 sur des photos de shibas assis
+ *  (Wikimedia Commons, mesures dans le bloc de test) : les antérieurs sont
+ *  DROITS sous l'épaule et les pieds POSÉS (avant : enfoncés de 11 cm, le
+ *  chien semblait tassé, garrot à 0.87 de sa hauteur debout), le dos penche de
+ *  ~46° (tangage -0.68 autour des épaules), l'arrière-train se pose sur les
+ *  métatarses à plat, grasset ouvert à ~55° (avant 45°). `drop` remonte le tronc
+ *  pour que la sole des antérieurs touche le sol ; `hindHip` / `hindKnee`
+ *  amènent le jarret au sol, sous la hanche. */
 export const SIT_POSE = Object.freeze({
-  frontHip: 0.52, frontKnee: -0.04, hindHip: -0.42, hindKnee: 1.366, pitch: -0.60, drop: -0.03,
+  frontHip: 0.60, frontKnee: -0.04, hindHip: -0.20, hindKnee: 1.19, pitch: -0.68, drop: 0.026,
+  // Tangage MONDE du métatarse assis (rad, depuis la verticale) : -π/2 = à plat.
+  hindFoot: -1.50,
+  // Creux du tronc en cours de transition (assis ↔ debout), unités du root.
+  dip: 0.19,
+  // Surplus de flexion du grasset arrière en cours de transition (rad).
+  hindBump: 1.0,
 });
 
 /* ── maths ─────────────────────────────────────────────────────── */
@@ -1045,7 +1056,9 @@ export function buildBody() {
       const walk = plant - 0.55 * fold;
       // Assis : métatarse couché vers l'avant (-1.45 rad ≈ vers +Z). Son
       // angle de repos (il est presque vertical : 0.05 rad) se retire.
-      const sitFoot = -1.315 - (bodyPitch + hip + stifle);
+      // Couché, le métatarse garde son ancien angle (-1.315) : seule l'assise
+      // droite le pose à plat (SIT_POSE.hindFoot).
+      const sitFoot = mix(SIT_POSE.hindFoot, -1.315, lie) - (bodyPitch + hip + stifle);
       leg.paw.rotation.x = mix(walk, sitFoot, sit);
     }
     leg.hip.rotation.z = 0;
